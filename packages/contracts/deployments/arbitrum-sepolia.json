@@ -1,0 +1,8 @@
+{
+  "network": "arbitrumSepolia",
+  "chainId": 421614,
+  "AgentRegistry": "0x41303128c3E1D0491b6D8CC25E5e9f1bAA6A126D",
+  "AIContextManager": "0xE09e38937f12E2682Db35Cc84B6e310196D90240",
+  "AIMemoryStore": "0x246833a126E76b973C69Cc8187C2295c320299Bf",
+  "deployedAt": "2026-03-24T14:37:54.844Z"
+}

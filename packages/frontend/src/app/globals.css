@@ -1,0 +1,238 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323:wght@400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --pixel-red: #E94560;
+  --pixel-dark: #16213E;
+  --pixel-black: #0d1117;
+  --pixel-gold: #FFD700;
+  --pixel-teal: #00D9FF;
+  --pixel-gray: #7F8C8D;
+  --pixel-purple: #7B2FBE;
+  --pixel-green: #00FF87;
+  --pixel-danger: #FF4757;
+}
+
+body {
+  background-color: var(--pixel-black);
+  font-family: 'VT323', monospace;
+  color: #e2e8f0;
+}
+
+/* ── Pixel Card ─────────────────────────────────────── */
+.pixel-card {
+  border: 2px solid var(--pixel-red);
+  box-shadow: 4px 4px 0px var(--pixel-red);
+  background: var(--pixel-dark);
+  border-radius: 0;
+  padding: 1rem;
+}
+
+.pixel-card-gold {
+  border: 2px solid var(--pixel-gold);
+  box-shadow: 4px 4px 0px var(--pixel-gold);
+  background: var(--pixel-dark);
+  border-radius: 0;
+  padding: 1rem;
+}
+
+.pixel-card-teal {
+  border: 2px solid var(--pixel-teal);
+  box-shadow: 4px 4px 0px var(--pixel-teal);
+  background: var(--pixel-dark);
+  border-radius: 0;
+  padding: 1rem;
+}
+
+.pixel-card-danger {
+  border: 2px solid var(--pixel-danger);
+  box-shadow: 4px 4px 0px var(--pixel-danger);
+  background: var(--pixel-dark);
+  border-radius: 0;
+  padding: 1rem;
+}
+
+.pixel-card-gray {
+  border: 2px solid var(--pixel-gray);
+  box-shadow: 4px 4px 0px var(--pixel-gray);
+  background: var(--pixel-dark);
+  border-radius: 0;
+  padding: 1rem;
+  opacity: 0.6;
+}
+
+/* ── Pixel Buttons ──────────────────────────────────── */
+.pixel-btn {
+  font-family: 'VT323', monospace;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: 0;
+  cursor: pointer;
+  transition: transform 0.08s;
+  display: inline-block;
+  padding: 8px 16px;
+}
+
+.pixel-btn:active {
+  transform: translate(3px, 3px);
+}
+
+.pixel-btn-primary {
+  background: var(--pixel-red);
+  border: 2px solid var(--pixel-gold);
+  box-shadow: 3px 3px 0px var(--pixel-gold);
+  color: #fff;
+}
+
+.pixel-btn-primary:active {
+  box-shadow: none;
+}
+
+.pixel-btn-ghost {
+  background: transparent;
+  border: 2px solid var(--pixel-gray);
+  box-shadow: 3px 3px 0px var(--pixel-gray);
+  color: #e2e8f0;
+}
+
+.pixel-btn-ghost:active {
+  box-shadow: none;
+}
+
+.pixel-btn-danger {
+  background: var(--pixel-danger);
+  border: 2px solid #fff;
+  box-shadow: 3px 3px 0px #fff;
+  color: #fff;
+}
+
+.pixel-btn-danger:active {
+  box-shadow: none;
+}
+
+.pixel-btn-teal {
+  background: transparent;
+  border: 2px solid var(--pixel-teal);
+  box-shadow: 3px 3px 0px var(--pixel-teal);
+  color: var(--pixel-teal);
+}
+
+.pixel-btn-teal:active {
+  box-shadow: none;
+}
+
+.pixel-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Pixel Badge ────────────────────────────────────── */
+.pixel-badge {
+  font-family: 'VT323', monospace;
+  font-size: 12px;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  padding: 2px 8px;
+  border-radius: 0;
+  display: inline-block;
+}
+
+/* ── Pixel Progress Bar ─────────────────────────────── */
+.pixel-progress {
+  height: 12px;
+  background: #1a2744;
+  border: 2px solid var(--pixel-gold);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.pixel-progress-fill {
+  height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--pixel-gold) 0px,
+    var(--pixel-gold) 10px,
+    #b8960a 10px,
+    #b8960a 12px
+  );
+  transition: width 0.4s ease;
+}
+
+.pixel-progress-teal .pixel-progress-fill {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--pixel-teal) 0px,
+    var(--pixel-teal) 10px,
+    #008fa8 10px,
+    #008fa8 12px
+  );
+}
+
+/* ── Pixel Header ───────────────────────────────────── */
+.pixel-header {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 12px;
+  color: var(--pixel-red);
+  text-shadow: 2px 2px 0px var(--pixel-gold);
+}
+
+/* ── Blinking cursor animation ──────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.pixel-cursor {
+  animation: blink 0.8s step-end infinite;
+}
+
+/* ── Responsive layout ──────────────────────────────── */
+
+/* Center content and cap width for desktop */
+.page-container {
+  width: 100%;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Mobile: tighter shadows to prevent horizontal overflow */
+@media (max-width: 480px) {
+  .pixel-card,
+  .pixel-card-gold,
+  .pixel-card-teal,
+  .pixel-card-danger,
+  .pixel-card-gray {
+    box-shadow: 2px 2px 0px;
+    padding: 0.75rem;
+    overflow: hidden;
+  }
+
+  .pixel-btn {
+    min-height: 44px;
+    font-size: 13px;
+    box-shadow: 2px 2px 0px;
+  }
+}
+
+/* Desktop: more generous spacing */
+@media (min-width: 768px) {
+  .pixel-card,
+  .pixel-card-gold,
+  .pixel-card-teal,
+  .pixel-card-danger {
+    box-shadow: 6px 6px 0px;
+    padding: 1.25rem;
+  }
+
+  .pixel-btn {
+    font-size: 15px;
+    padding: 10px 20px;
+  }
+}

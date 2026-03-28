@@ -1,0 +1,162 @@
+../../node_modules/viem/_types/account-abstraction/accounts/types.d.ts(1,46): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/account-abstraction/types/userOperation.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/accounts/index.d.ts(2,30): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/_types/accounts/toAccount.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/accounts/types.d.ts(1,41): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/accounts/utils/parseAccount.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/accounts/utils/privateKeyToAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/accounts/utils/publicKeyToAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/accounts/utils/signTypedData.d.ts(1,32): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/ens/getEnsAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/ens/getEnsName.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/ens/getEnsResolver.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/ens/getEnsText.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/getContract.d.ts(1,173): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/call.d.ts(1,30): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/_types/actions/public/createAccessList.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/createContractEventFilter.d.ts(1,35): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/createEventFilter.d.ts(1,40): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/estimateContractGas.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/estimateGas.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/fillTransaction.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getBalance.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getCode.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getContractEvents.d.ts(1,35): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getDelegation.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getEip712Domain.d.ts(1,47): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getFilterChanges.d.ts(1,53): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getFilterLogs.d.ts(1,53): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getLogs.d.ts(1,40): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getProof.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getStorageAt.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/getTransactionCount.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/multicall.d.ts(1,58): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/readContract.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/simulateBlocks.d.ts(1,58): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/simulateCalls.d.ts(1,58): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/simulateContract.d.ts(1,68): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/verifyHash.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/verifyMessage.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/verifyTypedData.d.ts(1,41): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/watchContractEvent.d.ts(1,52): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/public/watchEvent.d.ts(1,40): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/getTxpoolContent.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/impersonateAccount.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/inspectTxpool.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/setBalance.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/setCode.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/setCoinbase.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/setNonce.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/setStorageAt.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/test/stopImpersonatingAccount.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/deployContract.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/getAddresses.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/getCapabilities.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/prepareAuthorization.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/prepareTransactionRequest.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/requestAddresses.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/sendCalls.d.ts(1,38): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/sendTransaction.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/sendTransactionSync.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/signTypedData.d.ts(1,32): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/writeContract.d.ts(1,35): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/actions/wallet/writeContractSync.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/createClient.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/createPublicClient.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/createTestClient.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/createWalletClient.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/decorators/public.d.ts(1,45): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/decorators/wallet.d.ts(1,46): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/clients/transports/webSocket.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/errors/abi.d.ts(1,50): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/errors/ccip.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/errors/contract.d.ts(1,35): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/errors/eip712.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/errors/typedData.d.ts(1,32): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/errors/utils.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/experimental/erc7895/actions/addSubAccount.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/index.d.ts(1,749): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/_types/types/account.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/authorization.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/block.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/calls.d.ts(1,50): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/chain.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/contract.d.ts(1,293): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/eip1193.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/filter.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/kzg.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/log.d.ts(1,84): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/multicall.d.ts(1,46): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/proof.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/rpc.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/stateOverride.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/transaction.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/types/typedData.d.ts(1,76): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/decodeAbiParameters.d.ts(1,84): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/decodeDeployData.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/decodeErrorResult.d.ts(1,43): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/decodeEventLog.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/decodeFunctionData.d.ts(1,46): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/decodeFunctionResult.d.ts(1,67): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodeAbiParameters.d.ts(1,84): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodeDeployData.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodeErrorResult.d.ts(1,44): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodeEventTopics.d.ts(1,44): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodeFunctionData.d.ts(1,67): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodeFunctionResult.d.ts(1,67): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/encodePacked.d.ts(1,161): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/formatAbiItem.d.ts(1,35): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/getAbiItem.d.ts(1,40): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/parseEventLogs.d.ts(1,26): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/abi/prepareEncodeFunctionData.d.ts(1,87): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/address/getAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/address/getContractAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/address/isAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/address/isAddressEqual.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/authorization/recoverAuthorizationAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/authorization/verifyAuthorization.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/ccip.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/ens/avatar/utils.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/errors/getContractError.d.ts(1,35): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/hash/toFunctionSelector.d.ts(1,34): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/hash/toSignature.d.ts(1,49): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/_types/utils/hash/toSignatureHash.d.ts(1,44): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/index.d.ts(1,163): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/_types/utils/nonceManager.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/hashTypedData.d.ts(1,32): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/parseErc6492Signature.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/parseErc8010Signature.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/recoverAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/recoverMessageAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/recoverTransactionAddress.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/recoverTypedDataAddress.d.ts(1,41): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/serializeErc6492Signature.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/serializeErc8010Signature.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/verifyHash.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/verifyMessage.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/signature/verifyTypedData.d.ts(1,41): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/siwe/types.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/siwe/validateSiweMessage.d.ts(1,30): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/_types/utils/typedData.d.ts(1,69): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/node_modules/ox/_types/core/Abi.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/AbiConstructor.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/AbiError.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/AbiEvent.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/AbiFunction.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/AbiItem.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/AbiParameters.d.ts(1,26): error TS1479: The current file is a CommonJS module whose imports will produce 'require' calls; however, the referenced file is an ECMAScript module and cannot be imported with 'require'. Consider writing a dynamic 'import("abitype")' call instead.
+../../node_modules/viem/node_modules/ox/_types/core/Address.d.ts(1,49): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/node_modules/ox/_types/core/internal/abiEvent.d.ts(1,31): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/node_modules/ox/_types/core/internal/abiItem.d.ts(1,31): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/node_modules/ox/_types/core/internal/abiParameters.d.ts(1,113): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+../../node_modules/viem/node_modules/ox/_types/core/TypedData.d.ts(1,31): error TS1541: Type-only import of an ECMAScript module from a CommonJS module must have a 'resolution-mode' attribute.
+src/client/cofheClient.ts(9,41): error TS2740: Type '{ readonly sepolia: { name: string; id: number; network: string; coFheUrl: string; verifierUrl: string; thresholdNetworkUrl: string; environment: "MOCK" | "TESTNET" | "MAINNET"; }; readonly arbSepolia: { ...; }; readonly baseSepolia: { ...; }; readonly hardhat: { ...; }; }' is missing the following properties from type '{ name: string; id: number; network: string; coFheUrl: string; verifierUrl: string; thresholdNetworkUrl: string; environment: "MOCK" | "TESTNET" | "MAINNET"; }[]': length, pop, push, concat, and 29 more.
+src/context/decryptContext.ts(13,18): error TS2339: Property 'decryptAll' does not exist on type 'CofhesdkClient'.
+src/memory/decryptMemory.ts(26,18): error TS2339: Property 'decryptAll' does not exist on type 'CofhesdkClient'.
+src/memory/encryptMemory.ts(18,62): error TS2554: Expected 1 arguments, but got 2.
+src/memory/encryptMemory.ts(24,25): error TS7053: Element implicitly has an 'any' type because expression of type '0' can't be used to index type 'EncryptInputsBuilder<EncryptableItem[]>'.
+  Property '0' does not exist on type 'EncryptInputsBuilder<EncryptableItem[]>'.
+src/memory/encryptMemory.ts(25,25): error TS7053: Element implicitly has an 'any' type because expression of type '1' can't be used to index type 'EncryptInputsBuilder<EncryptableItem[]>'.
+  Property '1' does not exist on type 'EncryptInputsBuilder<EncryptableItem[]>'.
+src/permits/createPermit.ts(19,25): error TS2339: Property 'createPermit' does not exist on type 'CofhesdkClientPermits'.
+src/permits/importPermit.ts(6,25): error TS2339: Property 'importPermit' does not exist on type 'CofhesdkClientPermits'.

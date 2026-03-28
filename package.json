@@ -1,0 +1,19 @@
+{
+  "name": "fhe-ai-context",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "sdk:build": "npm run build -w packages/sdk",
+    "contracts:compile": "npm run compile -w packages/contracts",
+    "contracts:deploy": "npm run deploy -w packages/contracts",
+    "contracts:deploy:sepolia": "npm run deploy:sepolia -w packages/contracts",
+    "contracts:test": "npm run test -w packages/contracts",
+    "agent:dev": "npm run dev -w packages/agent",
+    "agent:build": "npm run build -w packages/agent",
+    "agent:start": "npm run start -w packages/agent",
+    "frontend:dev": "npm run dev -w packages/frontend",
+    "frontend:build": "npm run build -w packages/frontend",
+    "frontend:start": "npm run start -w packages/frontend",
+    "build": "npm run sdk:build && npm run agent:build && npm run frontend:build"
+  }
+}
