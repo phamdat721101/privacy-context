@@ -36,8 +36,8 @@ contract AIMemoryStore is IAIMemoryStore {
         );
 
         EncryptedMemory storage mem = memories[user];
-        mem.memoryHash       = FHE.asEuint128(inMemoryHash);
-        mem.lastInteraction  = FHE.asEuint64(inLastInteraction);
+        mem.memoryHash       = FHE.asEuint128(inMemoryHash);        FHE.allow(mem.memoryHash,      user);
+        mem.lastInteraction  = FHE.asEuint64(inLastInteraction);    FHE.allow(mem.lastInteraction, user);
         mem.interactionCount = FHE.add(mem.interactionCount, FHE.asEuint32(1));
 
         emit MemoryUpdated(user);

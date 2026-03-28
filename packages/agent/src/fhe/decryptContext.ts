@@ -18,7 +18,9 @@ export async function decryptContextWithPermit(
     client.decryptHandle(handles.sentimentScore, FheTypes.Uint8).setPermit(p).decrypt(),
     client.decryptHandle(handles.trustLevel,     FheTypes.Uint8).setPermit(p).decrypt(),
     client.decryptHandle(handles.isVerified,     FheTypes.Bool).setPermit(p).decrypt(),
-    client.decryptHandle(handles.memoryTier,     FheTypes.Uint8).setPermit(p).decrypt(),
+    handles.memoryTier !== 0n
+      ? client.decryptHandle(handles.memoryTier, FheTypes.Uint8).setPermit(p).decrypt()
+      : Promise.resolve({ success: true as const, data: 0n }),
   ]);
 
   for (const res of results) {

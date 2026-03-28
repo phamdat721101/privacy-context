@@ -5,9 +5,7 @@ import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { encryptContext, createPermit, arbitrumSepolia, encodeSentiment } from '@fhe-ai-context/sdk';
 import { useWriteContext } from '@/hooks/useWriteContext';
-import { CONTEXT_MANAGER_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
-
-const AGENT_ADDRESS = (process.env.NEXT_PUBLIC_AGENT_REGISTRY_ADDRESS ?? '0x0') as `0x${string}`;
+import { CONTEXT_MANAGER_ADDRESS, AGENT_BACKEND_URL, AGENT_ADDRESS } from '@/lib/contracts';
 
 export function OnboardForm({ onDone }: { onDone: () => void }) {
   const { user } = usePrivy();
@@ -54,7 +52,7 @@ export function OnboardForm({ onDone }: { onDone: () => void }) {
         arbitrumSepolia,
         walletClient,
       );
-      const serialized = JSON.stringify(permit);
+      const serialized = permit;
 
       // Step 3: import permit to agent backend
       await fetch(`${AGENT_BACKEND_URL}/permit/import`, {

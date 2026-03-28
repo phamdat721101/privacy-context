@@ -1,7 +1,6 @@
 'use client';
 import type { PermitState } from '@/types/context';
-
-const AGENT_ADDRESS = (process.env.NEXT_PUBLIC_AGENT_REGISTRY_ADDRESS ?? '0x0') as `0x${string}`;
+import { AGENT_ADDRESS } from '@/lib/contracts';
 
 interface Props {
   permitState: PermitState;

@@ -1,4 +1,5 @@
 import { createPublicClient, http, type WalletClient } from 'viem';
+import { PermitUtils } from '@cofhe/sdk/permits';
 import { arbitrumSepolia as viemArbitrumSepolia, arbitrum as viemArbitrum } from 'viem/chains';
 import type { SupportedChain } from '../client/chains';
 import { getCofheClient } from '../client/cofheClient';
@@ -14,7 +15,7 @@ export async function createPermit(
   options: PermitOptions,
   chain: SupportedChain,
   signer: WalletClient,
-): Promise<any> {
+): Promise<string> {
   const client = getCofheClient();
   const walletClient = signer;
 
@@ -40,5 +41,5 @@ export async function createPermit(
     throw new Error(`Permit creation failed: ${result.error.message}`);
   }
 
-  return result.data;
+  return PermitUtils.export(result.data);
 }

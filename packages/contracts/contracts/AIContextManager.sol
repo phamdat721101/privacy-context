@@ -32,13 +32,13 @@ contract AIContextManager is IAIContextManager {
     ) external override {
         EncryptedContext storage ctx = userContexts[msg.sender];
 
-        ctx.sessionKey       = FHE.asEuint128(inSessionKey);
-        ctx.userId           = FHE.asEuint64(inUserId);
-        ctx.sentimentScore   = FHE.asEuint8(inSentimentScore);
-        ctx.trustLevel       = FHE.asEuint8(inTrustLevel);
-        ctx.isVerified       = FHE.asEbool(inIsVerified);
-        ctx.authorizedAgent  = FHE.asEaddress(inAuthorizedAgent);
-        ctx.isActive         = FHE.asEbool(true);
+        ctx.sessionKey       = FHE.asEuint128(inSessionKey);      FHE.allow(ctx.sessionKey,      msg.sender);
+        ctx.userId           = FHE.asEuint64(inUserId);           FHE.allow(ctx.userId,           msg.sender);
+        ctx.sentimentScore   = FHE.asEuint8(inSentimentScore);    FHE.allow(ctx.sentimentScore,   msg.sender);
+        ctx.trustLevel       = FHE.asEuint8(inTrustLevel);        FHE.allow(ctx.trustLevel,       msg.sender);
+        ctx.isVerified       = FHE.asEbool(inIsVerified);         FHE.allow(ctx.isVerified,       msg.sender);
+        ctx.authorizedAgent  = FHE.asEaddress(inAuthorizedAgent); FHE.allow(ctx.authorizedAgent,  msg.sender);
+        ctx.isActive         = FHE.asEbool(true);                 FHE.allow(ctx.isActive,         msg.sender);
         ctx.contextVersion   = FHE.add(ctx.contextVersion, FHE.asEuint32(1));
 
         emit ContextWritten(msg.sender);
@@ -63,6 +63,7 @@ contract AIContextManager is IAIContextManager {
         ebool shouldUpgrade = FHE.gt(ctx.trustLevel, FHE.asEuint8(1));
         euint8 upgraded = FHE.select(shouldUpgrade, FHE.asEuint8(1), ctx.memoryTier);
         ctx.memoryTier = upgraded;
+        FHE.allow(ctx.memoryTier, user);
         emit MemoryTierUpgraded(user);
     }
 }

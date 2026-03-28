@@ -5,7 +5,7 @@ import { useWallets } from '@privy-io/react-auth';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { createPermit, revokePermit, arbitrumSepolia } from '@fhe-ai-context/sdk';
-import { CONTEXT_MANAGER_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
+import { CONTEXT_MANAGER_ADDRESS, AGENT_BACKEND_URL, AGENT_ADDRESS } from '@/lib/contracts';
 import type { PermitState } from '@/types/context';
 
 export function usePermit(userAddress: `0x${string}` | undefined) {
@@ -23,7 +23,17 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
     if (!userAddress) return;
     const stored = localStorage.getItem(`fhe_permit_${userAddress}`);
     if (!stored) return;
-    try { setPermitState(JSON.parse(stored)); } catch { /* ignore corrupted */ }
+    try {
+      const state = JSON.parse(stored);
+      if (state.serializedPermit && AGENT_ADDRESS) {
+        const permit = JSON.parse(state.serializedPermit);
+        if (permit.recipient?.toLowerCase() !== AGENT_ADDRESS.toLowerCase()) {
+          localStorage.removeItem(`fhe_permit_${userAddress}`);
+          return;
+        }
+      }
+      setPermitState(state);
+    } catch { /* ignore corrupted */ }
   }, [userAddress]);
 
   async function authorize(agentAddress: `0x${string}`) {
@@ -45,7 +55,7 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
         arbitrumSepolia,
         signer,
       );
-      const serialized = JSON.stringify(permit);
+      const serialized = permit;
       const res = await fetch(`${AGENT_BACKEND_URL}/permit/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
