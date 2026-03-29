@@ -11,17 +11,24 @@ interface Props {
 export function ChatWindow({ userAddress, permitState }: Props) {
   const { messages, sendMessage, loading, error } = useChat(userAddress, permitState.serializedPermit);
   const [input, setInput] = useState('');
+  const [dismissedError, setDismissedError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  const visibleError = error && error !== dismissedError ? error : null;
+
+  useEffect(() => {
+    if (error !== dismissedError) setDismissedError(null);
+  }, [error]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading, error]);
+  }, [messages, loading, visibleError]);
 
   if (!permitState.serializedPermit) {
     return (
       <div className="flex items-center justify-center h-full px-4">
         <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gray)', textAlign: 'center' }}>
-          AUTHORIZE THE AI AGENT FIRST<br />TO START CHATTING.
+          AI AGENT NOT AUTHORIZED.<br />USE THE AUTHORIZE BUTTON ABOVE TO START CHATTING.
         </div>
       </div>
     );
@@ -89,7 +96,7 @@ export function ChatWindow({ userAddress, permitState }: Props) {
           </div>
         )}
 
-        {error && (
+        {visibleError && (
           <div className="flex justify-start">
             <div
               style={{
@@ -101,9 +108,18 @@ export function ChatWindow({ userAddress, permitState }: Props) {
                 color: 'var(--pixel-danger)',
                 boxShadow: '3px 3px 0 var(--pixel-danger)',
                 maxWidth: '80%',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
               }}
             >
-              ⚠ ERROR: {error}
+              <span>⚠ ERROR: {visibleError}</span>
+              <button
+                onClick={() => setDismissedError(visibleError)}
+                style={{ background: 'none', border: 'none', color: 'var(--pixel-danger)', cursor: 'pointer', fontFamily: "'VT323'", fontSize: '18px', lineHeight: 1, padding: 0 }}
+              >
+                ×
+              </button>
             </div>
           </div>
         )}

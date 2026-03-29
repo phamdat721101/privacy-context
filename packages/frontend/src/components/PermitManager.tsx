@@ -44,6 +44,8 @@ export function PermitManager({ permitState, authorize, revoke, loading, error }
     );
   }
 
+  const isWalletError = Boolean(error && /wallet/i.test(error));
+
   return (
     <div style={cardStyle} className="space-y-3">
       <div style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)' }}>
@@ -51,15 +53,17 @@ export function PermitManager({ permitState, authorize, revoke, loading, error }
       </div>
       {error && (
         <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-danger)' }}>
-          ⚠ {error}
+          {isWalletError
+            ? '⚠ WALLET NOT CONNECTED — PLEASE RECONNECT AND TRY AGAIN.'
+            : `⚠ ${error}`}
         </div>
       )}
       <button
         onClick={() => authorize(AGENT_ADDRESS)}
-        disabled={loading}
+        disabled={loading || isWalletError}
         className="pixel-btn pixel-btn-primary"
       >
-        {loading ? 'AUTHORIZING...' : 'AUTHORIZE AI AGENT'}
+        {loading ? 'AUTHORIZING...' : (error && !isWalletError) ? 'TRY AGAIN' : 'AUTHORIZE AI AGENT'}
       </button>
     </div>
   );

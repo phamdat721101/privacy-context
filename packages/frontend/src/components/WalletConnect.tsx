@@ -1,8 +1,16 @@
 'use client';
+import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 
 export function WalletConnect() {
   const { ready, authenticated, login, logout, user } = usePrivy();
+  const [copied, setCopied] = useState(false);
+
+  function copyAddress(addr: string) {
+    navigator.clipboard.writeText(addr);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
 
   if (!ready) {
     return (
@@ -16,12 +24,14 @@ export function WalletConnect() {
     const addr = user?.wallet?.address;
     return (
       <div className="flex items-center gap-2">
-        <span
+        <button
+          onClick={() => addr && copyAddress(addr)}
           className="pixel-badge"
-          style={{ color: 'var(--pixel-teal)', fontFamily: 'Courier New, monospace', fontSize: '10px' }}
+          title={addr ?? 'Copy address'}
+          style={{ color: 'var(--pixel-teal)', fontFamily: 'Courier New, monospace', fontSize: '10px', background: 'none', border: 'none', cursor: addr ? 'pointer' : 'default' }}
         >
-          {addr ? `${addr.slice(0, 5)}..${addr.slice(-3)}` : 'OK'}
-        </span>
+          {copied ? 'COPIED!' : (addr ? `${addr.slice(0, 5)}..${addr.slice(-3)}` : 'OK')}
+        </button>
         <button onClick={logout} className="pixel-btn pixel-btn-danger" style={{ fontSize: '11px', padding: '4px 10px' }}>
           EXIT
         </button>

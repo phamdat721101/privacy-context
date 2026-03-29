@@ -74,9 +74,16 @@ export default function ChatPage() {
 
       {/* Chat area */}
       <div className="flex-1 overflow-hidden">
-        {userAddress && (
-          <ChatWindow userAddress={userAddress} permitState={permitState} />
-        )}
+        {userAddress
+          ? <ChatWindow userAddress={userAddress} permitState={permitState} />
+          : (
+            <div className="flex items-center justify-center h-full">
+              <span style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)' }}>
+                CONNECTING WALLET<span className="pixel-cursor">_</span>
+              </span>
+            </div>
+          )
+        }
       </div>
 
       <BottomNav />
