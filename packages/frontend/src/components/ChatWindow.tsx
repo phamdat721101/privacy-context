@@ -42,123 +42,105 @@ export function ChatWindow({ userAddress, permitState }: Props) {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-3 p-4">
-        {messages.length === 0 && (
-          <div style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)', textAlign: 'center', paddingTop: '2rem' }}>
-            WHAT CAN I HELP YOU WITH TODAY?
-          </div>
-        )}
+    <div className="flex flex-col h-full pixel-card p-0" style={{ borderColor: '#60a5fa', boxShadow: '0 0 10px rgba(96, 165, 250, 0.4)', borderRadius: '12px', background: 'var(--pixel-dark)', overflow: 'hidden' }}>
+      
+      {/* Top Banner indicating Agent/Context Status */}
+      <div className="flex items-center justify-center gap-8 py-3" style={{ borderBottom: '1px solid rgba(96,165,250,0.3)', background: 'rgba(0,0,0,0.2)' }}>
+        <span style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-green)', textShadow: '0 0 5px var(--pixel-green)' }}>
+          🤖 AGENT READY
+        </span>
+        <span style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-red)', textShadow: '0 0 5px var(--pixel-red)' }}>
+          🔒 CONTEXT ACTIVE
+        </span>
+      </div>
 
-        {messages.map((msg, i) => (
-          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div
-              style={{
-                maxWidth: 'min(72%, calc(100vw - 64px))',
-                padding: '10px 14px',
-                fontFamily: "'VT323'",
-                fontSize: '16px',
-                lineHeight: 1.4,
-                border: '2px solid',
-                borderRadius: 0,
-                borderColor: msg.role === 'user' ? 'var(--pixel-gold)' : 'var(--pixel-teal)',
-                background: msg.role === 'user' ? 'var(--pixel-red)' : 'var(--pixel-dark)',
-                color: '#fff',
-                boxShadow: msg.role === 'user'
-                  ? '3px 3px 0 var(--pixel-gold)'
-                  : '3px 3px 0 var(--pixel-teal)',
-              }}
-            >
-              {msg.role === 'assistant' && (
-                <span style={{ color: 'var(--pixel-teal)', marginRight: '6px' }}>🤖</span>
-              )}
-              {msg.content}
+      {visibleError && (
+        <div className="p-3 bg-red-900 text-red-200 text-sm flex justify-between">
+            <span>⚠ {visibleError}</span>
+            <button onClick={() => setDismissedError(visibleError)}>×</button>
+        </div>
+      )}
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        {messages.map((m, idx) => {
+          const isAI = m.role === 'assistant';
+          const bubbleColor = isAI ? 'var(--pixel-green)' : 'var(--pixel-red)';
+          return (
+            <div key={idx} className={`flex ${isAI ? 'justify-start' : 'justify-end'}`}>
+              <div
+                className="pixel-card max-w-[80%]"
+                style={{
+                  border: `1px solid ${bubbleColor}`,
+                  boxShadow: `0 0 10px ${isAI ? 'rgba(0,255,0,0.3)' : 'rgba(255,0,255,0.3)'}, inset 0 0 5px ${isAI ? 'rgba(0,255,0,0.1)' : 'rgba(255,0,255,0.1)'}`,
+                  background: 'var(--pixel-black)',
+                  padding: '12px 16px',
+                  borderRadius: '12px',
+                }}
+              >
+                <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: bubbleColor, marginBottom: '8px' }}>
+                  {isAI ? 'FHE AI' : 'USER'}
+                </div>
+                <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: '#e2e8f0', whiteSpace: 'pre-wrap' }}>
+                  {m.content}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="flex justify-start">
-            <div
-              style={{
-                padding: '10px 14px',
-                fontFamily: "'VT323'",
-                fontSize: '16px',
-                border: '2px solid var(--pixel-teal)',
-                background: 'var(--pixel-dark)',
-                color: 'var(--pixel-teal)',
-                boxShadow: '3px 3px 0 var(--pixel-teal)',
-              }}
-            >
-              🤖 <span className="pixel-cursor">▌</span>
+            <div className="pixel-card" style={{ border: '1px solid var(--pixel-gray)', padding: '12px 16px', background: 'var(--pixel-black)', borderRadius: '12px' }}>
+              <span className="pixel-cursor" style={{ fontFamily: "'Press Start 2P'", fontSize: '12px', color: 'var(--pixel-green)' }}>
+                ...
+              </span>
             </div>
           </div>
         )}
-
-        {visibleError && (
-          <div className="flex justify-start">
-            <div
-              style={{
-                padding: '10px 14px',
-                fontFamily: "'VT323'",
-                fontSize: '15px',
-                border: '2px solid var(--pixel-danger)',
-                background: 'var(--pixel-dark)',
-                color: 'var(--pixel-danger)',
-                boxShadow: '3px 3px 0 var(--pixel-danger)',
-                maxWidth: '80%',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '8px',
-              }}
-            >
-              <span>⚠ ERROR: {visibleError}</span>
-              <button
-                onClick={() => setDismissedError(visibleError)}
-                style={{ background: 'none', border: 'none', color: 'var(--pixel-danger)', cursor: 'pointer', fontFamily: "'VT323'", fontSize: '18px', lineHeight: 1, padding: 0 }}
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        )}
-
         <div ref={bottomRef} />
       </div>
 
-      {/* Input row */}
-      <div
-        className="flex gap-2 p-3 shrink-0"
-        style={{ borderTop: '2px solid var(--pixel-red)', background: 'var(--pixel-dark)' }}
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="TYPE A MESSAGE..."
-          style={{
-            flex: 1,
-            background: '#0d1117',
-            color: '#e2e8f0',
-            border: '2px solid var(--pixel-gray)',
-            borderRadius: 0,
-            padding: '8px 12px',
-            fontFamily: "'VT323'",
-            fontSize: '16px',
-            outline: 'none',
-          }}
-          onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--pixel-gold)'; }}
-          onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--pixel-gray)'; }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-          className="pixel-btn pixel-btn-primary"
-          style={{ padding: '8px 16px', fontSize: '14px' }}
-        >
-          SEND
-        </button>
+      {/* Input area */}
+      <div className="p-4" style={{ background: 'rgba(0,0,0,0.3)' }}>
+        <div className="flex items-stretch gap-3">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="> TYPE A MESSAGE..."
+            className="flex-1"
+            style={{
+              background: 'var(--pixel-black)',
+              border: '2px solid var(--pixel-danger)',
+              boxShadow: '0 0 10px rgba(255,0,0,0.5), inset 0 0 5px rgba(255,0,0,0.2)',
+              borderRadius: '8px',
+              fontFamily: "'VT323'",
+              fontSize: '18px',
+              color: 'var(--pixel-danger)',
+              padding: '0 16px',
+              outline: 'none',
+            }}
+          />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || loading}
+            className="pixel-btn"
+            style={{
+              background: 'var(--pixel-red)',
+              color: '#fff',
+              border: '1px solid var(--pixel-red)',
+              boxShadow: '0 0 10px rgba(255,0,255,0.6)',
+              fontSize: '18px',
+              padding: '0 24px',
+              height: '48px',
+              borderRadius: '8px',
+            }}
+          >
+            SEND
+          </button>
+        </div>
       </div>
     </div>
   );

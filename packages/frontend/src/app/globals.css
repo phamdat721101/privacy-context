@@ -5,15 +5,16 @@
 @tailwind utilities;
 
 :root {
-  --pixel-red: #E94560;
-  --pixel-dark: #16213E;
-  --pixel-black: #0d1117;
-  --pixel-gold: #FFD700;
-  --pixel-teal: #00D9FF;
-  --pixel-gray: #7F8C8D;
+  --pixel-red: #FF00FF; /* Electric Pink */
+  --pixel-dark: #0F172A; /* Deep Blue Dark */
+  --pixel-black: #020617; /* Very Dark Blue */
+  --pixel-gold: #FFFF00; /* Neon Yellow */
+  --pixel-teal: #00FFFF; /* Cyan */
+  --pixel-gray: #475569;
   --pixel-purple: #7B2FBE;
-  --pixel-green: #00FF87;
-  --pixel-danger: #FF4757;
+  --pixel-green: #00FF00; /* Neon Green */
+  --pixel-danger: #FF0000; /* True Red */
+  --pixel-blue: #0055FF; /* Solid Bright Blue */
 }
 
 body {
@@ -24,42 +25,42 @@ body {
 
 /* ── Pixel Card ─────────────────────────────────────── */
 .pixel-card {
-  border: 2px solid var(--pixel-red);
-  box-shadow: 4px 4px 0px var(--pixel-red);
+  border: 1px solid var(--pixel-red);
+  box-shadow: 0 0 10px rgba(255, 0, 255, 0.4), inset 0 0 5px rgba(255, 0, 255, 0.2);
   background: var(--pixel-dark);
-  border-radius: 0;
+  border-radius: 8px;
   padding: 1rem;
 }
 
 .pixel-card-gold {
-  border: 2px solid var(--pixel-gold);
-  box-shadow: 4px 4px 0px var(--pixel-gold);
+  border: 1px solid var(--pixel-gold);
+  box-shadow: 0 0 10px rgba(255, 255, 0, 0.4), inset 0 0 5px rgba(255, 255, 0, 0.2);
   background: var(--pixel-dark);
-  border-radius: 0;
+  border-radius: 8px;
   padding: 1rem;
 }
 
 .pixel-card-teal {
-  border: 2px solid var(--pixel-teal);
-  box-shadow: 4px 4px 0px var(--pixel-teal);
+  border: 1px solid var(--pixel-teal);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.4), inset 0 0 5px rgba(0, 255, 255, 0.2);
   background: var(--pixel-dark);
-  border-radius: 0;
+  border-radius: 8px;
   padding: 1rem;
 }
 
 .pixel-card-danger {
-  border: 2px solid var(--pixel-danger);
-  box-shadow: 4px 4px 0px var(--pixel-danger);
+  border: 1px solid var(--pixel-danger);
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.4), inset 0 0 5px rgba(255, 0, 0, 0.2);
   background: var(--pixel-dark);
-  border-radius: 0;
+  border-radius: 8px;
   padding: 1rem;
 }
 
 .pixel-card-gray {
-  border: 2px solid var(--pixel-gray);
-  box-shadow: 4px 4px 0px var(--pixel-gray);
+  border: 1px solid var(--pixel-gray);
+  box-shadow: 0 0 5px var(--pixel-gray);
   background: var(--pixel-dark);
-  border-radius: 0;
+  border-radius: 8px;
   padding: 1rem;
   opacity: 0.6;
 }
@@ -70,32 +71,32 @@ body {
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-radius: 0;
+  border-radius: 6px;
   cursor: pointer;
-  transition: transform 0.08s;
+  transition: all 0.2s;
   display: inline-block;
   padding: 8px 16px;
 }
 
 .pixel-btn:active {
-  transform: translate(3px, 3px);
+  transform: translateY(2px);
 }
 
 .pixel-btn-primary {
-  background: var(--pixel-red);
-  border: 2px solid var(--pixel-gold);
-  box-shadow: 3px 3px 0px var(--pixel-gold);
-  color: #fff;
+  background: transparent;
+  border: 1px solid var(--pixel-red);
+  box-shadow: 0 0 8px rgba(255,0,255,0.4), inset 0 0 4px rgba(255,0,255,0.2);
+  color: var(--pixel-red);
 }
 
 .pixel-btn-primary:active {
-  box-shadow: none;
+  box-shadow: 0 0 3px rgba(255,0,255,0.5);
 }
 
 .pixel-btn-ghost {
   background: transparent;
-  border: 2px solid var(--pixel-gray);
-  box-shadow: 3px 3px 0px var(--pixel-gray);
+  border: 1px solid var(--pixel-gray);
+  box-shadow: 0 0 5px rgba(100,100,100,0.5);
   color: #e2e8f0;
 }
 
@@ -105,8 +106,8 @@ body {
 
 .pixel-btn-danger {
   background: var(--pixel-danger);
-  border: 2px solid #fff;
-  box-shadow: 3px 3px 0px #fff;
+  border: 1px solid var(--pixel-danger);
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.4);
   color: #fff;
 }
 
@@ -114,10 +115,33 @@ body {
   box-shadow: none;
 }
 
+.pixel-btn-blue {
+  background: var(--pixel-blue);
+  border: 1px solid var(--pixel-blue);
+  box-shadow: 0 0 10px rgba(0, 85, 255, 0.4);
+  color: #fff;
+}
+
+.pixel-btn-blue:active {
+  box-shadow: none;
+}
+
+.pixel-btn-yellow {
+  background: transparent;
+  border: 1px solid var(--pixel-gold);
+  box-shadow: 0 0 10px rgba(255, 255, 0, 0.5), inset 0 0 6px rgba(255, 255, 0, 0.3);
+  color: var(--pixel-gold);
+  text-shadow: 0 0 5px var(--pixel-gold);
+}
+
+.pixel-btn-yellow:active {
+  box-shadow: 0 0 3px rgba(255, 255, 0, 0.6);
+}
+
 .pixel-btn-teal {
   background: transparent;
-  border: 2px solid var(--pixel-teal);
-  box-shadow: 3px 3px 0px var(--pixel-teal);
+  border: 1px solid var(--pixel-teal);
+  box-shadow: 0 0 8px rgba(0, 255, 255, 0.4), inset 0 0 4px rgba(0, 255, 255, 0.2);
   color: var(--pixel-teal);
 }
 
@@ -139,8 +163,9 @@ body {
   text-transform: uppercase;
   border: 1px solid currentColor;
   padding: 2px 8px;
-  border-radius: 0;
+  border-radius: 4px;
   display: inline-block;
+  box-shadow: 0 0 6px currentColor;
 }
 
 /* ── Pixel Progress Bar ─────────────────────────────── */
@@ -197,40 +222,13 @@ body {
 /* Center content and cap width for desktop */
 .page-container {
   width: 100%;
-  max-width: 480px;
+  max-width: 1024px;
   margin-left: auto;
   margin-right: auto;
 }
 
-/* Mobile: tighter shadows to prevent horizontal overflow */
-@media (max-width: 480px) {
-  .pixel-card,
-  .pixel-card-gold,
-  .pixel-card-teal,
-  .pixel-card-danger,
-  .pixel-card-gray {
-    box-shadow: 2px 2px 0px;
-    padding: 0.75rem;
-    overflow: hidden;
-  }
-
-  .pixel-btn {
-    min-height: 44px;
-    font-size: 13px;
-    box-shadow: 2px 2px 0px;
-  }
-}
-
-/* Desktop: more generous spacing */
+/* Base button sizing */
 @media (min-width: 768px) {
-  .pixel-card,
-  .pixel-card-gold,
-  .pixel-card-teal,
-  .pixel-card-danger {
-    box-shadow: 6px 6px 0px;
-    padding: 1.25rem;
-  }
-
   .pixel-btn {
     font-size: 15px;
     padding: 10px 20px;

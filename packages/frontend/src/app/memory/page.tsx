@@ -9,7 +9,7 @@ const TIERS = [
     icon: '⚡',
     label: 'SHORT-TERM',
     description: 'Last 3 sessions',
-    color: 'var(--pixel-green)',
+    color: 'var(--pixel-teal)',
     fill: 0,
     locked: false,
   },
@@ -17,7 +17,7 @@ const TIERS = [
     icon: '🔵',
     label: 'MEDIUM-TERM',
     description: 'Last 30 days',
-    color: 'var(--pixel-teal)',
+    color: 'var(--pixel-gold)',
     fill: 0,
     locked: false,
   },
@@ -42,14 +42,14 @@ export default function MemoryPage() {
   if (!ready || !authenticated) return null;
 
   return (
-    <main className="min-h-screen pb-20 px-4 py-4 space-y-4" style={{ background: 'var(--pixel-black)' }}>
+    <main className="page-container min-h-screen pb-28 px-4 py-4 space-y-4" style={{ background: 'var(--pixel-black)' }}>
       {/* Header */}
       <div>
         <h1 style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-red)', textShadow: '2px 2px 0 var(--pixel-gold)' }}>
           MEMORY VAULT
         </h1>
         <div className="mt-1">
-          <span className="pixel-badge" style={{ color: 'var(--pixel-purple)', fontSize: '11px' }}>
+          <span className="pixel-badge" style={{ color: 'var(--pixel-teal)', fontSize: '11px' }}>
             🔒 ALL ENCRYPTED ON-CHAIN
           </span>
         </div>

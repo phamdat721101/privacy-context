@@ -15,7 +15,7 @@ export default function OnboardPage() {
   if (!ready || !authenticated) return null;
 
   return (
-    <main className="flex items-center justify-center min-h-screen px-4">
+    <main className="page-container flex items-center justify-center min-h-screen px-4 pb-28" style={{ background: 'var(--pixel-black)' }}>
       <OnboardForm onDone={() => router.push('/chat')} />
     </main>
   );

@@ -21,61 +21,79 @@ export default function SettingsPage() {
   if (!ready || !authenticated) return null;
 
   return (
-    <main className="page-container min-h-screen pb-20 px-4 py-4 space-y-4" style={{ background: 'var(--pixel-black)' }}>
-      <h1 style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-red)', textShadow: '2px 2px 0 var(--pixel-gold)' }}>
-        SETTINGS
-      </h1>
-
-      {/* Profile Card */}
-      <div className="pixel-card space-y-2">
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-gold)', marginBottom: '8px' }}>
-          MY PROFILE
-        </div>
-        <div style={{ fontFamily: "'VT323'", fontSize: '15px' }}>
-          <div style={{ color: 'var(--pixel-gray)' }}>
-            WALLET: <span style={{ color: '#e2e8f0', fontFamily: 'Courier New, monospace', fontSize: '12px' }}>
-              {addr ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : '—'}
-            </span>
-          </div>
-          <div style={{ color: 'var(--pixel-teal)' }}>CHAIN: ARBITRUM SEPOLIA</div>
-          <div style={{ color: 'var(--pixel-gold)' }}>TRUST: LVL 1 BASIC</div>
-        </div>
-      </div>
-
-      {/* Context Preferences */}
-      <div className="pixel-card space-y-3">
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-gold)', marginBottom: '4px' }}>
-          CONTEXT PREFERENCES
-        </div>
-        <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)' }}>
-          Update your encrypted context profile on-chain.
-        </div>
-        <Link href="/onboard" className="pixel-btn pixel-btn-primary" style={{ textDecoration: 'none', display: 'inline-block' }}>
-          UPDATE CONTEXT
+    <main className="page-container min-h-screen pb-28 px-4 md:px-8 py-8 flex flex-col space-y-8" style={{ background: 'var(--pixel-black)' }}>
+      {/* Header */}
+      <header className="flex items-center justify-start mb-4">
+        <Link href="/" style={{ textDecoration: 'none' }}>
+          <span style={{ fontFamily: "'Press Start 2P'", fontSize: '24px', color: 'var(--pixel-red)', textShadow: '0 0 10px var(--pixel-red)', letterSpacing: '0.1em' }}>
+            FHE AI
+          </span>
         </Link>
-      </div>
+        <span style={{ fontFamily: "'Press Start 2P'", fontSize: '18px', color: 'var(--pixel-gray)', margin: '0 16px' }}>/</span>
+        <span style={{ fontFamily: "'Press Start 2P'", fontSize: '18px', color: '#fff' }}>SETTINGS</span>
+      </header>
 
-      {/* Permit Manager — anchor target for Permits tab */}
-      <div id="permits" className="space-y-2">
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-gold)' }}>
-          AGENT PERMITS
+      {/* Main Settings Body */}
+      <div className="flex flex-col gap-6 w-full mx-auto pb-10">
+        
+        {/* Profile Card */}
+        <div className="pixel-card w-full flex flex-col md:flex-row justify-between items-start md:items-center p-6 gap-4">
+          <div className="space-y-4">
+            <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-red)', textShadow: '0 0 5px var(--pixel-red)' }}>
+              MY PROFILE
+            </div>
+            <div style={{ fontFamily: "'VT323'", fontSize: '18px', color: 'var(--pixel-gray)' }}>
+              WALLET: <span style={{ color: '#fff', marginLeft: '12px' }}>{addr ? addr : '—'}</span>
+            </div>
+          </div>
+          <div className="flex gap-4">
+            <div className="pixel-card-gray p-3 text-center" style={{ minWidth: '130px' }}>
+              <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-teal)' }}>CHAIN</div>
+              <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: '#fff', marginTop: '6px' }}>ARB SEPOLIA</div>
+            </div>
+            <div className="pixel-card-gray p-3 text-center" style={{ minWidth: '130px' }}>
+              <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gold)' }}>TRUST</div>
+              <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: '#fff', marginTop: '6px' }}>LVL 1 BASIC</div>
+            </div>
+          </div>
         </div>
-        <PermitManager permitState={permitState} authorize={authorize} revoke={revoke} loading={permitLoading} error={permitError} />
-      </div>
 
-      {/* Danger Zone */}
-      <div className="pixel-card-danger space-y-3">
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-danger)' }}>
-          DANGER ZONE
+        {/* Permit Manager Wrapper */}
+        <div className="w-full">
+           <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-gold)', textShadow: '0 0 5px var(--pixel-gold)', marginBottom: '16px' }}>
+             AGENT PERMITS
+           </div>
+           <PermitManager permitState={permitState} authorize={authorize} revoke={revoke} loading={permitLoading} error={permitError} />
         </div>
-        <div className="flex flex-col gap-2">
-          <Link href="/onboard" className="pixel-btn pixel-btn-danger" style={{ textDecoration: 'none', textAlign: 'center' }}>
-            🗑 RESET CONTEXT
-          </Link>
-          <button className="pixel-btn pixel-btn-ghost" onClick={logout}>
-            🔌 DISCONNECT WALLET
-          </button>
+
+        {/* Context Preferences */}
+        <div className="pixel-card-gray w-full p-6 mt-2">
+            <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-gray)', marginBottom: '16px' }}>
+                CONTEXT PREFERENCES
+            </div>
+            <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: '#fff', marginBottom: '16px' }}>
+                Update your underlying FHE contextual data profile.
+            </div>
+            <Link href="/onboard" className="pixel-btn pixel-btn-ghost">
+                UPDATE CONTEXT
+            </Link>
         </div>
+
+        {/* Danger Zone */}
+        <div className="pixel-card-danger p-6 w-full mt-4 space-y-6">
+          <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-danger)', textShadow: '0 0 5px var(--pixel-danger)' }}>
+            DANGER ZONE
+          </div>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Link href="/onboard" className="pixel-btn pixel-btn-danger flex-1" style={{ textAlign: 'center', padding: '16px' }}>
+              RESET CONTEXT
+            </Link>
+            <button className="pixel-btn pixel-btn-blue flex-1" onClick={logout} style={{ textAlign: 'center', padding: '16px' }}>
+              DISCONNECT WALLET
+            </button>
+          </div>
+        </div>
+
       </div>
 
       <BottomNav />

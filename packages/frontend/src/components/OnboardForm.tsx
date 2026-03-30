@@ -77,7 +77,7 @@ export function OnboardForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="pixel-card space-y-6 w-full max-w-md mx-auto text-center">
+    <div className="pixel-card-gold space-y-6 w-full max-w-md mx-auto text-center" style={{ background: 'var(--pixel-dark)' }}>
       <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-red)', textShadow: '2px 2px 0 var(--pixel-gold)' }}>
         PRIVATE AI SETUP
       </div>
