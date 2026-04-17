@@ -1,13 +1,17 @@
 import { ethers } from 'ethers';
 import { getContextManagerContract } from '../contracts/AIContextManager';
 import { getMemoryStoreContract } from '../contracts/AIMemoryStore';
-import type { ContextHandles } from '@fhe-ai-context/sdk';
+import { getSkillRegistryContract } from '../contracts/SkillRegistry';
+import { getSkillVaultContract } from '../contracts/AgentSkillVault';
+import type { ContextHandles, SkillHandles, LicenseHandles } from '@fhe-ai-context/sdk';
 
 export interface BlockchainServiceConfig {
   rpcUrl: string;
   agentPrivateKey: string;
   contextManagerAddress: string;
   memoryStoreAddress: string;
+  skillRegistryAddress: string;
+  skillVaultAddress: string;
 }
 
 export class BlockchainService {
@@ -15,12 +19,16 @@ export class BlockchainService {
   private readonly signer: ethers.Wallet;
   private readonly contextManager: ethers.Contract;
   private readonly memoryStore: ethers.Contract;
+  private readonly skillRegistry: ethers.Contract;
+  private readonly skillVault: ethers.Contract;
 
   constructor(config: BlockchainServiceConfig) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
     this.signer = new ethers.Wallet(config.agentPrivateKey, this.provider);
     this.contextManager = getContextManagerContract(config.contextManagerAddress, this.signer);
     this.memoryStore = getMemoryStoreContract(config.memoryStoreAddress, this.signer);
+    this.skillRegistry = getSkillRegistryContract(config.skillRegistryAddress, this.signer);
+    this.skillVault = getSkillVaultContract(config.skillVaultAddress, this.signer);
   }
 
   async getContextHandles(userAddress: string): Promise<ContextHandles> {
@@ -60,6 +68,62 @@ export class BlockchainService {
   getSignerAddress(): string {
     return this.signer.address;
   }
+
+  // --- Skill Marketplace ---
+
+  async getTotalSkillsListed(): Promise<number> {
+    const count = await this.skillRegistry.totalSkillsListed();
+    return Number(count);
+  }
+
+  async getSkillHandles(publicIndex: number): Promise<SkillHandles> {
+    const raw = await this.skillRegistry.getSkillHandles(publicIndex);
+    return {
+      skillId:     BigInt(raw.skillId),
+      developer:   BigInt(raw.developer),
+      basePrice:   BigInt(raw.basePrice),
+      maxSupply:   BigInt(raw.maxSupply),
+      activeUsers: BigInt(raw.activeUsers),
+      isActive:    BigInt(raw.isActive),
+    };
+  }
+
+  async listSkill(
+    inSkillId: `0x${string}`,
+    inDeveloper: `0x${string}`,
+    inBasePrice: `0x${string}`,
+    inMaxSupply: `0x${string}`,
+  ) {
+    const tx = await this.skillRegistry.listSkill(inSkillId, inDeveloper, inBasePrice, inMaxSupply);
+    return tx.wait();
+  }
+
+  async purchaseSkill(
+    publicSkillIndex: number,
+    inPaymentAmount: `0x${string}`,
+    inAgentOwner: `0x${string}`,
+    licenseDurationSeconds: number,
+  ) {
+    const tx = await this.skillVault.purchaseSkill(
+      publicSkillIndex, inPaymentAmount, inAgentOwner, licenseDurationSeconds,
+    );
+    return tx.wait();
+  }
+
+  async getLicenseHandles(licenseId: string): Promise<LicenseHandles> {
+    const raw = await this.skillVault.getLicenseHandles(licenseId);
+    return {
+      agentOwner:    BigInt(raw.agentOwner),
+      purchasePrice: BigInt(raw.purchasePrice),
+      isValid:       BigInt(raw.isValid),
+      purchasedAt:   Number(raw.purchasedAt),
+      expiresAt:     Number(raw.expiresAt),
+    };
+  }
+
+  async getLicenseSaleCount(publicIndex: number): Promise<number> {
+    return Number(await this.skillVault.licenseSaleCount(publicIndex));
+  }
 }
 
 let _service: BlockchainService | null = null;
@@ -71,6 +135,8 @@ export function getBlockchainService(): BlockchainService {
       agentPrivateKey: process.env.AGENT_PRIVATE_KEY!,
       contextManagerAddress: process.env.CONTEXT_MANAGER_ADDRESS!,
       memoryStoreAddress: process.env.MEMORY_STORE_ADDRESS!,
+      skillRegistryAddress: process.env.SKILL_REGISTRY_ADDRESS!,
+      skillVaultAddress: process.env.SKILL_VAULT_ADDRESS!,
     });
   }
   return _service;

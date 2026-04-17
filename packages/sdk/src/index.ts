@@ -10,3 +10,6 @@ export * from './permits/importPermit';
 export * from './permits/revokePermit';
 export * from './utils/hashMemory';
 export * from './utils/encodeSentiment';
+export * from './skill/skillTypes';
+export * from './skill/encryptSkill';
+export * from './skill/decryptSkill';

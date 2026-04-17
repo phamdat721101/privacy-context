@@ -22,12 +22,41 @@ async function main() {
   await memoryStore.waitForDeployment();
   console.log("AIMemoryStore:", await memoryStore.getAddress());
 
+  // --- Skill Marketplace Contracts ---
+  const SkillRegistry = await ethers.getContractFactory("SkillRegistry");
+  const skillRegistry = await SkillRegistry.deploy();
+  await skillRegistry.waitForDeployment();
+  console.log("SkillRegistry:", await skillRegistry.getAddress());
+
+  const EncryptedPricer = await ethers.getContractFactory("EncryptedPricer");
+  const encryptedPricer = await EncryptedPricer.deploy();
+  await encryptedPricer.waitForDeployment();
+  console.log("EncryptedPricer:", await encryptedPricer.getAddress());
+
+  const SkillAccessController = await ethers.getContractFactory("SkillAccessController");
+  const skillAccessController = await SkillAccessController.deploy();
+  await skillAccessController.waitForDeployment();
+  console.log("SkillAccessController:", await skillAccessController.getAddress());
+
+  const AgentSkillVault = await ethers.getContractFactory("AgentSkillVault");
+  const agentSkillVault = await AgentSkillVault.deploy(await skillRegistry.getAddress());
+  await agentSkillVault.waitForDeployment();
+  console.log("AgentSkillVault:", await agentSkillVault.getAddress());
+
+  // Authorize vault to call incrementActiveUsers on registry
+  await skillRegistry.setVault(await agentSkillVault.getAddress());
+  console.log("SkillRegistry vault set to AgentSkillVault");
+
   const deployment = {
     network: network.name,
     chainId: network.config.chainId,
     AgentRegistry: await registry.getAddress(),
     AIContextManager: await contextManager.getAddress(),
     AIMemoryStore: await memoryStore.getAddress(),
+    SkillRegistry: await skillRegistry.getAddress(),
+    EncryptedPricer: await encryptedPricer.getAddress(),
+    SkillAccessController: await skillAccessController.getAddress(),
+    AgentSkillVault: await agentSkillVault.getAddress(),
     deployedAt: new Date().toISOString(),
   };
 

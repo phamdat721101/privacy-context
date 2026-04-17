@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { href: '/',         icon: '🏠', label: 'HOME' },
-  { href: '/chat',     icon: '💬', label: 'CHAT' },
-  { href: '/settings', icon: '⚙',  label: 'CONFIG' },
+  { href: '/',            icon: '🏠', label: 'HOME' },
+  { href: '/chat',        icon: '💬', label: 'CHAT' },
+  { href: '/marketplace', icon: '🛒', label: 'SKILLS' },
+  { href: '/settings',    icon: '⚙',  label: 'CONFIG' },
 ];
 
 export function BottomNav() {

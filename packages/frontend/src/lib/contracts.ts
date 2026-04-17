@@ -1,6 +1,8 @@
 import ContextManagerAbi from './abis/AIContextManager.json';
 import MemoryStoreAbi from './abis/AIMemoryStore.json';
 import AgentRegistryAbi from './abis/AgentRegistry.json';
+import SkillRegistryAbi from './abis/SkillRegistry.json';
+import SkillVaultAbi from './abis/AgentSkillVault.json';
 
 export const CONTEXT_MANAGER_ADDRESS =
   (process.env.NEXT_PUBLIC_CONTEXT_MANAGER_ADDRESS ?? '') as `0x${string}`;
@@ -17,4 +19,10 @@ export const AGENT_ADDRESS =
 export const AGENT_BACKEND_URL =
   process.env.NEXT_PUBLIC_AGENT_BACKEND_URL ?? 'http://localhost:3001';
 
-export { ContextManagerAbi, MemoryStoreAbi, AgentRegistryAbi };
+export const SKILL_REGISTRY_ADDRESS =
+  (process.env.NEXT_PUBLIC_SKILL_REGISTRY_ADDRESS ?? '') as `0x${string}`;
+
+export const SKILL_VAULT_ADDRESS =
+  (process.env.NEXT_PUBLIC_SKILL_VAULT_ADDRESS ?? '') as `0x${string}`;
+
+export { ContextManagerAbi, MemoryStoreAbi, AgentRegistryAbi, SkillRegistryAbi, SkillVaultAbi };

@@ -4,6 +4,7 @@ import cors from 'cors';
 import { chatRouter } from './routes/chat';
 import { permitRouter } from './routes/permit';
 import { memoryRouter } from './routes/memory';
+import { skillRouter } from './routes/skill';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -14,6 +15,7 @@ app.use(express.json());
 app.use('/chat', chatRouter);
 app.use('/permit', permitRouter);
 app.use('/memory', memoryRouter);
+app.use('/skill', skillRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
