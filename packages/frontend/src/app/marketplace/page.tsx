@@ -5,36 +5,39 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BottomNav } from '@/components/BottomNav';
 import { useSkillCount, useSaleCount, useListSkill, usePurchaseSkill } from '@/hooks/useSkillMarketplace';
+import { useUserLicenses } from '@/hooks/useUserLicenses';
+import { SKILLS } from '@/lib/skillDefinitions';
 
-function SkillCard({ index, userAddress }: { index: number; userAddress?: `0x${string}` }) {
+function SkillCard({ index, userAddress, owned }: { index: number; userAddress?: `0x${string}`; owned: boolean }) {
   const { data: salesCount } = useSaleCount(index);
   const { purchaseSkill, isPending: purchasing, error: purchaseError } = usePurchaseSkill();
   const [bought, setBought] = useState(false);
+  const meta = SKILLS.find(s => s.publicSkillIndex === index);
 
   async function handlePurchase() {
     if (!userAddress) return;
-    await purchaseSkill(userAddress, index, 50_000000n, 0);
+    await purchaseSkill(userAddress, index, BigInt((meta?.priceUSDC ?? 50) * 1_000000), 0);
     setBought(true);
   }
 
   return (
     <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-teal)' }}>
       <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-red)', marginBottom: '8px' }}>
-        SKILL #{index}
+        {meta?.name ?? `SKILL #${index}`}
       </div>
       <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gray)', marginBottom: '4px' }}>
-        🔒 ENCRYPTED METADATA
+        {meta?.description ?? '🔒 ENCRYPTED METADATA'}
       </div>
       <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-teal)', marginBottom: '12px' }}>
-        LICENSES SOLD: {salesCount !== undefined ? Number(salesCount).toString() : '...'}
+        PRICE: {meta?.priceUSDC ?? '?'} USDC • LICENSES SOLD: {salesCount !== undefined ? Number(salesCount).toString() : '...'}
       </div>
       {purchaseError && (
         <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-danger)', marginBottom: '8px' }}>
           ⚠ {purchaseError}
         </div>
       )}
-      {bought ? (
-        <span style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-green)' }}>✓ PURCHASED</span>
+      {owned || bought ? (
+        <span style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-green)' }}>✓ OWNED</span>
       ) : (
         <button onClick={handlePurchase} disabled={purchasing || !userAddress}
           className="pixel-btn pixel-btn-primary w-full" style={{ fontSize: '12px' }}>
@@ -51,6 +54,7 @@ export default function MarketplacePage() {
   const userAddress = user?.wallet?.address as `0x${string}` | undefined;
   const { data: totalSkills } = useSkillCount();
   const count = totalSkills !== undefined ? Number(totalSkills) : 0;
+  const { hasSkill } = useUserLicenses(userAddress);
 
   const { listSkill, isPending: listing, error: listError } = useListSkill();
   const [priceInput, setPriceInput] = useState('50');
@@ -111,7 +115,7 @@ export default function MarketplacePage() {
       </div>
 
       {/* Skill Grid */}
-      {count === 0 ? (
+      {count === 0 && SKILLS.length === 0 ? (
         <div className="pixel-card flex items-center justify-center" style={{ minHeight: '200px' }}>
           <span style={{ fontFamily: "'VT323'", fontSize: '18px', color: 'var(--pixel-gray)' }}>
             NO SKILLS LISTED YET. BE THE FIRST!
@@ -119,8 +123,8 @@ export default function MarketplacePage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: count }, (_, i) => (
-            <SkillCard key={i + 1} index={i + 1} userAddress={userAddress} />
+          {SKILLS.map((s) => (
+            <SkillCard key={s.publicSkillIndex} index={s.publicSkillIndex} userAddress={userAddress} owned={hasSkill(s.publicSkillIndex)} />
           ))}
         </div>
       )}

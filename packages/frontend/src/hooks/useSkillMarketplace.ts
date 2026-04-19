@@ -7,7 +7,7 @@ import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { encryptSkillListing, encryptSkillPurchase, arbitrumSepolia } from '@fhe-ai-context/sdk';
 import {
   SKILL_REGISTRY_ADDRESS, SKILL_VAULT_ADDRESS,
-  SkillRegistryAbi, SkillVaultAbi,
+  SkillRegistryAbi, SkillVaultAbi, AGENT_BACKEND_URL,
 } from '@/lib/contracts';
 
 export function useSkillCount() {
@@ -101,6 +101,13 @@ export function usePurchaseSkill() {
         args: [BigInt(publicSkillIndex), inputs.inPaymentAmount, inputs.inAgentOwner, BigInt(durationSeconds)],
       });
       await publicClient!.waitForTransactionReceipt({ hash });
+
+      // Register license with agent backend
+      await fetch(`${AGENT_BACKEND_URL}/skill/register-license`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAddress, skillIndex: publicSkillIndex, licenseId: hash, expiresAt: durationSeconds > 0 ? Math.floor(Date.now() / 1000) + durationSeconds : 0 }),
+      });
     } catch (e: any) {
       setError(e?.message ?? 'Failed to purchase skill');
     }

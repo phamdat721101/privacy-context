@@ -10,7 +10,7 @@ const TRUST_MAP: Record<number, TrustLevel> = {
 
 const MEMORY_LABELS = ['short', 'medium', 'long'];
 
-export function buildSystemPrompt(ctx: DecryptedContext, memory?: DecryptedMemory | null): string {
+export function buildSystemPrompt(ctx: DecryptedContext, memory?: DecryptedMemory | null, skillPrompt?: string): string {
   const trust = TRUST_MAP[ctx.trustLevel] ?? 'anonymous';
   const tone = ctx.sentimentScore > 200 ? 'concise and direct'
              : ctx.sentimentScore < 80  ? 'exploratory and detailed'
@@ -20,10 +20,12 @@ export function buildSystemPrompt(ctx: DecryptedContext, memory?: DecryptedMemor
     ? `Sessions so far: ${memory.interactionCount}. Returning user — maintain continuity.`
     : 'First session — greet the user.';
 
-  return `You are a private DeFi AI assistant.
+  const base = `You are a private DeFi AI assistant.
 User trust level: ${trust}. Respond in a ${tone} tone.
 ${ctx.isVerified ? 'User is KYC verified — show advanced strategies.' : 'Basic strategies only.'}
 Memory tier: ${memoryLabel}-term context loaded.
 Session continuity key: ${ctx.sessionKey}.
-${sessionLine}`.trim();
+${sessionLine}`;
+
+  return skillPrompt ? `${base}\n\n--- ACTIVE SKILL ---\n${skillPrompt}` : base;
 }

@@ -3,6 +3,7 @@ import { getContextManagerContract } from '../contracts/AIContextManager';
 import { getMemoryStoreContract } from '../contracts/AIMemoryStore';
 import { getSkillRegistryContract } from '../contracts/SkillRegistry';
 import { getSkillVaultContract } from '../contracts/AgentSkillVault';
+import { getSkillAccessControllerContract } from '../contracts/SkillAccessController';
 import type { ContextHandles, SkillHandles, LicenseHandles } from '@fhe-ai-context/sdk';
 
 export interface BlockchainServiceConfig {
@@ -12,6 +13,7 @@ export interface BlockchainServiceConfig {
   memoryStoreAddress: string;
   skillRegistryAddress: string;
   skillVaultAddress: string;
+  skillAccessControllerAddress: string;
 }
 
 export class BlockchainService {
@@ -21,6 +23,7 @@ export class BlockchainService {
   private readonly memoryStore: ethers.Contract;
   private readonly skillRegistry: ethers.Contract;
   private readonly skillVault: ethers.Contract;
+  private readonly skillAccessController: ethers.Contract;
 
   constructor(config: BlockchainServiceConfig) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
@@ -29,6 +32,7 @@ export class BlockchainService {
     this.memoryStore = getMemoryStoreContract(config.memoryStoreAddress, this.signer);
     this.skillRegistry = getSkillRegistryContract(config.skillRegistryAddress, this.signer);
     this.skillVault = getSkillVaultContract(config.skillVaultAddress, this.signer);
+    this.skillAccessController = getSkillAccessControllerContract(config.skillAccessControllerAddress, this.signer);
   }
 
   async getContextHandles(userAddress: string): Promise<ContextHandles> {
@@ -124,6 +128,16 @@ export class BlockchainService {
   async getLicenseSaleCount(publicIndex: number): Promise<number> {
     return Number(await this.skillVault.licenseSaleCount(publicIndex));
   }
+
+  async verifyAndConsumePermission(licenseId: string, encryptedAgentAddress: `0x${string}`): Promise<boolean> {
+    try {
+      const tx = await this.skillAccessController.verifyAndConsumePermission(licenseId, encryptedAgentAddress);
+      await tx.wait();
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 let _service: BlockchainService | null = null;
@@ -137,6 +151,7 @@ export function getBlockchainService(): BlockchainService {
       memoryStoreAddress: process.env.MEMORY_STORE_ADDRESS!,
       skillRegistryAddress: process.env.SKILL_REGISTRY_ADDRESS!,
       skillVaultAddress: process.env.SKILL_VAULT_ADDRESS!,
+      skillAccessControllerAddress: process.env.SKILL_ACCESS_CONTROLLER_ADDRESS!,
     });
   }
   return _service;
