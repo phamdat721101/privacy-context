@@ -5,9 +5,11 @@ import { useWallets } from '@privy-io/react-auth';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { encryptSkillListing, encryptSkillPurchase, arbitrumSepolia } from '@fhe-ai-context/sdk';
+import { encryptPayment } from '@fhe-ai-context/sdk';
 import {
   SKILL_REGISTRY_ADDRESS, SKILL_VAULT_ADDRESS,
   SkillRegistryAbi, SkillVaultAbi, AGENT_BACKEND_URL,
+  PAYMENT_TOKEN_ADDRESS, PaymentTokenAbi,
 } from '@/lib/contracts';
 
 export function useSkillCount() {
@@ -93,6 +95,16 @@ export function usePurchaseSkill() {
         { paymentAmountUSDC, agentWalletAddress: userAddress },
         arbitrumSepolia, wc,
       );
+
+      // Approve vault to spend payment tokens (if token is configured)
+      if (PAYMENT_TOKEN_ADDRESS) {
+        const encApproval = await encryptPayment({ amount: paymentAmountUSDC }, arbitrumSepolia, wc);
+        const approveHash = await writeContractAsync({
+          address: PAYMENT_TOKEN_ADDRESS, abi: PaymentTokenAbi,
+          functionName: 'encryptedApprove', args: [SKILL_VAULT_ADDRESS, encApproval.inAmount],
+        });
+        await publicClient!.waitForTransactionReceipt({ hash: approveHash });
+      }
 
       const hash = await writeContractAsync({
         address: SKILL_VAULT_ADDRESS,

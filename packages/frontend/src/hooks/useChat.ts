@@ -3,6 +3,18 @@ import { useState } from 'react';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import type { ChatMessage } from '@/types/context';
 
+async function fetchWithRetry(url: string, init: RequestInit, retries = 1, delayMs = 2000): Promise<globalThis.Response> {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    if (retries > 0) {
+      await new Promise((r) => setTimeout(r, delayMs));
+      return fetchWithRetry(url, init, retries - 1, delayMs);
+    }
+    throw e;
+  }
+}
+
 export function useChat(userAddress: `0x${string}` | undefined, serializedPermit: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -17,7 +29,7 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
     setError(null);
 
     try {
-      const res = await fetch(`${AGENT_BACKEND_URL}/chat`, {
+      const res = await fetchWithRetry(`${AGENT_BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userAddress, message: content, serializedPermit }),

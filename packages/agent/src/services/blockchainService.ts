@@ -4,7 +4,9 @@ import { getMemoryStoreContract } from '../contracts/AIMemoryStore';
 import { getSkillRegistryContract } from '../contracts/SkillRegistry';
 import { getSkillVaultContract } from '../contracts/AgentSkillVault';
 import { getSkillAccessControllerContract } from '../contracts/SkillAccessController';
-import type { ContextHandles, SkillHandles, LicenseHandles } from '@fhe-ai-context/sdk';
+import { getPaymentTokenContract } from '../contracts/EncryptedPaymentToken';
+import { getPrivPayGatewayContract } from '../contracts/PrivPayGateway';
+import type { ContextHandles, SkillHandles, LicenseHandles, InvoiceHandles, EscrowHandles, SubscriptionHandles } from '@fhe-ai-context/sdk';
 
 export interface BlockchainServiceConfig {
   rpcUrl: string;
@@ -14,6 +16,8 @@ export interface BlockchainServiceConfig {
   skillRegistryAddress: string;
   skillVaultAddress: string;
   skillAccessControllerAddress: string;
+  paymentTokenAddress: string;
+  privPayGatewayAddress: string;
 }
 
 export class BlockchainService {
@@ -24,6 +28,8 @@ export class BlockchainService {
   private readonly skillRegistry: ethers.Contract;
   private readonly skillVault: ethers.Contract;
   private readonly skillAccessController: ethers.Contract;
+  private readonly paymentToken: ethers.Contract;
+  private readonly privPayGateway: ethers.Contract;
 
   constructor(config: BlockchainServiceConfig) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
@@ -33,6 +39,8 @@ export class BlockchainService {
     this.skillRegistry = getSkillRegistryContract(config.skillRegistryAddress, this.signer);
     this.skillVault = getSkillVaultContract(config.skillVaultAddress, this.signer);
     this.skillAccessController = getSkillAccessControllerContract(config.skillAccessControllerAddress, this.signer);
+    this.paymentToken = getPaymentTokenContract(config.paymentTokenAddress, this.signer);
+    this.privPayGateway = getPrivPayGatewayContract(config.privPayGatewayAddress, this.signer);
   }
 
   async getContextHandles(userAddress: string): Promise<ContextHandles> {
@@ -138,6 +146,34 @@ export class BlockchainService {
       return false;
     }
   }
+
+  // --- Payment Token ---
+
+  async getBalanceHandle(userAddress: string): Promise<string> {
+    return await this.paymentToken.getBalanceHandle(userAddress);
+  }
+
+  async mintTokens(to: string, amount: bigint) {
+    const tx = await this.paymentToken.mintPlaintext(to, amount);
+    return tx.wait();
+  }
+
+  // --- PrivPay Gateway ---
+
+  async getInvoiceHandles(invoiceId: string): Promise<InvoiceHandles> {
+    const raw = await this.privPayGateway.getInvoiceHandles(invoiceId);
+    return { amount: BigInt(raw.amount), recipient: BigInt(raw.recipient), isPaid: BigInt(raw.isPaid), expiry: Number(raw.expiry), creator: raw.creator };
+  }
+
+  async getEscrowHandles(escrowId: string): Promise<EscrowHandles> {
+    const raw = await this.privPayGateway.getEscrowHandles(escrowId);
+    return { invoiceId: raw.invoiceId, released: BigInt(raw.released), refunded: BigInt(raw.refunded), payer: raw.payer };
+  }
+
+  async getSubscriptionHandles(subId: string): Promise<SubscriptionHandles> {
+    const raw = await this.privPayGateway.getSubscriptionHandles(subId);
+    return { amount: BigInt(raw.amount), recipient: BigInt(raw.recipient), interval: Number(raw.interval), lastCharged: Number(raw.lastCharged), active: BigInt(raw.active), subscriber: raw.subscriber };
+  }
 }
 
 let _service: BlockchainService | null = null;
@@ -152,6 +188,8 @@ export function getBlockchainService(): BlockchainService {
       skillRegistryAddress: process.env.SKILL_REGISTRY_ADDRESS!,
       skillVaultAddress: process.env.SKILL_VAULT_ADDRESS!,
       skillAccessControllerAddress: process.env.SKILL_ACCESS_CONTROLLER_ADDRESS!,
+      paymentTokenAddress: process.env.PAYMENT_TOKEN_ADDRESS ?? '',
+      privPayGatewayAddress: process.env.PRIVPAY_GATEWAY_ADDRESS ?? '',
     });
   }
   return _service;

@@ -13,3 +13,6 @@ export * from './utils/encodeSentiment';
 export * from './skill/skillTypes';
 export * from './skill/encryptSkill';
 export * from './skill/decryptSkill';
+export * from './payment/paymentTypes';
+export * from './payment/encryptPayment';
+export * from './payment/decryptPayment';

@@ -5,6 +5,8 @@ import { chatRouter } from './routes/chat';
 import { permitRouter } from './routes/permit';
 import { memoryRouter } from './routes/memory';
 import { skillRouter } from './routes/skill';
+import { paymentRouter } from './routes/payment';
+import { createRateLimiter } from './middleware/rateLimit';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -12,10 +14,14 @@ const PORT = process.env.PORT ?? 3001;
 app.use(cors());
 app.use(express.json());
 
-app.use('/chat', chatRouter);
-app.use('/permit', permitRouter);
+const chatLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 30 });
+const permitLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 10 });
+
+app.use('/chat', chatLimiter, chatRouter);
+app.use('/permit', permitLimiter, permitRouter);
 app.use('/memory', memoryRouter);
 app.use('/skill', skillRouter);
+app.use('/payment', paymentRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

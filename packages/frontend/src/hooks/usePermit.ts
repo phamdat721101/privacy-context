@@ -41,6 +41,7 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
     setLoading(true);
     setError(null);
     try {
+      if (wallets.length === 0) { setError('Wallet disconnected'); setLoading(false); return; }
       let signer: any = wagmiWalletClient;
       if (!signer && wallets.length > 0) {
         const pw = wallets[0];

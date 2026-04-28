@@ -47,6 +47,25 @@ async function main() {
   await skillRegistry.setVault(await agentSkillVault.getAddress());
   console.log("SkillRegistry vault set to AgentSkillVault");
 
+  // --- Privacy Payment Contracts ---
+  const EncryptedPaymentToken = await ethers.getContractFactory("EncryptedPaymentToken");
+  const paymentToken = await EncryptedPaymentToken.deploy();
+  await paymentToken.waitForDeployment();
+  console.log("EncryptedPaymentToken:", await paymentToken.getAddress());
+
+  const PrivPayGateway = await ethers.getContractFactory("PrivPayGateway");
+  const privPayGateway = await PrivPayGateway.deploy(await paymentToken.getAddress());
+  await privPayGateway.waitForDeployment();
+  console.log("PrivPayGateway:", await privPayGateway.getAddress());
+
+  // Wire payment token to skill vault
+  await agentSkillVault.setPaymentToken(await paymentToken.getAddress());
+  console.log("AgentSkillVault payment token set");
+
+  // Mint test tokens to deployer (10,000 tokens with 6 decimals = 10_000_000_000)
+  await paymentToken.mintPlaintext(deployer.address, 10_000_000_000n);
+  console.log("Minted 10,000 test tokens to deployer");
+
   const deployment = {
     network: network.name,
     chainId: network.config.chainId,
@@ -57,6 +76,8 @@ async function main() {
     EncryptedPricer: await encryptedPricer.getAddress(),
     SkillAccessController: await skillAccessController.getAddress(),
     AgentSkillVault: await agentSkillVault.getAddress(),
+    EncryptedPaymentToken: await paymentToken.getAddress(),
+    PrivPayGateway: await privPayGateway.getAddress(),
     deployedAt: new Date().toISOString(),
   };
 

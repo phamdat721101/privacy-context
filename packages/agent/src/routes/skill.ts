@@ -1,26 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { getBlockchainService } from '../services/blockchainService';
+import { getLicenses, addLicense } from '../services/licenseCache';
+import { requireFields } from '../middleware/validate';
 
-export interface LicenseEntry {
-  skillIndex: number;
-  licenseId: string;
-  purchasedAt: number;
-  expiresAt: number;
-}
-
-// In-memory license store: userAddress (lowercase) → licenses
-export const licenseStore = new Map<string, LicenseEntry[]>();
+export type { LicenseEntry } from '../services/licenseCache';
 
 export const skillRouter = Router();
 
 // List a new skill (encrypted inputs from client)
-skillRouter.post('/list', async (req: Request, res: Response) => {
-  const { inSkillId, inDeveloper, inBasePrice, inMaxSupply } = req.body as {
-    inSkillId: string; inDeveloper: string; inBasePrice: string; inMaxSupply: string;
-  };
-  if (!inSkillId || !inDeveloper || !inBasePrice || !inMaxSupply) {
-    return res.status(400).json({ error: 'All encrypted skill fields are required' });
-  }
+skillRouter.post('/list', requireFields('inSkillId', 'inDeveloper', 'inBasePrice', 'inMaxSupply'), async (req: Request, res: Response) => {
+  const { inSkillId, inDeveloper, inBasePrice, inMaxSupply } = req.body;
   try {
     const chain = getBlockchainService();
     const receipt = await chain.listSkill(
@@ -34,14 +23,8 @@ skillRouter.post('/list', async (req: Request, res: Response) => {
 });
 
 // Purchase a skill license (encrypted inputs from client)
-skillRouter.post('/purchase', async (req: Request, res: Response) => {
-  const { publicSkillIndex, inPaymentAmount, inAgentOwner, licenseDurationSeconds, userAddress } = req.body as {
-    publicSkillIndex: number; inPaymentAmount: string; inAgentOwner: string;
-    licenseDurationSeconds?: number; userAddress?: string;
-  };
-  if (!publicSkillIndex || !inPaymentAmount || !inAgentOwner) {
-    return res.status(400).json({ error: 'publicSkillIndex, inPaymentAmount, inAgentOwner are required' });
-  }
+skillRouter.post('/purchase', requireFields('publicSkillIndex', 'inPaymentAmount', 'inAgentOwner'), async (req: Request, res: Response) => {
+  const { publicSkillIndex, inPaymentAmount, inAgentOwner, licenseDurationSeconds, userAddress } = req.body;
   try {
     const chain = getBlockchainService();
     const receipt = await chain.purchaseSkill(
@@ -49,17 +32,13 @@ skillRouter.post('/purchase', async (req: Request, res: Response) => {
       inAgentOwner as `0x${string}`, licenseDurationSeconds ?? 0,
     );
 
-    // Store license in memory if userAddress provided
     if (userAddress) {
-      const key = userAddress.toLowerCase();
-      const licenses = licenseStore.get(key) ?? [];
-      licenses.push({
+      addLicense(userAddress, {
         skillIndex: publicSkillIndex,
         licenseId: receipt.hash ?? '',
         purchasedAt: Math.floor(Date.now() / 1000),
         expiresAt: licenseDurationSeconds ? Math.floor(Date.now() / 1000) + licenseDurationSeconds : 0,
       });
-      licenseStore.set(key, licenses);
     }
 
     return res.json({ ok: true, txHash: receipt.hash });
@@ -70,30 +49,18 @@ skillRouter.post('/purchase', async (req: Request, res: Response) => {
 
 // Get user's active licenses
 skillRouter.get('/user/:address/licenses', (req: Request, res: Response) => {
-  const address = req.params.address.toLowerCase();
-  const licenses = licenseStore.get(address) ?? [];
-  const now = Math.floor(Date.now() / 1000);
-  const active = licenses.filter(l => l.expiresAt === 0 || l.expiresAt > now);
-  return res.json({ licenses: active });
+  return res.json({ licenses: getLicenses(req.params.address) });
 });
 
 // Register a license (called by frontend after on-chain purchase)
-skillRouter.post('/register-license', (req: Request, res: Response) => {
-  const { userAddress, skillIndex, licenseId, expiresAt } = req.body as {
-    userAddress: string; skillIndex: number; licenseId: string; expiresAt?: number;
-  };
-  if (!userAddress || !skillIndex) {
-    return res.status(400).json({ error: 'userAddress and skillIndex are required' });
-  }
-  const key = userAddress.toLowerCase();
-  const licenses = licenseStore.get(key) ?? [];
-  licenses.push({
+skillRouter.post('/register-license', requireFields('userAddress', 'skillIndex'), (req: Request, res: Response) => {
+  const { userAddress, skillIndex, licenseId, expiresAt } = req.body;
+  addLicense(userAddress, {
     skillIndex,
     licenseId: licenseId ?? '',
     purchasedAt: Math.floor(Date.now() / 1000),
     expiresAt: expiresAt ?? 0,
   });
-  licenseStore.set(key, licenses);
   return res.json({ ok: true });
 });
 

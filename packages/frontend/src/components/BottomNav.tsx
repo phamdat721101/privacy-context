@@ -6,6 +6,7 @@ const TABS = [
   { href: '/',            icon: '🏠', label: 'HOME' },
   { href: '/chat',        icon: '💬', label: 'CHAT' },
   { href: '/marketplace', icon: '🛒', label: 'SKILLS' },
+  { href: '/payments',    icon: '💰', label: 'PAY' },
   { href: '/settings',    icon: '⚙',  label: 'CONFIG' },
 ];
 
