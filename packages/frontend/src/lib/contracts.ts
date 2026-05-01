@@ -6,6 +6,8 @@ import SkillVaultAbi from './abis/AgentSkillVault.json';
 import SkillAccessControllerAbi from './abis/SkillAccessController.json';
 import PaymentTokenAbi from './abis/EncryptedPaymentToken.json';
 import PrivPayGatewayAbi from './abis/PrivPayGateway.json';
+import AgentBillingAbi from './abis/AgentBilling.json';
+import SettlementLedgerAbi from './abis/SettlementLedger.json';
 
 export const CONTEXT_MANAGER_ADDRESS =
   (process.env.NEXT_PUBLIC_CONTEXT_MANAGER_ADDRESS ?? '') as `0x${string}`;
@@ -37,4 +39,10 @@ export const PAYMENT_TOKEN_ADDRESS =
 export const PRIVPAY_GATEWAY_ADDRESS =
   (process.env.NEXT_PUBLIC_PRIVPAY_GATEWAY_ADDRESS ?? '') as `0x${string}`;
 
-export { ContextManagerAbi, MemoryStoreAbi, AgentRegistryAbi, SkillRegistryAbi, SkillVaultAbi, SkillAccessControllerAbi, PaymentTokenAbi, PrivPayGatewayAbi };
+export const AGENT_BILLING_ADDRESS =
+  (process.env.NEXT_PUBLIC_AGENT_BILLING_ADDRESS ?? '') as `0x${string}`;
+
+export const SETTLEMENT_LEDGER_ADDRESS =
+  (process.env.NEXT_PUBLIC_SETTLEMENT_LEDGER_ADDRESS ?? '') as `0x${string}`;
+
+export { ContextManagerAbi, MemoryStoreAbi, AgentRegistryAbi, SkillRegistryAbi, SkillVaultAbi, SkillAccessControllerAbi, PaymentTokenAbi, PrivPayGatewayAbi, AgentBillingAbi, SettlementLedgerAbi };

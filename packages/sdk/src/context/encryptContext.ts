@@ -33,27 +33,23 @@ export async function encryptContext(
   const publicClient = createPublicClient({ chain: viemChain, transport: http(chain.rpcUrl) });
   await client.connect(publicClient as any, walletClient);
 
-  const encryptedResult = await client.encryptInputs([
-    Encryptable.uint128(raw.sessionKey),
-    Encryptable.uint64(raw.userId),
-    Encryptable.uint8(BigInt(raw.sentimentScore)),
-    Encryptable.uint8(BigInt(raw.trustLevel)),
-    Encryptable.bool(raw.isVerified),
-    Encryptable.address(raw.authorizedAgent),
-  ]).encrypt();
-
-  if (!encryptedResult.success) {
-    throw new Error(`Encryption failed: ${encryptedResult.error.message}`);
+  // Encrypt each field individually to avoid CoFHE ZK proof deserialization
+  // errors when packing too many mixed FHE types in a single proof batch.
+  async function enc(item: any) {
+    const r = await client.encryptInputs([item]).encrypt();
+    if (!r.success) throw new Error('Encryption failed: ' + r.error.message);
+    return toBytes(r.data[0] as any);
   }
 
-  const inputs = encryptedResult.data;
+  const [inSessionKey, inUserId, inSentimentScore, inTrustLevel, inIsVerified, inAuthorizedAgent] =
+    await Promise.all([
+      enc(Encryptable.uint128(raw.sessionKey)),
+      enc(Encryptable.uint64(raw.userId)),
+      enc(Encryptable.uint8(BigInt(raw.sentimentScore))),
+      enc(Encryptable.uint8(BigInt(raw.trustLevel))),
+      enc(Encryptable.bool(raw.isVerified)),
+      enc(Encryptable.address(raw.authorizedAgent)),
+    ]);
 
-  return {
-    inSessionKey: toBytes(inputs[0]),
-    inUserId: toBytes(inputs[1]),
-    inSentimentScore: toBytes(inputs[2]),
-    inTrustLevel: toBytes(inputs[3]),
-    inIsVerified: toBytes(inputs[4]),
-    inAuthorizedAgent: toBytes(inputs[5]),
-  };
+  return { inSessionKey, inUserId, inSentimentScore, inTrustLevel, inIsVerified, inAuthorizedAgent };
 }

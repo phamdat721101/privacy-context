@@ -39,21 +39,20 @@ export async function encryptSkillListing(
 ): Promise<EncryptedSkillListingInputs> {
   const client = await connectClient(chain, walletClient);
 
-  const result = await client.encryptInputs([
-    Encryptable.uint32(BigInt(raw.skillId)),
-    Encryptable.address(raw.developerAddress),
-    Encryptable.uint64(raw.basePriceUSDC),
-    Encryptable.uint32(BigInt(raw.maxLicenses)),
-  ]).encrypt();
+  async function enc(item: any) {
+    const r = await client.encryptInputs([item]).encrypt();
+    if (!r.success) throw new Error('Encryption failed: ' + r.error.message);
+    return toBytes(r.data[0] as any);
+  }
 
-  if (!result.success) throw new Error(`Encryption failed: ${result.error.message}`);
+  const [inSkillId, inDeveloper, inBasePrice, inMaxSupply] = await Promise.all([
+    enc(Encryptable.uint32(BigInt(raw.skillId))),
+    enc(Encryptable.address(raw.developerAddress)),
+    enc(Encryptable.uint64(raw.basePriceUSDC)),
+    enc(Encryptable.uint32(BigInt(raw.maxLicenses))),
+  ]);
 
-  return {
-    inSkillId:   toBytes(result.data[0]),
-    inDeveloper: toBytes(result.data[1]),
-    inBasePrice: toBytes(result.data[2]),
-    inMaxSupply: toBytes(result.data[3]),
-  };
+  return { inSkillId, inDeveloper, inBasePrice, inMaxSupply };
 }
 
 export async function encryptSkillPurchase(
@@ -63,15 +62,16 @@ export async function encryptSkillPurchase(
 ): Promise<EncryptedSkillPurchaseInputs> {
   const client = await connectClient(chain, walletClient);
 
-  const result = await client.encryptInputs([
-    Encryptable.uint64(raw.paymentAmountUSDC),
-    Encryptable.address(raw.agentWalletAddress),
-  ]).encrypt();
+  async function enc(item: any) {
+    const r = await client.encryptInputs([item]).encrypt();
+    if (!r.success) throw new Error('Encryption failed: ' + r.error.message);
+    return toBytes(r.data[0] as any);
+  }
 
-  if (!result.success) throw new Error(`Encryption failed: ${result.error.message}`);
+  const [inPaymentAmount, inAgentOwner] = await Promise.all([
+    enc(Encryptable.uint64(raw.paymentAmountUSDC)),
+    enc(Encryptable.address(raw.agentWalletAddress)),
+  ]);
 
-  return {
-    inPaymentAmount: toBytes(result.data[0]),
-    inAgentOwner:    toBytes(result.data[1]),
-  };
+  return { inPaymentAmount, inAgentOwner };
 }

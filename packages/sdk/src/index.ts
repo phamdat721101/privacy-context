@@ -16,3 +16,5 @@ export * from './skill/decryptSkill';
 export * from './payment/paymentTypes';
 export * from './payment/encryptPayment';
 export * from './payment/decryptPayment';
+export * from './billing/billingTypes';
+export * from './billing/encryptBilling';

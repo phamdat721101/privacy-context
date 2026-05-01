@@ -11,3 +11,4 @@ coverage/
 *.log
 nim-claw.pem
 packages/agent/data/licenses.json
+docs/*

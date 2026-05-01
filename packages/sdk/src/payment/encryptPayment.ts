@@ -38,12 +38,16 @@ export async function encryptInvoice(
   raw: RawInvoice, chain: SupportedChain, walletClient: WalletClient,
 ): Promise<EncryptedInvoiceInputs> {
   const client = await connectClient(chain, walletClient);
-  const result = await client.encryptInputs([
-    Encryptable.uint64(raw.amount),
-    Encryptable.address(raw.recipientAddress),
-  ]).encrypt();
-  if (!result.success) throw new Error(`Encryption failed: ${result.error.message}`);
-  return { inAmount: toBytes(result.data[0]), inRecipient: toBytes(result.data[1]) };
+  async function enc(item: any) {
+    const r = await client.encryptInputs([item]).encrypt();
+    if (!r.success) throw new Error('Encryption failed: ' + r.error.message);
+    return toBytes(r.data[0] as any);
+  }
+  const [inAmount, inRecipient] = await Promise.all([
+    enc(Encryptable.uint64(raw.amount)),
+    enc(Encryptable.address(raw.recipientAddress)),
+  ]);
+  return { inAmount, inRecipient };
 }
 
 export async function encryptPayment(
@@ -59,10 +63,14 @@ export async function encryptSubscription(
   raw: RawSubscription, chain: SupportedChain, walletClient: WalletClient,
 ): Promise<EncryptedSubscriptionInputs> {
   const client = await connectClient(chain, walletClient);
-  const result = await client.encryptInputs([
-    Encryptable.uint64(raw.amount),
-    Encryptable.address(raw.recipientAddress),
-  ]).encrypt();
-  if (!result.success) throw new Error(`Encryption failed: ${result.error.message}`);
-  return { inAmount: toBytes(result.data[0]), inRecipient: toBytes(result.data[1]) };
+  async function enc(item: any) {
+    const r = await client.encryptInputs([item]).encrypt();
+    if (!r.success) throw new Error('Encryption failed: ' + r.error.message);
+    return toBytes(r.data[0] as any);
+  }
+  const [inAmount, inRecipient] = await Promise.all([
+    enc(Encryptable.uint64(raw.amount)),
+    enc(Encryptable.address(raw.recipientAddress)),
+  ]);
+  return { inAmount, inRecipient };
 }

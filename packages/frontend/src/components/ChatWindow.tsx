@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function ChatWindow({ userAddress, permitState }: Props) {
-  const { messages, sendMessage, loading, error } = useChat(userAddress, permitState.serializedPermit);
+  const { messages, sendMessage, loading, error, needsTopUp } = useChat(userAddress, permitState.serializedPermit);
   const [input, setInput] = useState('');
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -58,6 +58,14 @@ export function ChatWindow({ userAddress, permitState }: Props) {
         <div className="p-3 bg-red-900 text-red-200 text-sm flex justify-between">
             <span>⚠ {visibleError}</span>
             <button onClick={() => setDismissedError(visibleError)}>×</button>
+        </div>
+      )}
+
+      {needsTopUp && (
+        <div className="p-3" style={{ background: 'rgba(255,165,0,0.15)', borderBottom: '1px solid var(--pixel-gold)' }}>
+          <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gold)' }}>
+            💰 INSUFFICIENT BALANCE — <a href="/payments" style={{ color: 'var(--pixel-red)', textDecoration: 'underline' }}>TOP UP YOUR AGENT BILLING</a> to continue chatting.
+          </div>
         </div>
       )}
 

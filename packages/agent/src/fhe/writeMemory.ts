@@ -15,16 +15,19 @@ export async function writeEncryptedMemory(userAddress: string, memoryHash: bigi
   const chain = getBlockchainService();
   const lastInteraction = BigInt(Math.floor(Date.now() / 1000));
 
-  const result = await client.encryptInputs([
+  const result1 = await client.encryptInputs([
     Encryptable.uint128(memoryHash),
+  ]).encrypt();
+  if (!result1.success) throw new Error('Encryption failed: ' + result1.error.message);
+
+  const result2 = await client.encryptInputs([
     Encryptable.uint64(lastInteraction),
   ]).encrypt();
-
-  if (!result.success) throw new Error(`Encryption failed: ${result.error.message}`);
+  if (!result2.success) throw new Error('Encryption failed: ' + result2.error.message);
 
   return chain.updateMemory(
     userAddress,
-    toBytes(result.data[0]),
-    toBytes(result.data[1]),
+    toBytes(result1.data[0]),
+    toBytes(result2.data[0]),
   );
 }

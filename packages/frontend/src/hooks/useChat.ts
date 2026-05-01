@@ -19,6 +19,7 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsTopUp, setNeedsTopUp] = useState(false);
 
   async function sendMessage(content: string) {
     if (!userAddress || !serializedPermit) return;
@@ -27,6 +28,7 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
     setError(null);
+    setNeedsTopUp(false);
 
     try {
       const res = await fetchWithRetry(`${AGENT_BACKEND_URL}/chat`, {
@@ -35,7 +37,13 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
         body: JSON.stringify({ userAddress, message: content, serializedPermit }),
       });
 
-      const data = await res.json() as { response?: string; error?: string };
+      const data = await res.json() as { response?: string; error?: string; agentAddress?: string };
+
+      if (res.status === 402) {
+        setNeedsTopUp(true);
+        setError('Insufficient balance — please top up your agent billing.');
+        return;
+      }
 
       if (!res.ok) {
         throw new Error(data.error ?? `Request failed (${res.status})`);
@@ -54,5 +62,5 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
     }
   }
 
-  return { messages, sendMessage, loading, error };
+  return { messages, sendMessage, loading, error, needsTopUp };
 }

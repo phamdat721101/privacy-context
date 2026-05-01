@@ -6,7 +6,9 @@ import { getSkillVaultContract } from '../contracts/AgentSkillVault';
 import { getSkillAccessControllerContract } from '../contracts/SkillAccessController';
 import { getPaymentTokenContract } from '../contracts/EncryptedPaymentToken';
 import { getPrivPayGatewayContract } from '../contracts/PrivPayGateway';
-import type { ContextHandles, SkillHandles, LicenseHandles, InvoiceHandles, EscrowHandles, SubscriptionHandles } from '@fhe-ai-context/sdk';
+import { getAgentBillingContract } from '../contracts/AgentBilling';
+import { getSettlementLedgerContract } from '../contracts/SettlementLedger';
+import type { ContextHandles, SkillHandles, LicenseHandles, InvoiceHandles, EscrowHandles, SubscriptionHandles, SettlementHandles } from '@fhe-ai-context/sdk';
 
 export interface BlockchainServiceConfig {
   rpcUrl: string;
@@ -18,6 +20,8 @@ export interface BlockchainServiceConfig {
   skillAccessControllerAddress: string;
   paymentTokenAddress: string;
   privPayGatewayAddress: string;
+  agentBillingAddress: string;
+  settlementLedgerAddress: string;
 }
 
 export class BlockchainService {
@@ -30,6 +34,8 @@ export class BlockchainService {
   private readonly skillAccessController: ethers.Contract;
   private readonly paymentToken: ethers.Contract;
   private readonly privPayGateway: ethers.Contract;
+  private readonly agentBilling: ethers.Contract;
+  private readonly settlementLedger: ethers.Contract;
 
   constructor(config: BlockchainServiceConfig) {
     this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
@@ -41,6 +47,8 @@ export class BlockchainService {
     this.skillAccessController = getSkillAccessControllerContract(config.skillAccessControllerAddress, this.signer);
     this.paymentToken = getPaymentTokenContract(config.paymentTokenAddress, this.signer);
     this.privPayGateway = getPrivPayGatewayContract(config.privPayGatewayAddress, this.signer);
+    this.agentBilling = getAgentBillingContract(config.agentBillingAddress, this.signer);
+    this.settlementLedger = getSettlementLedgerContract(config.settlementLedgerAddress, this.signer);
   }
 
   async getContextHandles(userAddress: string): Promise<ContextHandles> {
@@ -174,6 +182,37 @@ export class BlockchainService {
     const raw = await this.privPayGateway.getSubscriptionHandles(subId);
     return { amount: BigInt(raw.amount), recipient: BigInt(raw.recipient), interval: Number(raw.interval), lastCharged: Number(raw.lastCharged), active: BigInt(raw.active), subscriber: raw.subscriber };
   }
+
+  // --- Agent Billing ---
+
+  async getBillingBalanceHandle(user: string, agent: string): Promise<string> {
+    return await this.agentBilling.getBalanceHandle(user, agent);
+  }
+
+  async chargeBillingFee(user: string, inFee: `0x${string}`) {
+    const tx = await this.agentBilling.chargeFee(user, inFee);
+    return tx.wait();
+  }
+
+  // --- Settlement Ledger ---
+
+  async recordSettlement(payer: string, payee: string, inAmount: `0x${string}`, inReasonHash: `0x${string}`) {
+    const tx = await this.settlementLedger.recordSettlement(payer, payee, inAmount, inReasonHash);
+    return tx.wait();
+  }
+
+  async getSettlementHandles(settlementId: string): Promise<SettlementHandles> {
+    const raw = await this.settlementLedger.getSettlementHandles(settlementId);
+    return { amount: BigInt(raw.amount), reasonHash: BigInt(raw.reasonHash), payer: raw.payer, payee: raw.payee, timestamp: Number(raw.timestamp) };
+  }
+
+  async getUserSettlementCount(user: string): Promise<number> {
+    return Number(await this.settlementLedger.getUserSettlementCount(user));
+  }
+
+  async getUserSettlementId(user: string, index: number): Promise<string> {
+    return await this.settlementLedger.getUserSettlementId(user, index);
+  }
 }
 
 let _service: BlockchainService | null = null;
@@ -190,6 +229,8 @@ export function getBlockchainService(): BlockchainService {
       skillAccessControllerAddress: process.env.SKILL_ACCESS_CONTROLLER_ADDRESS!,
       paymentTokenAddress: process.env.PAYMENT_TOKEN_ADDRESS ?? '',
       privPayGatewayAddress: process.env.PRIVPAY_GATEWAY_ADDRESS ?? '',
+      agentBillingAddress: process.env.AGENT_BILLING_ADDRESS ?? '',
+      settlementLedgerAddress: process.env.SETTLEMENT_LEDGER_ADDRESS ?? '',
     });
   }
   return _service;

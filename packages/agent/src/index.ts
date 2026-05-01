@@ -6,6 +6,8 @@ import { permitRouter } from './routes/permit';
 import { memoryRouter } from './routes/memory';
 import { skillRouter } from './routes/skill';
 import { paymentRouter } from './routes/payment';
+import { billingRouter } from './routes/billing';
+import { settlementRouter } from './routes/settlement';
 import { createRateLimiter } from './middleware/rateLimit';
 
 const app = express();
@@ -22,6 +24,8 @@ app.use('/permit', permitLimiter, permitRouter);
 app.use('/memory', memoryRouter);
 app.use('/skill', skillRouter);
 app.use('/payment', paymentRouter);
+app.use('/billing', billingRouter);
+app.use('/settlement', settlementRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
