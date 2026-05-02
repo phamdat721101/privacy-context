@@ -12,3 +12,4 @@ coverage/
 nim-claw.pem
 packages/agent/data/licenses.json
 docs/*
+fhe-pay/*

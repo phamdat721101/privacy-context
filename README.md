@@ -122,4 +122,40 @@ npm run frontend:dev   # Starts frontend on http://localhost:3000
 ```
 
 ---
+
+## 🔒 Privacy Mode (v0.3)
+
+FHE AI Context v0.3 adds three-layer privacy protection for agent payments and analytics:
+
+| Layer | Technology | What's Hidden |
+|-------|-----------|---------------|
+| **Amount Privacy** | FHERC20 (EncryptedPaymentToken) | Payment amounts on-chain |
+| **Metadata Privacy** | PII regex filter (SDK) | Emails, SSNs, phones in messages |
+| **Context Privacy** | FHE-encrypted analytics (CoFHE) | Agent decision context in logs |
+
+### Enable Privacy
+
+**Frontend:** Settings → Privacy Mode → choose OFF / PII FILTER / FULL FHE
+
+**Agent env:** Set `PRIVACY_MODE=fhe` (or `metadata-only`)
+
+**Programmatic (SDK):**
+```typescript
+import { MetadataFilter, ContextSeal } from '@fhe-ai-context/sdk';
+
+const filter = new MetadataFilter();
+const result = filter.filter('Contact john@email.com');
+// result.filtered === 'Contact [EMAIL]'
+```
+
+### Docker Quick Start
+
+```bash
+cp .env.example .env  # Edit with your keys
+docker-compose up --build
+```
+
+See [Community Test Guide](./docs/COMMUNITY_TEST_GUIDE.md) for full testing instructions.
+
+---
 *Created with focus on uncompromised privacy and AI usability.*

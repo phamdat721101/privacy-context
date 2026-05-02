@@ -31,9 +31,10 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
     setNeedsTopUp(false);
 
     try {
+      const privacyMode = typeof window !== 'undefined' ? localStorage.getItem('privacyMode') ?? 'off' : 'off';
       const res = await fetchWithRetry(`${AGENT_BACKEND_URL}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Privacy-Mode': privacyMode },
         body: JSON.stringify({ userAddress, message: content, serializedPermit }),
       });
 

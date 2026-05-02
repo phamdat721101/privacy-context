@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -17,6 +17,15 @@ export default function SettingsPage() {
   useEffect(() => {
     if (ready && !authenticated) router.push('/');
   }, [ready, authenticated, router]);
+
+  const [privacyMode, setPrivacyMode] = useState<string>('off');
+  useEffect(() => {
+    setPrivacyMode(localStorage.getItem('privacyMode') ?? 'off');
+  }, []);
+  function handlePrivacyChange(mode: string) {
+    setPrivacyMode(mode);
+    localStorage.setItem('privacyMode', mode);
+  }
 
   if (!ready || !authenticated) return null;
 
@@ -64,6 +73,30 @@ export default function SettingsPage() {
              AGENT PERMITS
            </div>
            <PermitManager permitState={permitState} authorize={authorize} revoke={revoke} loading={permitLoading} error={permitError} />
+        </div>
+
+        {/* Privacy Mode */}
+        <div className="pixel-card-gray w-full p-6">
+          <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-teal)', textShadow: '0 0 5px var(--pixel-teal)', marginBottom: '16px' }}>
+            PRIVACY MODE
+          </div>
+          <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: '#fff', marginBottom: '16px' }}>
+            Control how your payment metadata and analytics are protected.
+          </div>
+          <div className="flex gap-3">
+            {(['off', 'metadata-only', 'fhe'] as const).map((mode) => (
+              <button key={mode} onClick={() => handlePrivacyChange(mode)}
+                className={`pixel-btn ${privacyMode === mode ? 'pixel-btn-primary' : 'pixel-btn-ghost'}`}
+                style={{ flex: 1, textAlign: 'center', padding: '12px', fontSize: '9px' }}>
+                {mode === 'off' ? 'OFF' : mode === 'metadata-only' ? 'PII FILTER' : 'FULL FHE'}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)', marginTop: '12px' }}>
+            {privacyMode === 'off' && 'No privacy filtering applied.'}
+            {privacyMode === 'metadata-only' && 'PII (emails, SSNs, phones) stripped from messages before processing.'}
+            {privacyMode === 'fhe' && 'Full FHE: PII filtered + analytics events encrypted on-chain.'}
+          </div>
         </div>
 
         {/* Context Preferences */}

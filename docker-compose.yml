@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    ports:
+      - "3001:3001"
+    env_file: .env
+    environment:
+      - PORT=3001
+      - PRIVACY_MODE=${PRIVACY_MODE:-off}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    env_file: .env
+    environment:
+      - NEXT_PUBLIC_AGENT_BACKEND_URL=http://localhost:3001
+    depends_on:
+      - agent

@@ -9,12 +9,15 @@ import { paymentRouter } from './routes/payment';
 import { billingRouter } from './routes/billing';
 import { settlementRouter } from './routes/settlement';
 import { createRateLimiter } from './middleware/rateLimit';
+import { privacyFilter } from './middleware/privacyFilter';
+import { analyticsRouter } from './routes/analytics';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
 app.use(cors());
 app.use(express.json());
+app.use(privacyFilter);
 
 const chatLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 30 });
 const permitLimiter = createRateLimiter({ windowMs: 60000, maxRequests: 10 });
@@ -26,6 +29,7 @@ app.use('/skill', skillRouter);
 app.use('/payment', paymentRouter);
 app.use('/billing', billingRouter);
 app.use('/settlement', settlementRouter);
+app.use('/analytics', analyticsRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

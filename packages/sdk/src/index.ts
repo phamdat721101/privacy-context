@@ -18,3 +18,4 @@ export * from './payment/encryptPayment';
 export * from './payment/decryptPayment';
 export * from './billing/billingTypes';
 export * from './billing/encryptBilling';
+export * from './privacy/index';
