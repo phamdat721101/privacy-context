@@ -24,24 +24,22 @@ export class ContextSeal {
   ): Promise<SealedPaymentEvent> {
     const client = getCofheClient();
     const publicClient = createPublicClient({ chain: viemArbSepolia, transport: http(chain.rpcUrl) });
-    await client.connect(publicClient as any, walletClient);
+    await client.connect(publicClient as any, walletClient as any);
 
     const result = await client.encryptInputs([
       Encryptable.uint128(hashString(event.url)),
       Encryptable.uint64(BigInt(event.durationMs)),
       Encryptable.bool(event.success),
-    ]).encrypt();
-
-    if (!result.success) throw new Error(`Context seal failed: ${result.error.message}`);
+    ]).execute();
 
     return {
       protocol: event.protocol,
       chain: event.chain,
       timestamp: event.timestamp,
       encrypted: {
-        urlHash: toBytes(result.data[0]),
-        durationMs: toBytes(result.data[1]),
-        success: toBytes(result.data[2]),
+        urlHash: toBytes(result[0]),
+        durationMs: toBytes(result[1]),
+        success: toBytes(result[2]),
       },
     };
   }

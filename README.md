@@ -8,12 +8,31 @@ FHE AI Context is a monorepo that implements a strictly privacy-preserving AI as
 
 ## 📝 Deployed Contracts (Arbitrum Sepolia)
 
-The project leverages the following deployed contract infrastructure on the Arbitrum Sepolia network (Chain ID: `421614`):
+All contracts are deployed on Arbitrum Sepolia (Chain ID: `421614`):
 
-- **AIContextManager**: [`0x9b7EAfe5f55e5Ec1027A07501e91f45028B1cCfa`](https://sepolia.arbiscan.io/address/0x9b7EAfe5f55e5Ec1027A07501e91f45028B1cCfa)
-- **AIMemoryStore**: [`0xD6486d23c8906f30Cc4dF92722E2749E8Ddc1286`](https://sepolia.arbiscan.io/address/0xD6486d23c8906f30Cc4dF92722E2749E8Ddc1286)
-- **AgentRegistry**: [`0xD3DB127F4d7e8719e5875dacd2593B99B118b0E8`](https://sepolia.arbiscan.io/address/0xD3DB127F4d7e8719e5875dacd2593B99B118b0E8)
-- **Registered Agent Authority**: [`0x100690a32B562fd45e685BC2E63bbfF566d452db`](https://sepolia.arbiscan.io/address/0x100690a32B562fd45e685BC2E63bbfF566d452db)
+| Contract | Address |
+|----------|---------|
+| **AgentRegistry** | [`0xEf3Cd0D1b103dCF478c9aEe9782d14a8Cb67B996`](https://sepolia.arbiscan.io/address/0xEf3Cd0D1b103dCF478c9aEe9782d14a8Cb67B996) |
+| **AIContextManager** | [`0x9fcc68828645619F779D71Dd1a416a37a4F8A99C`](https://sepolia.arbiscan.io/address/0x9fcc68828645619F779D71Dd1a416a37a4F8A99C) |
+| **AIMemoryStore** | [`0x85082881c440d6f74048cCA32BFcCf3bEd1CA637`](https://sepolia.arbiscan.io/address/0x85082881c440d6f74048cCA32BFcCf3bEd1CA637) |
+| **SkillRegistry** | [`0xc44EE34413ac3B722363aF9a2a63975f756b69b0`](https://sepolia.arbiscan.io/address/0xc44EE34413ac3B722363aF9a2a63975f756b69b0) |
+| **EncryptedPricer** | [`0x3467738ea870D666DA5959ac50321e1b6F9f47b6`](https://sepolia.arbiscan.io/address/0x3467738ea870D666DA5959ac50321e1b6F9f47b6) |
+| **SkillAccessController** | [`0xbFcFfD5565B6CFE81F239D1F2a840A605f0E6DCb`](https://sepolia.arbiscan.io/address/0xbFcFfD5565B6CFE81F239D1F2a840A605f0E6DCb) |
+| **AgentSkillVault** | [`0x459F5D7A9787abC94cF07389097372733B962Ecc`](https://sepolia.arbiscan.io/address/0x459F5D7A9787abC94cF07389097372733B962Ecc) |
+| **EncryptedPaymentToken** | [`0xFc999D677B899f8594dc8C8F9394aCB0CDeC3BDe`](https://sepolia.arbiscan.io/address/0xFc999D677B899f8594dc8C8F9394aCB0CDeC3BDe) |
+| **PrivPayGateway** | [`0xDbBAe21A4b1440a3ba00BD23ba2daE403647629A`](https://sepolia.arbiscan.io/address/0xDbBAe21A4b1440a3ba00BD23ba2daE403647629A) |
+| **AgentBilling** | [`0x01edad8BF4F38426A95dfb8Df4f02F8c26925360`](https://sepolia.arbiscan.io/address/0x01edad8BF4F38426A95dfb8Df4f02F8c26925360) |
+| **SettlementLedger** | [`0xf4bc742849Bd2Daa07Ed23EeA8eD8938F1BDf9f4`](https://sepolia.arbiscan.io/address/0xf4bc742849Bd2Daa07Ed23EeA8eD8938F1BDf9f4) |
+
+**Registered Agent Authority**: [`0x100690a32B562fd45e685BC2E63bbfF566d452db`](https://sepolia.arbiscan.io/address/0x100690a32B562fd45e685BC2E63bbfF566d452db)
+
+### 📋 Sample On-Chain Transactions
+
+| Operation | Transaction |
+|-----------|-------------|
+| Agent Registration | [`0x61546c8f...`](https://sepolia.arbiscan.io/tx/0x61546c8f3213bdf64c1072af73caa5e63b907d4ea96fc16a52beab82a51d3479) |
+| Agent Assignment | [`0x89349fcf...`](https://sepolia.arbiscan.io/tx/0x89349fcfa60078200d180828ba3b489a90b3005acf9931ca666a8c3a52afe272) |
+| Memory Agent Authorization | [`0x8ad940c2...`](https://sepolia.arbiscan.io/tx/0x8ad940c256bcf5dc54e399878e79788111c39d8722a08e15e8114abc686179d2) |
 
 ---
 

@@ -1,8 +1,16 @@
 {
   "network": "arbitrumSepolia",
   "chainId": 421614,
-  "AgentRegistry": "0xD3DB127F4d7e8719e5875dacd2593B99B118b0E8",
-  "AIContextManager": "0x9b7EAfe5f55e5Ec1027A07501e91f45028B1cCfa",
-  "AIMemoryStore": "0xD6486d23c8906f30Cc4dF92722E2749E8Ddc1286",
-  "deployedAt": "2026-03-28T13:31:28.303Z"
+  "AgentRegistry": "0x75A7200DA49cBC573Ee0Fbe230e3976E36F4448c",
+  "AIContextManager": "0xca9eD8ee2a8501fAF0396d42F76dc7c9661e460D",
+  "AIMemoryStore": "0xaDDB25e8B7157E0930C56bE33C7150a98f8B3A5F",
+  "SkillRegistry": "0x234d7890179c713B8987795e5bb17357417cF894",
+  "EncryptedPricer": "0x0D826abFD7fb74B72596aD2c8783a288410aB117",
+  "SkillAccessController": "0x20C34bDb6cF6FbB69927397Dbb7624BD20B58927",
+  "AgentSkillVault": "0xeeBf5dCeA7811b0cf95147812437Dd659F202dcb",
+  "EncryptedPaymentToken": "0x994D13b35450424d8F7c92fEF96f4d6AaAB64B3C",
+  "PrivPayGateway": "0x0dFCC4B94B17626f1D40a02592B4cb98403cd158",
+  "AgentBilling": "0xff4dc5D0e979Ff494CcdD6c18A37964a5dD1A290",
+  "SettlementLedger": "0x0B8c6F7d23E8057c160893909e63fA7e884Fedf7",
+  "deployedAt": "2026-05-03T16:23:32.173Z"
 }

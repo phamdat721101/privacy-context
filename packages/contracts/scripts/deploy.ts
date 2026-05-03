@@ -62,6 +62,17 @@ async function main() {
   await agentSkillVault.setPaymentToken(await paymentToken.getAddress());
   console.log("AgentSkillVault payment token set");
 
+  // --- Billing & Settlement Contracts ---
+  const AgentBilling = await ethers.getContractFactory("AgentBilling");
+  const agentBilling = await AgentBilling.deploy(await paymentToken.getAddress(), await registry.getAddress());
+  await agentBilling.waitForDeployment();
+  console.log("AgentBilling:", await agentBilling.getAddress());
+
+  const SettlementLedger = await ethers.getContractFactory("SettlementLedger");
+  const settlementLedger = await SettlementLedger.deploy(await registry.getAddress());
+  await settlementLedger.waitForDeployment();
+  console.log("SettlementLedger:", await settlementLedger.getAddress());
+
   // Mint test tokens to deployer (10,000 tokens with 6 decimals = 10_000_000_000)
   await paymentToken.mintPlaintext(deployer.address, 10_000_000_000n);
   console.log("Minted 10,000 test tokens to deployer");
@@ -78,6 +89,8 @@ async function main() {
     AgentSkillVault: await agentSkillVault.getAddress(),
     EncryptedPaymentToken: await paymentToken.getAddress(),
     PrivPayGateway: await privPayGateway.getAddress(),
+    AgentBilling: await agentBilling.getAddress(),
+    SettlementLedger: await settlementLedger.getAddress(),
     deployedAt: new Date().toISOString(),
   };
 

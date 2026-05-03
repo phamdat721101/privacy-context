@@ -13,25 +13,21 @@ export async function decryptContextWithPermit(
   const client = await getAgentCofheClient();
   const p = permit as any;
 
-  const results = await Promise.all([
-    client.decryptHandle(handles.sessionKey,     FheTypes.Uint128).setPermit(p).decrypt(),
-    client.decryptHandle(handles.sentimentScore, FheTypes.Uint8).setPermit(p).decrypt(),
-    client.decryptHandle(handles.trustLevel,     FheTypes.Uint8).setPermit(p).decrypt(),
-    client.decryptHandle(handles.isVerified,     FheTypes.Bool).setPermit(p).decrypt(),
+  const [sessionKey, sentimentScore, trustLevel, isVerified, memoryTier] = await Promise.all([
+    client.decryptHandle(handles.sessionKey,     FheTypes.Uint128).setPermit(p).execute(),
+    client.decryptHandle(handles.sentimentScore, FheTypes.Uint8).setPermit(p).execute(),
+    client.decryptHandle(handles.trustLevel,     FheTypes.Uint8).setPermit(p).execute(),
+    client.decryptHandle(handles.isVerified,     FheTypes.Bool).setPermit(p).execute(),
     handles.memoryTier !== 0n
-      ? client.decryptHandle(handles.memoryTier, FheTypes.Uint8).setPermit(p).decrypt()
-      : Promise.resolve({ success: true as const, data: 0n }),
+      ? client.decryptHandle(handles.memoryTier, FheTypes.Uint8).setPermit(p).execute()
+      : Promise.resolve(0n),
   ]);
 
-  for (const res of results) {
-    if (!res.success) throw new Error(`Decryption failed: ${res.error.message}`);
-  }
-
   return {
-    sessionKey:     BigInt(results[0].data as bigint),
-    sentimentScore: Number(results[1].data as bigint),
-    trustLevel:     Number(results[2].data as bigint),
-    isVerified:     Boolean(results[3].data),
-    memoryTier:     Number(results[4].data as bigint),
+    sessionKey:     BigInt(sessionKey as bigint),
+    sentimentScore: Number(sentimentScore as bigint),
+    trustLevel:     Number(trustLevel as bigint),
+    isVerified:     Boolean(isVerified),
+    memoryTier:     Number(memoryTier as bigint),
   };
 }

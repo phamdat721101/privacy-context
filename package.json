@@ -14,6 +14,7 @@
     "frontend:dev": "npm run dev -w packages/frontend",
     "frontend:build": "npm run build -w packages/frontend",
     "frontend:start": "npm run start -w packages/frontend",
-    "build": "npm run sdk:build && npm run agent:build && npm run frontend:build"
+    "build": "npm run sdk:build && npm run agent:build && npm run frontend:build",
+    "demo:seed": "npm run demo:seed -w packages/contracts"
   }
 }

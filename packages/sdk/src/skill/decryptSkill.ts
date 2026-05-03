@@ -10,23 +10,19 @@ export async function decryptSkillHandles(
   const p = permit as any;
 
   const results = await Promise.all([
-    client.decryptHandle(handles.skillId,     FheTypes.Uint32).setPermit(p).decrypt(),
-    client.decryptHandle(handles.basePrice,   FheTypes.Uint64).setPermit(p).decrypt(),
-    client.decryptHandle(handles.maxSupply,   FheTypes.Uint32).setPermit(p).decrypt(),
-    client.decryptHandle(handles.activeUsers, FheTypes.Uint32).setPermit(p).decrypt(),
-    client.decryptHandle(handles.isActive,    FheTypes.Bool).setPermit(p).decrypt(),
+    client.decryptHandle(handles.skillId,     FheTypes.Uint32).setPermit(p).execute(),
+    client.decryptHandle(handles.basePrice,   FheTypes.Uint64).setPermit(p).execute(),
+    client.decryptHandle(handles.maxSupply,   FheTypes.Uint32).setPermit(p).execute(),
+    client.decryptHandle(handles.activeUsers, FheTypes.Uint32).setPermit(p).execute(),
+    client.decryptHandle(handles.isActive,    FheTypes.Bool).setPermit(p).execute(),
   ]);
 
-  for (const r of results) {
-    if (!r.success) throw new Error(`Decryption failed: ${r.error.message}`);
-  }
-
   return {
-    skillId:     Number(results[0].data as bigint),
-    basePrice:   BigInt(results[1].data as bigint),
-    maxSupply:   Number(results[2].data as bigint),
-    activeUsers: Number(results[3].data as bigint),
-    isActive:    Boolean(results[4].data),
+    skillId:     Number(results[0] as bigint),
+    basePrice:   BigInt(results[1] as bigint),
+    maxSupply:   Number(results[2] as bigint),
+    activeUsers: Number(results[3] as bigint),
+    isActive:    Boolean(results[4]),
   };
 }
 
@@ -38,17 +34,13 @@ export async function decryptLicenseHandles(
   const p = permit as any;
 
   const results = await Promise.all([
-    client.decryptHandle(handles.purchasePrice, FheTypes.Uint64).setPermit(p).decrypt(),
-    client.decryptHandle(handles.isValid,       FheTypes.Bool).setPermit(p).decrypt(),
+    client.decryptHandle(handles.purchasePrice, FheTypes.Uint64).setPermit(p).execute(),
+    client.decryptHandle(handles.isValid,       FheTypes.Bool).setPermit(p).execute(),
   ]);
 
-  for (const r of results) {
-    if (!r.success) throw new Error(`Decryption failed: ${r.error.message}`);
-  }
-
   return {
-    purchasePrice: BigInt(results[0].data as bigint),
-    isValid:       Boolean(results[1].data),
+    purchasePrice: BigInt(results[0] as bigint),
+    isValid:       Boolean(results[1]),
     purchasedAt:   handles.purchasedAt,
     expiresAt:     handles.expiresAt,
   };

@@ -1,13 +1,24 @@
-import ContextManagerAbi from './abis/AIContextManager.json';
-import MemoryStoreAbi from './abis/AIMemoryStore.json';
-import AgentRegistryAbi from './abis/AgentRegistry.json';
-import SkillRegistryAbi from './abis/SkillRegistry.json';
-import SkillVaultAbi from './abis/AgentSkillVault.json';
-import SkillAccessControllerAbi from './abis/SkillAccessController.json';
-import PaymentTokenAbi from './abis/EncryptedPaymentToken.json';
-import PrivPayGatewayAbi from './abis/PrivPayGateway.json';
-import AgentBillingAbi from './abis/AgentBilling.json';
-import SettlementLedgerAbi from './abis/SettlementLedger.json';
+import _ContextManager from './abis/AIContextManager.json';
+import _MemoryStore from './abis/AIMemoryStore.json';
+import _AgentRegistry from './abis/AgentRegistry.json';
+import _SkillRegistry from './abis/SkillRegistry.json';
+import _SkillVault from './abis/AgentSkillVault.json';
+import _SkillAccessController from './abis/SkillAccessController.json';
+import _PaymentToken from './abis/EncryptedPaymentToken.json';
+import _PrivPayGateway from './abis/PrivPayGateway.json';
+import _AgentBilling from './abis/AgentBilling.json';
+import _SettlementLedger from './abis/SettlementLedger.json';
+
+const ContextManagerAbi = _ContextManager.abi;
+const MemoryStoreAbi = _MemoryStore.abi;
+const AgentRegistryAbi = _AgentRegistry.abi;
+const SkillRegistryAbi = _SkillRegistry.abi;
+const SkillVaultAbi = _SkillVault.abi;
+const SkillAccessControllerAbi = _SkillAccessController.abi;
+const PaymentTokenAbi = _PaymentToken.abi;
+const PrivPayGatewayAbi = _PrivPayGateway.abi;
+const AgentBillingAbi = _AgentBilling.abi;
+const SettlementLedgerAbi = _SettlementLedger.abi;
 
 export const CONTEXT_MANAGER_ADDRESS =
   (process.env.NEXT_PUBLIC_CONTEXT_MANAGER_ADDRESS ?? '') as `0x${string}`;

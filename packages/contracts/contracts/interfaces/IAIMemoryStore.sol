@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@fhenixprotocol/cofhe-contracts/FHE.sol";
+
 interface IAIMemoryStore {
     struct MemoryHandles {
         bytes32 memoryHash;
@@ -11,8 +13,8 @@ interface IAIMemoryStore {
 
     function updateMemory(
         address user,
-        bytes calldata inMemoryHash,
-        bytes calldata inLastInteraction
+        InEuint128 memory inMemoryHash,
+        InEuint64  memory inLastInteraction
     ) external;
 
     function getMemoryHandles(address user) external view returns (MemoryHandles memory);

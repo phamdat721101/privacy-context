@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@fhenixprotocol/cofhe-contracts/FHE.sol";
+
 interface IAIContextManager {
     struct ContextHandles {
         bytes32 sessionKey;
@@ -15,12 +17,12 @@ interface IAIContextManager {
     }
 
     function writeContext(
-        bytes calldata inSessionKey,
-        bytes calldata inUserId,
-        bytes calldata inSentimentScore,
-        bytes calldata inTrustLevel,
-        bytes calldata inIsVerified,
-        bytes calldata inAuthorizedAgent
+        InEuint128 memory inSessionKey,
+        InEuint64  memory inUserId,
+        InEuint8   memory inSentimentScore,
+        InEuint8   memory inTrustLevel,
+        InEbool    memory inIsVerified,
+        InEaddress memory inAuthorizedAgent
     ) external;
 
     function getContextHandles(address user) external view returns (ContextHandles memory);

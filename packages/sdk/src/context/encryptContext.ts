@@ -1,25 +1,18 @@
-import { Encryptable } from '@cofhe/sdk';
-import { createPublicClient, http, encodeAbiParameters, type WalletClient } from 'viem';
+import { Encryptable, type EncryptedItemInput } from '@cofhe/sdk';
+import { createPublicClient, http, type WalletClient } from 'viem';
 import { arbitrumSepolia as viemArbSepolia, arbitrum as viemArbitrum } from 'viem/chains';
 import type { RawContext } from './contextTypes';
 import type { SupportedChain } from '../client/chains';
 import { getCofheClient } from '../client/cofheClient';
 
-export interface EncryptedContextInputs {
-  inSessionKey: `0x${string}`;
-  inUserId: `0x${string}`;
-  inSentimentScore: `0x${string}`;
-  inTrustLevel: `0x${string}`;
-  inIsVerified: `0x${string}`;
-  inAuthorizedAgent: `0x${string}`;
-}
-
-function toBytes(input: { ctHash: bigint; securityZone: number; utype: number; signature: string }): `0x${string}` {
-  return encodeAbiParameters(
-    [{ type: 'uint256' }, { type: 'uint8' }, { type: 'uint8' }, { type: 'bytes' }],
-    [input.ctHash, input.securityZone, input.utype, input.signature as `0x${string}`],
-  );
-}
+export type EncryptedContextInputs = {
+  inSessionKey: EncryptedItemInput;
+  inUserId: EncryptedItemInput;
+  inSentimentScore: EncryptedItemInput;
+  inTrustLevel: EncryptedItemInput;
+  inIsVerified: EncryptedItemInput;
+  inAuthorizedAgent: EncryptedItemInput;
+};
 
 export async function encryptContext(
   raw: RawContext,
@@ -31,25 +24,25 @@ export async function encryptContext(
 
   const viemChain = chain.id === 421614 ? viemArbSepolia : viemArbitrum;
   const publicClient = createPublicClient({ chain: viemChain, transport: http(chain.rpcUrl) });
-  await client.connect(publicClient as any, walletClient);
+  await client.connect(publicClient as any, walletClient as any);
 
-  // Encrypt each field individually to avoid CoFHE ZK proof deserialization
-  // errors when packing too many mixed FHE types in a single proof batch.
-  async function enc(item: any) {
-    const r = await client.encryptInputs([item]).encrypt();
-    if (!r.success) throw new Error('Encryption failed: ' + r.error.message);
-    return toBytes(r.data[0] as any);
-  }
-
+  // Batch all 6 fields in one call: 128+64+8+8+1+160 = 369 bits (under 2048 limit)
   const [inSessionKey, inUserId, inSentimentScore, inTrustLevel, inIsVerified, inAuthorizedAgent] =
-    await Promise.all([
-      enc(Encryptable.uint128(raw.sessionKey)),
-      enc(Encryptable.uint64(raw.userId)),
-      enc(Encryptable.uint8(BigInt(raw.sentimentScore))),
-      enc(Encryptable.uint8(BigInt(raw.trustLevel))),
-      enc(Encryptable.bool(raw.isVerified)),
-      enc(Encryptable.address(raw.authorizedAgent)),
-    ]);
+    await client.encryptInputs([
+      Encryptable.uint128(raw.sessionKey),
+      Encryptable.uint64(raw.userId),
+      Encryptable.uint8(BigInt(raw.sentimentScore)),
+      Encryptable.uint8(BigInt(raw.trustLevel)),
+      Encryptable.bool(raw.isVerified),
+      Encryptable.address(raw.authorizedAgent),
+    ]).execute();
 
-  return { inSessionKey, inUserId, inSentimentScore, inTrustLevel, inIsVerified, inAuthorizedAgent };
+  return {
+    inSessionKey: inSessionKey as EncryptedItemInput,
+    inUserId: inUserId as EncryptedItemInput,
+    inSentimentScore: inSentimentScore as EncryptedItemInput,
+    inTrustLevel: inTrustLevel as EncryptedItemInput,
+    inIsVerified: inIsVerified as EncryptedItemInput,
+    inAuthorizedAgent: inAuthorizedAgent as EncryptedItemInput,
+  };
 }

@@ -8,15 +8,12 @@ export async function decryptInvoice(
   const client = getCofheClient();
   const p = permit as any;
   const results = await Promise.all([
-    client.decryptHandle(handles.amount, FheTypes.Uint64).setPermit(p).decrypt(),
-    client.decryptHandle(handles.isPaid, FheTypes.Bool).setPermit(p).decrypt(),
+    client.decryptHandle(handles.amount, FheTypes.Uint64).setPermit(p).execute(),
+    client.decryptHandle(handles.isPaid, FheTypes.Bool).setPermit(p).execute(),
   ]);
-  for (const r of results) {
-    if (!r.success) throw new Error(`Decryption failed: ${r.error.message}`);
-  }
   return {
-    amount: BigInt(results[0].data as bigint),
-    isPaid: Boolean(results[1].data),
+    amount: BigInt(results[0] as bigint),
+    isPaid: Boolean(results[1]),
     expiry: handles.expiry,
     creator: handles.creator,
   };
@@ -28,15 +25,12 @@ export async function decryptSubscription(
   const client = getCofheClient();
   const p = permit as any;
   const results = await Promise.all([
-    client.decryptHandle(handles.amount, FheTypes.Uint64).setPermit(p).decrypt(),
-    client.decryptHandle(handles.active, FheTypes.Bool).setPermit(p).decrypt(),
+    client.decryptHandle(handles.amount, FheTypes.Uint64).setPermit(p).execute(),
+    client.decryptHandle(handles.active, FheTypes.Bool).setPermit(p).execute(),
   ]);
-  for (const r of results) {
-    if (!r.success) throw new Error(`Decryption failed: ${r.error.message}`);
-  }
   return {
-    amount: BigInt(results[0].data as bigint),
-    isActive: Boolean(results[1].data),
+    amount: BigInt(results[0] as bigint),
+    isActive: Boolean(results[1]),
     interval: handles.interval,
     lastCharged: handles.lastCharged,
     subscriber: handles.subscriber,

@@ -27,8 +27,8 @@ contract AIMemoryStore is IAIMemoryStore {
 
     function updateMemory(
         address user,
-        bytes calldata inMemoryHash,
-        bytes calldata inLastInteraction
+        InEuint128 memory inMemoryHash,
+        InEuint64  memory inLastInteraction
     ) external override {
         require(
             msg.sender == user || msg.sender == authorizedAgent[user],

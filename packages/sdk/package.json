@@ -9,7 +9,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@cofhe/sdk": "^0.1.0",
+    "@cofhe/sdk": "^0.5.1",
     "viem": "^2.0.0"
   },
   "devDependencies": {

@@ -12,11 +12,8 @@ export async function importPermit(
 
   const viemChain = chain.id === 421614 ? viemArbitrumSepolia : viemArbitrum;
   const publicClient = createPublicClient({ chain: viemChain, transport: http(chain.rpcUrl) });
-  await client.connect(publicClient as any, walletClient);
+  await client.connect(publicClient as any, walletClient as any);
 
-  const result = await client.permits.importShared(serializedPermit);
-  if (!result.success) {
-    throw new Error(`Import permit failed: ${result.error.message}`);
-  }
-  return result.data;
+  const permit = await client.permits.importShared(serializedPermit);
+  return permit;
 }

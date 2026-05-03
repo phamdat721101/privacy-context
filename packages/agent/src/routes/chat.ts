@@ -47,9 +47,8 @@ chatRouter.post('/', requireFields('userAddress', 'message', 'serializedPermit')
       const client = await getAgentCofheClient();
 
       // Encrypt fee amount
-      const feeResult = await client.encryptInputs([Encryptable.uint64(CHAT_FEE)]).encrypt();
-      if (!feeResult.success) throw new Error('Fee encryption failed');
-      const inFee = toBytes(feeResult.data[0]);
+      const [feeEnc] = await client.encryptInputs([Encryptable.uint64(CHAT_FEE)]).execute();
+      const inFee = toBytes(feeEnc);
 
       // Charge fee (branchless — returns ebool)
       try {
@@ -64,14 +63,12 @@ chatRouter.post('/', requireFields('userAddress', 'message', 'serializedPermit')
 
       // Record settlement (fire-and-forget)
       const reasonHash = hashMemory(`chat:${message.slice(0, 50)}`);
-      const amtResult = await client.encryptInputs([Encryptable.uint64(CHAT_FEE)]).encrypt();
-      const reasonResult = await client.encryptInputs([Encryptable.uint128(reasonHash)]).encrypt();
-      if (amtResult.success && reasonResult.success) {
-        chain.recordSettlement(
-          userAddress, chain.getSignerAddress(),
-          toBytes(amtResult.data[0]), toBytes(reasonResult.data[0]),
-        ).catch(console.error);
-      }
+      const [amtEnc] = await client.encryptInputs([Encryptable.uint64(CHAT_FEE)]).execute();
+      const [reasonEnc] = await client.encryptInputs([Encryptable.uint128(reasonHash)]).execute();
+      chain.recordSettlement(
+        userAddress, chain.getSignerAddress(),
+        toBytes(amtEnc), toBytes(reasonEnc),
+      ).catch(console.error);
     }
 
     // --- Process chat or skill ---

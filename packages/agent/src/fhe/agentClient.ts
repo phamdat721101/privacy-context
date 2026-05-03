@@ -1,19 +1,19 @@
-import { createCofhesdkConfig, createCofhesdkClient } from '@cofhe/sdk/node';
+import { createCofheConfig, createCofheClient } from '@cofhe/sdk/node';
 import { arbSepolia } from '@cofhe/sdk/chains';
 
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { arbitrumSepolia } from 'viem/chains';
 
-let _client: ReturnType<typeof createCofhesdkClient> | null = null;
+let _client: ReturnType<typeof createCofheClient> | null = null;
 let _isConnected = false;
 
 export async function getAgentCofheClient() {
   if (!_client) {
-    const config = createCofhesdkConfig({
+    const config = createCofheConfig({
       supportedChains: [arbSepolia],
     });
-    _client = createCofhesdkClient(config);
+    _client = createCofheClient(config);
   }
 
   if (!_isConnected) {
@@ -37,17 +37,10 @@ export async function getAgentCofheClient() {
 
 export async function importAgentPermit(serializedPermit: string): Promise<any> {
   const client = await getAgentCofheClient();
-  const result = await client.permits.importShared(serializedPermit);
-  if (!result.success) {
-    throw new Error(`Import permit failed: ${result.error.message}`);
-  }
-  return result.data;
+  return client.permits.importShared(serializedPermit);
 }
 
 export async function revokeAgentPermit(permitHash: string): Promise<void> {
   const client = await getAgentCofheClient();
-  const result = await client.permits.removePermit(permitHash);
-  if (!result.success) {
-    throw new Error(`Revoke permit failed: ${result.error.message}`);
-  }
+  client.permits.removePermit(permitHash);
 }

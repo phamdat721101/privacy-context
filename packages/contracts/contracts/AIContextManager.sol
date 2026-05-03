@@ -23,23 +23,23 @@ contract AIContextManager is IAIContextManager {
     event MemoryTierUpgraded(address indexed user);
 
     function writeContext(
-        bytes calldata inSessionKey,
-        bytes calldata inUserId,
-        bytes calldata inSentimentScore,
-        bytes calldata inTrustLevel,
-        bytes calldata inIsVerified,
-        bytes calldata inAuthorizedAgent
+        InEuint128 memory inSessionKey,
+        InEuint64  memory inUserId,
+        InEuint8   memory inSentimentScore,
+        InEuint8   memory inTrustLevel,
+        InEbool    memory inIsVerified,
+        InEaddress memory inAuthorizedAgent
     ) external override {
         EncryptedContext storage ctx = userContexts[msg.sender];
 
-        ctx.sessionKey       = FHE.asEuint128(inSessionKey);      FHE.allow(ctx.sessionKey,      msg.sender);
-        ctx.userId           = FHE.asEuint64(inUserId);           FHE.allow(ctx.userId,           msg.sender);
-        ctx.sentimentScore   = FHE.asEuint8(inSentimentScore);    FHE.allow(ctx.sentimentScore,   msg.sender);
-        ctx.trustLevel       = FHE.asEuint8(inTrustLevel);        FHE.allow(ctx.trustLevel,       msg.sender);
-        ctx.isVerified       = FHE.asEbool(inIsVerified);         FHE.allow(ctx.isVerified,       msg.sender);
-        ctx.authorizedAgent  = FHE.asEaddress(inAuthorizedAgent); FHE.allow(ctx.authorizedAgent,  msg.sender);
-        ctx.isActive         = FHE.asEbool(true);                 FHE.allow(ctx.isActive,         msg.sender);
-        ctx.contextVersion   = FHE.add(ctx.contextVersion, FHE.asEuint32(1));
+        ctx.sessionKey       = FHE.asEuint128(inSessionKey);      FHE.allowThis(ctx.sessionKey);      FHE.allow(ctx.sessionKey,      msg.sender);
+        ctx.userId           = FHE.asEuint64(inUserId);           FHE.allowThis(ctx.userId);           FHE.allow(ctx.userId,           msg.sender);
+        ctx.sentimentScore   = FHE.asEuint8(inSentimentScore);    FHE.allowThis(ctx.sentimentScore);   FHE.allow(ctx.sentimentScore,   msg.sender);
+        ctx.trustLevel       = FHE.asEuint8(inTrustLevel);        FHE.allowThis(ctx.trustLevel);       FHE.allow(ctx.trustLevel,       msg.sender);
+        ctx.isVerified       = FHE.asEbool(inIsVerified);         FHE.allowThis(ctx.isVerified);       FHE.allow(ctx.isVerified,       msg.sender);
+        ctx.authorizedAgent  = FHE.asEaddress(inAuthorizedAgent); FHE.allowThis(ctx.authorizedAgent);  FHE.allow(ctx.authorizedAgent,  msg.sender);
+        ctx.isActive         = FHE.asEbool(true);                 FHE.allowThis(ctx.isActive);         FHE.allow(ctx.isActive,         msg.sender);
+        ctx.contextVersion   = FHE.add(ctx.contextVersion, FHE.asEuint32(1)); FHE.allowThis(ctx.contextVersion);
 
         emit ContextWritten(msg.sender);
     }

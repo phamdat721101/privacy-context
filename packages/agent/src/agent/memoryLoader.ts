@@ -15,18 +15,14 @@ export async function loadUserMemory(userAddress: string, permit: unknown): Prom
   const p = permit as any;
 
   const [countResult, tierResult, timeResult] = await Promise.all([
-    client.decryptHandle(handles.interactionCount, FheTypes.Uint32).setPermit(p).decrypt(),
-    client.decryptHandle(handles.memoryTier, FheTypes.Uint8).setPermit(p).decrypt(),
-    client.decryptHandle(handles.lastInteraction, FheTypes.Uint64).setPermit(p).decrypt(),
+    client.decryptHandle(handles.interactionCount, FheTypes.Uint32).setPermit(p).execute(),
+    client.decryptHandle(handles.memoryTier, FheTypes.Uint8).setPermit(p).execute(),
+    client.decryptHandle(handles.lastInteraction, FheTypes.Uint64).setPermit(p).execute(),
   ]);
 
-  for (const r of [countResult, tierResult, timeResult]) {
-    if (!r.success) throw new Error(`Memory decrypt failed: ${(r as any).error.message}`);
-  }
-
   return {
-    interactionCount: Number(countResult.data as bigint),
-    memoryTier:       Number(tierResult.data as bigint),
-    lastInteraction:  BigInt(timeResult.data as bigint),
+    interactionCount: Number(countResult as bigint),
+    memoryTier:       Number(tierResult as bigint),
+    lastInteraction:  BigInt(timeResult as bigint),
   };
 }

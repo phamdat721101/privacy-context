@@ -1,15 +1,14 @@
-import { createCofhesdkConfig, createCofhesdkClient } from '@cofhe/sdk/web';
+import { createCofheConfig, createCofheClient } from '@cofhe/sdk/web';
 import { arbSepolia } from '@cofhe/sdk/chains';
-import type { SupportedChain } from './chains';
 
-let _client: ReturnType<typeof createCofhesdkClient> | null = null;
+let _client: ReturnType<typeof createCofheClient> | null = null;
 
-export function getCofheClient(_chain?: SupportedChain) {
+export function getCofheClient() {
   if (_client) return _client;
-  const config = createCofhesdkConfig({
+  const config = createCofheConfig({
     supportedChains: [arbSepolia],
   });
-  _client = createCofhesdkClient(config);
+  _client = createCofheClient(config);
   return _client;
 }
 
