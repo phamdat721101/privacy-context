@@ -34,16 +34,20 @@ chatRouter.post('/', requireFields('userAddress', 'message', 'serializedPermit')
   };
 
   try {
-    const permit = await importAgentPermit(serializedPermit);
-    const ctx = await loadUserContext(userAddress, permit);
-    const memory = await loadUserMemory(userAddress, permit).catch(() => null);
+    // Zama demo mode: skip CoFHE decryption and billing, use default context
+    const isZamaDemo = serializedPermit === 'zama-demo';
+    const permit = isZamaDemo ? null : await importAgentPermit(serializedPermit);
+    const ctx = isZamaDemo
+      ? { sessionKey: 0n, sentimentScore: 150, trustLevel: 2, isVerified: true, memoryTier: 0 }
+      : await loadUserContext(userAddress, permit);
+    const memory = isZamaDemo ? null : await loadUserMemory(userAddress, permit).catch(() => null);
 
-    // --- Billing: charge fee ---
+    // --- Billing: charge fee (skip for Zama demo) ---
     const chain = getBlockchainService();
     const billingAddress = process.env.AGENT_BILLING_ADDRESS;
     let settlementId: string | null = null;
 
-    if (billingAddress) {
+    if (billingAddress && !isZamaDemo) {
       const client = await getAgentCofheClient();
 
       // Encrypt fee amount

@@ -1,0 +1,11 @@
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "deployer": "0x100690a32B562fd45e685BC2E63bbfF566d452db",
+  "contracts": {
+    "ConfidentialPaymentToken": "0x02f497EA02b2C1B525F107EbA3099728D235A544",
+    "ConfidentialAIContext": "0xB3895ee0a01311E5C8c30dc00d0Cc8B551ff8913",
+    "ConfidentialAgentBilling": "0xD7E6278c03279dBd94C963B8CEB2d4Ef06E6DFb2"
+  },
+  "deployedAt": "2026-05-05T23:27:00Z"
+}
