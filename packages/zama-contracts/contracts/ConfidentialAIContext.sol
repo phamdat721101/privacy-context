@@ -15,6 +15,10 @@ contract ConfidentialAIContext is ZamaEthereumConfig {
 
     mapping(address => EncryptedContext) private userContexts;
 
+    event ContextWritten(address indexed user);
+    event AgentAccessGranted(address indexed user, address indexed agent);
+    event DecryptionRequested(address indexed user, bytes32 trustLevel, bytes32 sentimentScore, bytes32 memoryTier);
+
     function writeContext(
         externalEuint64 sessionKey,
         externalEuint8 trustLevel,
@@ -40,6 +44,8 @@ contract ConfidentialAIContext is ZamaEthereumConfig {
         FHE.allow(ctx.sentimentScore, msg.sender);
         FHE.allow(ctx.memoryTier, msg.sender);
         FHE.allow(ctx.isActive, msg.sender);
+
+        emit ContextWritten(msg.sender);
     }
 
     function getContextHandles(address user)
@@ -58,13 +64,29 @@ contract ConfidentialAIContext is ZamaEthereumConfig {
         FHE.allow(ctx.sentimentScore, agent);
         FHE.allow(ctx.memoryTier, agent);
         FHE.allow(ctx.isActive, agent);
+
+        emit AgentAccessGranted(msg.sender, agent);
     }
 
-    function conditionalUpgrade(address user) external {
-        EncryptedContext storage ctx = userContexts[user];
+    function conditionalUpgrade() external {
+        EncryptedContext storage ctx = userContexts[msg.sender];
         ebool condition = FHE.gt(ctx.trustLevel, FHE.asEuint8(2));
         ctx.memoryTier = FHE.select(condition, FHE.asEuint8(1), ctx.memoryTier);
         FHE.allowThis(ctx.memoryTier);
-        FHE.allow(ctx.memoryTier, user);
+        FHE.allow(ctx.memoryTier, msg.sender);
+    }
+
+    function requestPublicDecrypt() external {
+        EncryptedContext storage ctx = userContexts[msg.sender];
+        FHE.makePubliclyDecryptable(ctx.trustLevel);
+        FHE.makePubliclyDecryptable(ctx.sentimentScore);
+        FHE.makePubliclyDecryptable(ctx.memoryTier);
+
+        emit DecryptionRequested(
+            msg.sender,
+            bytes32(euint8.unwrap(ctx.trustLevel)),
+            bytes32(euint8.unwrap(ctx.sentimentScore)),
+            bytes32(euint8.unwrap(ctx.memoryTier))
+        );
     }
 }

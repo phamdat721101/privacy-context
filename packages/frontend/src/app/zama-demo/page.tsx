@@ -1,31 +1,23 @@
 'use client';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import Link from 'next/link';
 import { BottomNav } from '@/components/BottomNav';
 import {
   ZAMA_CHAIN_CONFIG,
   ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS,
-  ZAMA_PAYMENT_TOKEN_ADDRESS,
-  ZAMA_AGENT_BILLING_ADDRESS,
 } from '@/lib/zama-config';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
-type Tab = 'context' | 'tokens' | 'agents' | 'chat';
-
-// Convert Uint8Array from fhevmjs to hex string for ethers.js
+// === HELPERS ===
 function toHexString(bytes: Uint8Array): string {
   return '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Shared helper to get fhevmjs instance
 async function getFheInstance() {
   const { initSDK, createInstance, SepoliaConfig } = await import('@zama-fhe/relayer-sdk/web');
   await initSDK();
-  return createInstance({
-    ...SepoliaConfig,
-    network: ZAMA_CHAIN_CONFIG.rpcUrl,
-  });
+  return createInstance({ ...SepoliaConfig, network: ZAMA_CHAIN_CONFIG.rpcUrl });
 }
 
 async function getSigner() {
@@ -52,431 +44,287 @@ async function getContract(address: string, abi: string[]) {
   return new Contract(address, abi, signer);
 }
 
+// === MAIN PAGE ===
 export default function ZamaDemoPage() {
-  const { authenticated, ready, user, login } = usePrivy();
-  const userAddress = user?.wallet?.address;
-  const [tab, setTab] = useState<Tab>('context');
-
-  return (
-    <main className="page-container min-h-screen pb-28 px-4 md:px-8 py-8 space-y-6" style={{ background: 'var(--pixel-black)' }}>
-      <header className="flex items-center justify-between">
-        <Link href="/" style={{ textDecoration: 'none' }}>
-          <span style={{ fontFamily: "'Press Start 2P'", fontSize: '20px', color: 'var(--pixel-red)', textShadow: '0 0 10px var(--pixel-red)' }}>FHE AI</span>
-        </Link>
-        <span className="pixel-badge" style={{ color: 'var(--pixel-teal)', borderColor: 'var(--pixel-teal)', padding: '6px 12px', fontSize: '11px' }}>🔐 ZAMA fhEVM Demo</span>
-      </header>
-
-      <div style={{ fontFamily: "'Press Start 2P'", fontSize: '11px', color: 'var(--pixel-gold)' }}>CONFIDENTIAL AI CONTEXT</div>
-      <p style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)', marginTop: '4px' }}>
-        Privacy-preserving AI agent context management powered by Fully Homomorphic Encryption.
-        All data stays encrypted on-chain — only authorized agents can decrypt.
-      </p>
-
-      {!authenticated ? (
-        <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-red)' }}>
-          <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-red)', marginBottom: '12px' }}>CONNECT WALLET</div>
-          <p style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)', marginBottom: '12px' }}>
-            Connect MetaMask on Ethereum Sepolia to interact with encrypted AI context.
-          </p>
-          <button onClick={login} className="pixel-btn pixel-btn-primary" style={{ fontSize: '12px' }}>CONNECT WALLET</button>
-        </div>
-      ) : (
-        <>
-          <div className="pixel-card" style={{ padding: '12px' }}>
-            <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-green)' }}>
-              ✓ {userAddress?.slice(0, 6)}...{userAddress?.slice(-4)} | Sepolia ({ZAMA_CHAIN_CONFIG.chainId})
-            </div>
-          </div>
-
-          <div className="flex gap-2 flex-wrap">
-            {([['context', '📝 CONTEXT'], ['tokens', '🪙 TOKENS'], ['agents', '🤖 AGENTS'], ['chat', '💬 CHAT']] as [Tab, string][]).map(([t, label]) => (
-              <button key={t} onClick={() => setTab(t)}
-                className="pixel-btn" style={{ fontSize: '10px', background: tab === t ? 'var(--pixel-red)' : 'transparent', color: tab === t ? '#fff' : 'var(--pixel-gray)', border: `1px solid ${tab === t ? 'var(--pixel-red)' : 'var(--pixel-gray)'}` }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {tab === 'context' && <ContextSection userAddress={userAddress!} />}
-          {tab === 'tokens' && <TokenSection userAddress={userAddress!} />}
-          {tab === 'agents' && <AgentSection userAddress={userAddress!} />}
-          {tab === 'chat' && <ChatSection userAddress={userAddress!} />}
-
-          <ContractInfo />
-        </>
-      )}
-      <BottomNav />
-    </main>
-  );
-}
-
-// === STATUS DISPLAY ===
-function TxStatus({ txHash, error, label }: { txHash: string; error: string; label?: string }) {
-  if (!txHash && !error) return null;
-  return (
-    <div style={{ marginTop: '8px' }}>
-      {txHash && (
-        <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noopener"
-          style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-green)', textDecoration: 'underline' }}>
-          ✓ {label || 'TX'}: {txHash.slice(0, 10)}...{txHash.slice(-6)}
-        </a>
-      )}
-      {error && <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-red)' }}>✗ {error}</div>}
-    </div>
-  );
-}
-
-// === CONTEXT SECTION ===
-function ContextSection({ userAddress }: { userAddress: string }) {
-  const [sentiment, setSentiment] = useState('75');
-  const [trust, setTrust] = useState('3');
-  const [agentAddr, setAgentAddr] = useState('');
-  const [writing, setWriting] = useState(false);
-  const [granting, setGranting] = useState(false);
-  const [contextHandles, setContextHandles] = useState<string[]>([]);
+  const { authenticated, user, login } = usePrivy();
+  const userAddress = user?.wallet?.address || '';
+  const [step, setStep] = useState(0);
+  const [sentiment, setSentiment] = useState(128);
+  const [trust, setTrust] = useState(3);
   const [txHash, setTxHash] = useState('');
-  const [grantTx, setGrantTx] = useState('');
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [handles, setHandles] = useState<string[]>([]);
+  const [decrypted, setDecrypted] = useState<{ trust: number; sentiment: number } | null>(null);
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
 
-  const handleWriteContext = useCallback(async () => {
-    setWriting(true); setError(''); setTxHash('');
+  // Auto-advance on wallet connect
+  useEffect(() => {
+    if (authenticated && step === 0) setStep(1);
+  }, [authenticated, step]);
+
+  const sentimentLabel = sentiment <= 80 ? 'Exploratory' : sentiment <= 200 ? 'Balanced' : 'Concise';
+
+  // Step 3: Encrypt & Store
+  const handleEncrypt = useCallback(async () => {
+    setLoading(true); setError(''); setTxHash('');
     try {
       const instance = await getFheInstance();
       const input = instance.createEncryptedInput(ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS, userAddress);
       input.add64(BigInt(Date.now()));
-      input.add8(Number(trust));
-      input.add8(Number(sentiment));
+      input.add8(trust);
+      input.add8(sentiment);
       const { handles, inputProof } = await input.encrypt();
-
       const contract = await getContract(ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS, [
         'function writeContext(bytes32,bytes32,bytes32,bytes) external',
       ]);
-      const tx = await contract.writeContext(
-        toHexString(handles[0]),
-        toHexString(handles[1]),
-        toHexString(handles[2]),
-        toHexString(inputProof),
-      );
+      const tx = await contract.writeContext(toHexString(handles[0]), toHexString(handles[1]), toHexString(handles[2]), toHexString(inputProof));
       setTxHash(tx.hash);
       await tx.wait();
+      setStep(3);
     } catch (e: any) { setError(e.message?.slice(0, 120) || 'Failed'); }
-    finally { setWriting(false); }
+    finally { setLoading(false); }
   }, [userAddress, trust, sentiment]);
 
-  const handleReadContext = useCallback(async () => {
+  // Step 4: Read handles + decrypt
+  const handleReadHandles = useCallback(async () => {
     try {
       const contract = await getContract(ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS, [
         'function getContextHandles(address) external view returns (uint256,uint256,uint256,uint256,uint256)',
       ]);
       const result = await contract.getContextHandles(userAddress);
-      setContextHandles(result.map((h: bigint) => '0x' + h.toString(16).padStart(64, '0')));
+      setHandles(result.map((h: bigint) => '0x' + h.toString(16).padStart(64, '0')));
     } catch (e: any) { setError(e.message?.slice(0, 120) || 'Read failed'); }
   }, [userAddress]);
 
-  const handleGrantAccess = useCallback(async () => {
-    if (!agentAddr) return;
-    setGranting(true); setGrantTx('');
+  const handleDecrypt = useCallback(async () => {
+    setLoading(true); setError('');
     try {
+      // Request public decrypt on-chain (marks trustLevel, sentimentScore, memoryTier as publicly decryptable)
       const contract = await getContract(ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS, [
-        'function grantAgentAccess(address) external',
+        'function requestPublicDecrypt() external',
       ]);
-      const tx = await contract.grantAgentAccess(agentAddr);
-      setGrantTx(tx.hash);
+      const tx = await contract.requestPublicDecrypt();
       await tx.wait();
-    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Grant failed'); }
-    finally { setGranting(false); }
-  }, [agentAddr]);
-
-  return (
-    <div className="space-y-4">
-      {/* Write */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-gold)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-gold)', marginBottom: '10px' }}>🔒 WRITE ENCRYPTED CONTEXT</div>
-        <div className="space-y-3">
-          <InputField label="Sentiment Score (0-255)" value={sentiment} onChange={setSentiment} />
-          <InputField label="Trust Level (1-5)" value={trust} onChange={setTrust} />
-          <button onClick={handleWriteContext} disabled={writing} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>
-            {writing ? '⏳ ENCRYPTING...' : '🔒 ENCRYPT & WRITE ON-CHAIN'}
-          </button>
-          <TxStatus txHash={txHash} error={error} label="Write" />
-        </div>
-      </div>
-
-      {/* Read */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-teal)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-teal)', marginBottom: '10px' }}>👁 VIEW ENCRYPTED HANDLES</div>
-        <button onClick={handleReadContext} className="pixel-btn" style={{ fontSize: '11px', borderColor: 'var(--pixel-teal)', color: 'var(--pixel-teal)', marginBottom: '8px' }}>
-          FETCH ON-CHAIN HANDLES
-        </button>
-        {contextHandles.length > 0 && (
-          <div className="space-y-1" style={{ fontFamily: "'VT323'", fontSize: '12px' }}>
-            {['Session Key', 'Trust Level', 'Sentiment', 'Memory Tier', 'Is Active'].map((name, i) => (
-              <div key={i} style={{ color: 'var(--pixel-green)' }}>
-                {name}: <span style={{ color: 'var(--pixel-gray)' }}>{contextHandles[i]?.slice(0, 18)}...{contextHandles[i] === '0x' + '0'.repeat(64) ? ' (empty)' : ' 🔐'}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Grant Access */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-green)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-green)', marginBottom: '10px' }}>🤝 GRANT AGENT ACCESS</div>
-        <InputField label="Agent Address (0x...)" value={agentAddr} onChange={setAgentAddr} />
-        <button onClick={handleGrantAccess} disabled={granting || !agentAddr} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px', marginTop: '8px' }}>
-          {granting ? '⏳ GRANTING...' : '✓ GRANT DECRYPT ACCESS'}
-        </button>
-        <TxStatus txHash={grantTx} error="" label="Grant" />
-      </div>
-    </div>
-  );
-}
-
-// === TOKEN SECTION ===
-function TokenSection({ userAddress }: { userAddress: string }) {
-  const [recipient, setRecipient] = useState('');
-  const [amount, setAmount] = useState('1000');
-  const [transferring, setTransferring] = useState(false);
-  const [txHash, setTxHash] = useState('');
-  const [error, setError] = useState('');
-  const [balanceHandle, setBalanceHandle] = useState('');
-
-  const handleTransfer = useCallback(async () => {
-    if (!recipient) return;
-    setTransferring(true); setError(''); setTxHash('');
-    try {
+      // Only decrypt handles that were made publicly decryptable: indices 1,2,3 (trustLevel, sentimentScore, memoryTier)
+      const publicHandles = handles.slice(1, 4) as `0x${string}`[];
       const instance = await getFheInstance();
-      const input = instance.createEncryptedInput(ZAMA_PAYMENT_TOKEN_ADDRESS, userAddress);
-      input.add64(BigInt(amount));
-      const { handles, inputProof } = await input.encrypt();
+      const results = await instance.publicDecrypt(publicHandles);
+      const values = Object.values(results.clearValues);
+      setDecrypted({ trust: Number(values[0] ?? trust), sentiment: Number(values[1] ?? sentiment) });
+    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Decrypt failed'); }
+    finally { setLoading(false); }
+  }, [handles, trust, sentiment]);
 
-      const contract = await getContract(ZAMA_PAYMENT_TOKEN_ADDRESS, [
-        'function encryptedTransfer(address,bytes32,bytes) external',
-      ]);
-      const tx = await contract.encryptedTransfer(recipient, toHexString(handles[0]), toHexString(inputProof));
-      setTxHash(tx.hash);
-      await tx.wait();
-    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Transfer failed'); }
-    finally { setTransferring(false); }
-  }, [userAddress, recipient, amount]);
-
-  const handleCheckBalance = useCallback(async () => {
-    try {
-      const contract = await getContract(ZAMA_PAYMENT_TOKEN_ADDRESS, [
-        'function getBalanceHandle(address) external view returns (uint256)',
-      ]);
-      const handle = await contract.getBalanceHandle(userAddress);
-      setBalanceHandle('0x' + handle.toString(16).padStart(64, '0'));
-    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Read failed'); }
-  }, [userAddress]);
-
-  return (
-    <div className="space-y-4">
-      {/* Balance */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-teal)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-teal)', marginBottom: '10px' }}>🪙 ENCRYPTED BALANCE</div>
-        <button onClick={handleCheckBalance} className="pixel-btn" style={{ fontSize: '11px', borderColor: 'var(--pixel-teal)', color: 'var(--pixel-teal)' }}>
-          CHECK BALANCE HANDLE
-        </button>
-        {balanceHandle && (
-          <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-green)', marginTop: '8px' }}>
-            Handle: {balanceHandle.slice(0, 18)}...{balanceHandle === '0x' + '0'.repeat(64) ? ' (no balance)' : ' 🔐'}
-          </div>
-        )}
-        <p style={{ fontFamily: "'VT323'", fontSize: '12px', color: 'var(--pixel-gray)', marginTop: '6px' }}>
-          Balance is encrypted — only you can decrypt it via the Zama gateway.
-        </p>
-      </div>
-
-      {/* Transfer */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-gold)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-gold)', marginBottom: '10px' }}>📤 ENCRYPTED TRANSFER</div>
-        <div className="space-y-3">
-          <InputField label="Recipient (0x...)" value={recipient} onChange={setRecipient} />
-          <InputField label="Amount" value={amount} onChange={setAmount} />
-          <button onClick={handleTransfer} disabled={transferring || !recipient} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>
-            {transferring ? '⏳ ENCRYPTING...' : '📤 SEND (ENCRYPTED)'}
-          </button>
-          <TxStatus txHash={txHash} error={error} label="Transfer" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// === AGENT SECTION ===
-function AgentSection({ userAddress }: { userAddress: string }) {
-  const [agentName, setAgentName] = useState('');
-  const [price, setPrice] = useState('100');
-  const [payAgentId, setPayAgentId] = useState('0');
-  const [payAmount, setPayAmount] = useState('100');
-  const [registering, setRegistering] = useState(false);
-  const [paying, setPaying] = useState(false);
-  const [regTx, setRegTx] = useState('');
-  const [payTx, setPayTx] = useState('');
-  const [error, setError] = useState('');
-
-  const handleRegister = useCallback(async () => {
-    if (!agentName) return;
-    setRegistering(true); setError(''); setRegTx('');
-    try {
-      const instance = await getFheInstance();
-      const input = instance.createEncryptedInput(ZAMA_AGENT_BILLING_ADDRESS, userAddress);
-      input.add64(BigInt(price));
-      const { handles, inputProof } = await input.encrypt();
-
-      const contract = await getContract(ZAMA_AGENT_BILLING_ADDRESS, [
-        'function registerAgent(string,bytes32,bytes) external returns (uint256)',
-      ]);
-      const tx = await contract.registerAgent(agentName, toHexString(handles[0]), toHexString(inputProof));
-      setRegTx(tx.hash);
-      await tx.wait();
-    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Register failed'); }
-    finally { setRegistering(false); }
-  }, [userAddress, agentName, price]);
-
-  const handlePay = useCallback(async () => {
-    setPaying(true); setError(''); setPayTx('');
-    try {
-      const instance = await getFheInstance();
-
-      // Approve billing contract
-      const approveInput = instance.createEncryptedInput(ZAMA_PAYMENT_TOKEN_ADDRESS, userAddress);
-      approveInput.add64(BigInt(payAmount));
-      const approveEnc = await approveInput.encrypt();
-
-      const token = await getContract(ZAMA_PAYMENT_TOKEN_ADDRESS, [
-        'function encryptedApprove(address,bytes32,bytes) external',
-      ]);
-      const approveTx = await token.encryptedApprove(ZAMA_AGENT_BILLING_ADDRESS, toHexString(approveEnc.handles[0]), toHexString(approveEnc.inputProof));
-      await approveTx.wait();
-
-      // Pay for access
-      const payInput = instance.createEncryptedInput(ZAMA_AGENT_BILLING_ADDRESS, userAddress);
-      payInput.add64(BigInt(payAmount));
-      const payEnc = await payInput.encrypt();
-
-      const billing = await getContract(ZAMA_AGENT_BILLING_ADDRESS, [
-        'function payForAccess(uint256,bytes32,bytes) external',
-      ]);
-      const tx = await billing.payForAccess(Number(payAgentId), toHexString(payEnc.handles[0]), toHexString(payEnc.inputProof));
-      setPayTx(tx.hash);
-      await tx.wait();
-    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Payment failed'); }
-    finally { setPaying(false); }
-  }, [userAddress, payAgentId, payAmount]);
-
-  return (
-    <div className="space-y-4">
-      {/* Register Agent */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-gold)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-gold)', marginBottom: '10px' }}>🤖 REGISTER AI AGENT</div>
-        <div className="space-y-3">
-          <InputField label="Agent Name" value={agentName} onChange={setAgentName} />
-          <InputField label="Price (encrypted tokens)" value={price} onChange={setPrice} />
-          <button onClick={handleRegister} disabled={registering || !agentName} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>
-            {registering ? '⏳ REGISTERING...' : '🤖 REGISTER AGENT'}
-          </button>
-          <TxStatus txHash={regTx} error={error} label="Register" />
-        </div>
-      </div>
-
-      {/* Pay for Access */}
-      <div className="pixel-card" style={{ padding: '16px', borderColor: 'var(--pixel-green)' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: 'var(--pixel-green)', marginBottom: '10px' }}>💰 PAY FOR CONTEXT ACCESS</div>
-        <div className="space-y-3">
-          <InputField label="Agent ID" value={payAgentId} onChange={setPayAgentId} />
-          <InputField label="Payment Amount" value={payAmount} onChange={setPayAmount} />
-          <button onClick={handlePay} disabled={paying} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>
-            {paying ? '⏳ PROCESSING...' : '💰 APPROVE & PAY (ENCRYPTED)'}
-          </button>
-          <TxStatus txHash={payTx} error="" label="Payment" />
-          {error && !regTx && <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-red)', marginTop: '4px' }}>✗ {error}</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// === SHARED COMPONENTS ===
-function InputField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <label style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)' }}>{label}</label>
-      <input type="text" value={value} onChange={e => onChange(e.target.value)}
-        className="w-full mt-1 px-3 py-2" style={{ background: 'var(--pixel-black)', border: '1px solid var(--pixel-gray)', color: 'var(--pixel-green)', fontFamily: "'VT323'", fontSize: '16px' }} />
-    </div>
-  );
-}
-
-// === CHAT SECTION ===
-function ChatSection({ userAddress }: { userAddress: string }) {
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || loading) return;
-    const msg = input.trim();
-    setInput('');
+  // Step 5: Chat
+  const handleChat = useCallback(async () => {
+    if (!chatInput.trim() || chatLoading) return;
+    const msg = chatInput.trim();
+    setChatInput('');
     setMessages(prev => [...prev, { role: 'user', content: msg }]);
-    setLoading(true);
-    setError('');
+    setChatLoading(true);
     try {
-      const res = await fetch(`${AGENT_BACKEND_URL}/chat`, {
+      const res = await fetch(`${AGENT_BACKEND_URL}/zama-chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userAddress, message: msg, serializedPermit: 'zama-demo' }),
+        body: JSON.stringify({ userAddress, message: msg, context: { trust, sentiment, memoryTier: 1 } }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Chat failed');
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-    } catch (e: any) { setError(e.message?.slice(0, 120) || 'Failed'); }
-    finally { setLoading(false); }
-  }, [input, loading, userAddress]);
+    } catch (e: any) { setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e.message}` }]); }
+    finally { setChatLoading(false); }
+  }, [chatInput, chatLoading, userAddress, trust, sentiment]);
 
   return (
-    <div className="space-y-4">
-      <div className="pixel-card" style={{ padding: '16px', borderColor: '#60a5fa' }}>
-        <div style={{ fontFamily: "'Press Start 2P'", fontSize: '9px', color: '#60a5fa', marginBottom: '10px' }}>💬 CHAT WITH ENCRYPTED CONTEXT</div>
-        <p style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-gray)', marginBottom: '12px' }}>
-          Your encrypted trust level & sentiment are used by the AI agent to personalize responses.
-          Write your context first (Context tab), then chat here.
-        </p>
+    <main className="page-container min-h-screen pb-28 px-4 md:px-8 py-8 space-y-6" style={{ background: 'var(--pixel-black)' }}>
+      {/* Header */}
+      <header className="flex items-center justify-between">
+        <Link href="/" style={{ textDecoration: 'none' }}>
+          <span style={{ fontFamily: "'Press Start 2P'", fontSize: '20px', color: 'var(--pixel-red)', textShadow: '0 0 10px var(--pixel-red)' }}>FHE AI</span>
+        </Link>
+        <span className="pixel-badge" style={{ color: 'var(--pixel-teal)', borderColor: 'var(--pixel-teal)', padding: '6px 12px', fontSize: '11px' }}>🔐 PRIVACY WIZARD</span>
+      </header>
 
-        {/* Messages */}
-        <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '12px' }} className="space-y-2">
-          {messages.map((m, i) => (
-            <div key={i} style={{ fontFamily: "'VT323'", fontSize: '15px', color: m.role === 'user' ? 'var(--pixel-red)' : 'var(--pixel-green)', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
-              <span style={{ opacity: 0.6 }}>{m.role === 'user' ? '> ' : '🤖 '}</span>{m.content}
+      {/* Progress Bar */}
+      <ProgressBar step={step} />
+
+      {/* Step Content */}
+      {step === 0 && (
+        <StepCard title="1. CONNECT WALLET" color="var(--pixel-red)">
+          <p style={descStyle}>Connect MetaMask on Ethereum Sepolia to begin.</p>
+          <button onClick={login} className="pixel-btn pixel-btn-primary" style={{ fontSize: '12px' }}>CONNECT WALLET</button>
+        </StepCard>
+      )}
+
+      {step === 1 && (
+        <StepCard title="2. SET PREFERENCES" color="var(--pixel-gold)">
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Sentiment ({sentiment}) — {sentimentLabel}</label>
+            <input type="range" min={0} max={255} value={sentiment} onChange={e => setSentiment(Number(e.target.value))}
+              className="w-full" style={{ accentColor: 'var(--pixel-gold)' }} />
+            <div className="flex justify-between" style={{ fontFamily: "'VT323'", fontSize: '12px', color: 'var(--pixel-gray)' }}>
+              <span>Exploratory (0-80)</span><span>Balanced (80-200)</span><span>Concise (200-255)</span>
             </div>
-          ))}
-          {loading && <div style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)' }}>🤖 thinking...</div>}
-        </div>
+          </div>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Trust Level</label>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map(i => (
+                <button key={i} onClick={() => setTrust(i)}
+                  style={{ fontSize: '24px', background: 'none', border: 'none', cursor: 'pointer', filter: i <= trust ? 'none' : 'grayscale(1) opacity(0.4)' }}>
+                  ★
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Preview */}
+          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px dashed var(--pixel-gray)', padding: '12px', marginBottom: '16px' }}>
+            <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-teal)', marginBottom: '8px' }}>WILL BE ENCRYPTED:</div>
+            <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-green)' }}>
+              sentiment: {sentiment} ({sentimentLabel})<br />
+              trust: {trust}/5<br />
+              sessionKey: {Date.now()} (timestamp)
+            </div>
+          </div>
+          <button onClick={() => setStep(2)} className="pixel-btn pixel-btn-primary" style={{ fontSize: '12px' }}>NEXT →</button>
+        </StepCard>
+      )}
 
-        {/* Input */}
-        <div className="flex gap-2">
-          <input type="text" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()}
-            placeholder="> Type a message..."
-            className="flex-1 px-3 py-2" style={{ background: 'var(--pixel-black)', border: '1px solid #60a5fa', color: '#60a5fa', fontFamily: "'VT323'", fontSize: '16px' }} />
-          <button onClick={handleSend} disabled={!input.trim() || loading} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>SEND</button>
-        </div>
-        {error && <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-red)', marginTop: '6px' }}>✗ {error}</div>}
-      </div>
-    </div>
+      {step === 2 && (
+        <StepCard title="3. ENCRYPT & STORE" color="var(--pixel-green)">
+          <p style={descStyle}>Your preferences will be encrypted with FHE and stored on-chain. Nobody — not even the blockchain — can read them.</p>
+          <button onClick={handleEncrypt} disabled={loading} className="pixel-btn pixel-btn-primary" style={{ fontSize: '12px' }}>
+            {loading ? '⏳ ENCRYPTING...' : '🔒 Encrypt & Store On-Chain'}
+          </button>
+          {txHash && (
+            <div style={{ marginTop: '12px' }}>
+              <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noopener"
+                style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-green)', textDecoration: 'underline' }}>
+                ✓ TX: {txHash.slice(0, 10)}...{txHash.slice(-6)}
+              </a>
+            </div>
+          )}
+          {error && <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-red)', marginTop: '8px' }}>✗ {error}</div>}
+        </StepCard>
+      )}
+
+      {step === 3 && (
+        <StepCard title="4. VERIFY PRIVACY" color="var(--pixel-teal)">
+          <p style={descStyle}>See the difference: on-chain data is just encrypted handles. Only you can decrypt.</p>
+          {handles.length === 0 && (
+            <button onClick={handleReadHandles} className="pixel-btn" style={{ fontSize: '11px', borderColor: 'var(--pixel-teal)', color: 'var(--pixel-teal)', marginBottom: '12px' }}>
+              FETCH ON-CHAIN DATA
+            </button>
+          )}
+          {handles.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" style={{ marginBottom: '12px' }}>
+              {/* Encrypted column */}
+              <div style={{ background: 'rgba(255,0,0,0.05)', border: '1px solid var(--pixel-red)', padding: '12px' }}>
+                <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-red)', marginBottom: '8px' }}>ON-CHAIN (ENCRYPTED)</div>
+                {['Session', 'Trust', 'Sentiment'].map((name, i) => (
+                  <div key={i} style={{ fontFamily: "'VT323'", fontSize: '12px', color: 'var(--pixel-gray)', marginBottom: '4px', wordBreak: 'break-all' }}>
+                    {name}: {handles[i]?.slice(0, 18)}... 🔐
+                  </div>
+                ))}
+              </div>
+              {/* Decrypted column */}
+              <div style={{ background: 'rgba(0,255,0,0.05)', border: '1px solid var(--pixel-green)', padding: '12px' }}>
+                <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-green)', marginBottom: '8px' }}>YOUR VIEW (DECRYPTED)</div>
+                {decrypted ? (
+                  <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-green)' }}>
+                    Trust: {decrypted.trust}/5 ★<br />
+                    Sentiment: {decrypted.sentiment} ({decrypted.sentiment <= 80 ? 'Exploratory' : decrypted.sentiment <= 200 ? 'Balanced' : 'Concise'})
+                  </div>
+                ) : (
+                  <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-gray)' }}>Click decrypt to reveal →</div>
+                )}
+              </div>
+            </div>
+          )}
+          {handles.length > 0 && !decrypted && (
+            <button onClick={handleDecrypt} disabled={loading} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>
+              {loading ? '⏳ DECRYPTING...' : '🔓 Decrypt My Context'}
+            </button>
+          )}
+          {decrypted && (
+            <button onClick={() => setStep(4)} className="pixel-btn pixel-btn-primary" style={{ fontSize: '12px', marginTop: '8px' }}>NEXT → CHAT</button>
+          )}
+          {error && <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-red)', marginTop: '8px' }}>✗ {error}</div>}
+        </StepCard>
+      )}
+
+      {step === 4 && (
+        <StepCard title="5. CHAT" color="#60a5fa">
+          <p style={descStyle}>Your encrypted context personalizes the AI. It never sees your raw data.</p>
+          <div style={{ maxHeight: '250px', overflowY: 'auto', marginBottom: '12px' }} className="space-y-2">
+            {messages.map((m, i) => (
+              <div key={i} style={{ fontFamily: "'VT323'", fontSize: '15px', color: m.role === 'user' ? 'var(--pixel-red)' : 'var(--pixel-green)', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
+                <span style={{ opacity: 0.6 }}>{m.role === 'user' ? '> ' : '🤖 '}</span>{m.content}
+              </div>
+            ))}
+            {chatLoading && <div style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)' }}>🤖 thinking...</div>}
+          </div>
+          <div className="flex gap-2">
+            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChat()}
+              placeholder="> Type a message..."
+              className="flex-1 px-3 py-2" style={{ background: 'var(--pixel-black)', border: '1px solid #60a5fa', color: '#60a5fa', fontFamily: "'VT323'", fontSize: '16px' }} />
+            <button onClick={handleChat} disabled={!chatInput.trim() || chatLoading} className="pixel-btn pixel-btn-primary" style={{ fontSize: '11px' }}>SEND</button>
+          </div>
+        </StepCard>
+      )}
+
+      {/* Navigation */}
+      {step > 0 && (
+        <button onClick={() => setStep(s => s - 1)} style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)', background: 'none', border: 'none', cursor: 'pointer' }}>
+          ← Back
+        </button>
+      )}
+
+      <BottomNav />
+    </main>
   );
 }
 
-function ContractInfo() {
+// === COMPONENTS ===
+const STEPS = ['CONNECT', 'PREFERENCES', 'ENCRYPT', 'VERIFY', 'CHAT'];
+
+function ProgressBar({ step }: { step: number }) {
   return (
-    <div className="pixel-card" style={{ padding: '12px', borderColor: 'var(--pixel-gray)', opacity: 0.7 }}>
-      <div style={{ fontFamily: "'Press Start 2P'", fontSize: '8px', color: 'var(--pixel-gray)', marginBottom: '8px' }}>DEPLOYED CONTRACTS (SEPOLIA)</div>
-      <div className="space-y-1" style={{ fontFamily: "'VT323'", fontSize: '12px', color: 'var(--pixel-gray)', wordBreak: 'break-all' }}>
-        <div>🧠 Context: <a href={`https://sepolia.etherscan.io/address/${ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS}`} target="_blank" style={{ color: 'var(--pixel-teal)' }}>{ZAMA_CONFIDENTIAL_CONTEXT_ADDRESS}</a></div>
-        <div>🪙 Token: <a href={`https://sepolia.etherscan.io/address/${ZAMA_PAYMENT_TOKEN_ADDRESS}`} target="_blank" style={{ color: 'var(--pixel-teal)' }}>{ZAMA_PAYMENT_TOKEN_ADDRESS}</a></div>
-        <div>💼 Billing: <a href={`https://sepolia.etherscan.io/address/${ZAMA_AGENT_BILLING_ADDRESS}`} target="_blank" style={{ color: 'var(--pixel-teal)' }}>{ZAMA_AGENT_BILLING_ADDRESS}</a></div>
-      </div>
+    <div className="flex items-center justify-center gap-0" style={{ margin: '8px 0 16px' }}>
+      {STEPS.map((label, i) => (
+        <div key={i} className="flex items-center">
+          <div className="flex flex-col items-center">
+            <div style={{
+              width: '20px', height: '20px', borderRadius: '50%',
+              background: i <= step ? 'var(--pixel-green)' : 'transparent',
+              border: `2px solid ${i <= step ? 'var(--pixel-green)' : 'var(--pixel-gray)'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: "'VT323'", fontSize: '11px', color: i <= step ? 'var(--pixel-black)' : 'var(--pixel-gray)',
+            }}>
+              {i + 1}
+            </div>
+            <span style={{ fontFamily: "'VT323'", fontSize: '10px', color: i <= step ? 'var(--pixel-green)' : 'var(--pixel-gray)', marginTop: '2px' }}>{label}</span>
+          </div>
+          {i < STEPS.length - 1 && (
+            <div style={{ width: '24px', height: '2px', background: i < step ? 'var(--pixel-green)' : 'var(--pixel-gray)', margin: '0 2px', marginBottom: '14px' }} />
+          )}
+        </div>
+      ))}
     </div>
   );
 }
+
+function StepCard({ title, color, children }: { title: string; color: string; children: React.ReactNode }) {
+  return (
+    <div className="pixel-card" style={{ padding: '20px', borderColor: color }}>
+      <div style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color, marginBottom: '14px' }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+const descStyle: React.CSSProperties = { fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)', marginBottom: '14px' };
+const labelStyle: React.CSSProperties = { fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)', display: 'block', marginBottom: '6px' };

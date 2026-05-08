@@ -1,15 +1,44 @@
+# Dependencies
 node_modules/
-.env
-.env.local
+
+# Build & compile outputs
 dist/
 build/
 .next/
+out/
+typechain-types/
 artifacts/
 cache/
-typechain-types/
 coverage/
+tsconfig.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*.keystore
+
+# Deployment records (contain addresses but keep examples)
+deployments/
+
+# Logs
 *.log
-nim-claw.pem
-packages/agent/data/licenses.json
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Misc
+*.tgz
 docs/*
 fhe-pay/*

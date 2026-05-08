@@ -11,6 +11,7 @@ import { settlementRouter } from './routes/settlement';
 import { createRateLimiter } from './middleware/rateLimit';
 import { privacyFilter } from './middleware/privacyFilter';
 import { analyticsRouter } from './routes/analytics';
+import { zamaChatRouter } from './routes/zamaChat';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -30,6 +31,7 @@ app.use('/payment', paymentRouter);
 app.use('/billing', billingRouter);
 app.use('/settlement', settlementRouter);
 app.use('/analytics', analyticsRouter);
+app.use('/zama-chat', chatLimiter, zamaChatRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
