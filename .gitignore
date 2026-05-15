@@ -10,18 +10,21 @@ typechain-types/
 artifacts/
 cache/
 coverage/
-tsconfig.tsbuildinfo
+*.tsbuildinfo
 
 # Environment & secrets
 .env
 .env.local
 .env.*.local
+packages/api/.env
+packages/agent/.env
+packages/contracts/.env
 *.pem
 *.key
 *.p12
 *.keystore
 
-# Deployment records (contain addresses but keep examples)
+# Deployment records
 deployments/
 
 # Logs
@@ -38,7 +41,13 @@ Thumbs.db
 *.swp
 *.swo
 
+# Design assets (large)
+new-ui/
+fhe-pay/
+
+# Package locks (keep root only)
+packages/*/package-lock.json
+
 # Misc
 *.tgz
-docs/*
-fhe-pay/*
+docs/

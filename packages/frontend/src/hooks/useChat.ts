@@ -3,56 +3,40 @@ import { useState } from 'react';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import type { ChatMessage } from '@/types/context';
 
-async function fetchWithRetry(url: string, init: RequestInit, retries = 1, delayMs = 2000): Promise<globalThis.Response> {
-  try {
-    return await fetch(url, init);
-  } catch (e) {
-    if (retries > 0) {
-      await new Promise((r) => setTimeout(r, delayMs));
-      return fetchWithRetry(url, init, retries - 1, delayMs);
-    }
-    throw e;
-  }
-}
-
-export function useChat(userAddress: `0x${string}` | undefined, serializedPermit: string | null) {
+export function useChat(userAddress: `0x${string}` | undefined) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [needsTopUp, setNeedsTopUp] = useState(false);
+  const [needsSubscription, setNeedsSubscription] = useState(false);
 
-  async function sendMessage(content: string) {
-    if (!userAddress || !serializedPermit) return;
+  async function sendMessage(content: string, brainId?: string, mode: 'learn' | 'store' = 'learn') {
+    if (!userAddress) return;
 
     const userMsg: ChatMessage = { role: 'user', content, timestamp: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
     setError(null);
-    setNeedsTopUp(false);
+    setNeedsSubscription(false);
 
     try {
-      const privacyMode = typeof window !== 'undefined' ? localStorage.getItem('privacyMode') ?? 'off' : 'off';
-      const res = await fetchWithRetry(`${AGENT_BACKEND_URL}/chat`, {
+      const res = await fetch(`${AGENT_BACKEND_URL}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Privacy-Mode': privacyMode },
-        body: JSON.stringify({ userAddress, message: content, serializedPermit }),
+        headers: { 'Content-Type': 'application/json', 'x-wallet-address': userAddress },
+        body: JSON.stringify({ message: content, brainId: brainId || null, mode }),
       });
 
-      const data = await res.json() as { response?: string; error?: string; agentAddress?: string };
-
       if (res.status === 402) {
-        setNeedsTopUp(true);
-        setError('Insufficient balance — please top up your agent billing.');
+        setNeedsSubscription(true);
+        setError('Subscription required. Please subscribe to continue.');
         return;
       }
 
-      if (!res.ok) {
-        throw new Error(data.error ?? `Request failed (${res.status})`);
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
 
       const assistantMsg: ChatMessage = {
         role: 'assistant',
-        content: data.response ?? '',
+        content: data.response ?? data.reply ?? '',
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
@@ -63,5 +47,5 @@ export function useChat(userAddress: `0x${string}` | undefined, serializedPermit
     }
   }
 
-  return { messages, sendMessage, loading, error, needsTopUp };
+  return { messages, sendMessage, loading, error, needsSubscription };
 }

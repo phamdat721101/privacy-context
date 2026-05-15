@@ -20,6 +20,26 @@ const PrivPayGatewayAbi = _PrivPayGateway.abi;
 const AgentBillingAbi = _AgentBilling.abi;
 const SettlementLedgerAbi = _SettlementLedger.abi;
 
+// Second Brain contracts
+export const SUBSCRIPTION_CONTROLLER_ADDRESS =
+  (process.env.NEXT_PUBLIC_SUBSCRIPTION_CONTROLLER_ADDRESS ?? '') as `0x${string}`;
+export const KNOWLEDGE_REGISTRY_ADDRESS =
+  (process.env.NEXT_PUBLIC_KNOWLEDGE_REGISTRY_ADDRESS ?? '') as `0x${string}`;
+export const BRAIN_KEY_VAULT_ADDRESS =
+  (process.env.NEXT_PUBLIC_BRAIN_KEY_VAULT_ADDRESS ?? '') as `0x${string}`;
+
+export const SubscriptionControllerAbi = [
+  { type: 'function', name: 'subscribe', inputs: [{ name: 'user', type: 'address' }, { name: 'tier', type: 'uint8' }, { name: 'expiry', type: 'uint64' }], outputs: [], stateMutability: 'nonpayable' },
+  { type: 'function', name: 'checkAccess', inputs: [{ name: 'user', type: 'address' }], outputs: [{ type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'event', name: 'Subscribed', inputs: [{ name: 'user', type: 'address', indexed: true }, { name: 'tier', type: 'uint8', indexed: false }] },
+] as const;
+
+export const BrainKeyVaultAbi = [
+  { type: 'function', name: 'getKeyHandles', inputs: [{ name: 'brainId', type: 'uint256' }], outputs: [{ name: 'high', type: 'bytes32' }, { name: 'low', type: 'bytes32' }], stateMutability: 'view' },
+  { type: 'function', name: 'brainOwner', inputs: [{ name: 'brainId', type: 'uint256' }], outputs: [{ type: 'address' }], stateMutability: 'view' },
+  { type: 'event', name: 'KeyStored', inputs: [{ name: 'brainId', type: 'uint256', indexed: true }, { name: 'brainOwnerAddr', type: 'address', indexed: true }] },
+] as const;
+
 export const CONTEXT_MANAGER_ADDRESS =
   (process.env.NEXT_PUBLIC_CONTEXT_MANAGER_ADDRESS ?? '') as `0x${string}`;
 

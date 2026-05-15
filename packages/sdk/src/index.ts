@@ -19,3 +19,5 @@ export * from './payment/decryptPayment';
 export * from './billing/billingTypes';
 export * from './billing/encryptBilling';
 export * from './privacy/index';
+export * from './brain/client';
+export * from './brain/encryption';

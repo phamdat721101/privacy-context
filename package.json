@@ -4,17 +4,18 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "sdk:build": "npm run build -w packages/sdk",
-    "contracts:compile": "npm run compile -w packages/contracts",
-    "contracts:deploy": "npm run deploy -w packages/contracts",
-    "contracts:deploy:sepolia": "npm run deploy:sepolia -w packages/contracts",
-    "contracts:test": "npm run test -w packages/contracts",
-    "agent:dev": "npm run dev -w packages/agent",
-    "agent:build": "npm run build -w packages/agent",
-    "agent:start": "npm run start -w packages/agent",
+    "api:dev": "npm run dev -w packages/api",
+    "api:build": "npm run build -w packages/api",
+    "api:start": "npm run start -w packages/api",
+    "contracts:compile": "npx hardhat compile --config packages/contracts/hardhat.config.ts",
+    "contracts:deploy": "npx hardhat run packages/contracts/scripts/deploy-brain-system.ts --config packages/contracts/hardhat.config.ts",
     "frontend:dev": "npm run dev -w packages/frontend",
     "frontend:build": "npm run build -w packages/frontend",
     "frontend:start": "npm run start -w packages/frontend",
-    "build": "npm run sdk:build && npm run agent:build && npm run frontend:build",
-    "demo:seed": "npm run demo:seed -w packages/contracts"
+    "build": "npm run sdk:build && npm run api:build",
+    "dev": "./scripts/start-dev.sh",
+    "docker:up": "docker compose up -d",
+    "docker:build": "docker compose build --parallel",
+    "deploy": "./scripts/deploy.sh"
   }
 }

@@ -1,236 +1,102 @@
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323:wght@400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --pixel-red: #FF00FF; /* Electric Pink */
-  --pixel-dark: #0F172A; /* Deep Blue Dark */
-  --pixel-black: #020617; /* Very Dark Blue */
-  --pixel-gold: #FFFF00; /* Neon Yellow */
-  --pixel-teal: #00FFFF; /* Cyan */
-  --pixel-gray: #475569;
-  --pixel-purple: #7B2FBE;
-  --pixel-green: #00FF00; /* Neon Green */
-  --pixel-danger: #FF0000; /* True Red */
-  --pixel-blue: #0055FF; /* Solid Bright Blue */
-}
-
 body {
-  background-color: var(--pixel-black);
-  font-family: 'VT323', monospace;
-  color: #e2e8f0;
+  font-family: 'Inter', sans-serif;
+  background: #0c1324;
+  color: #dce1fb;
 }
 
-/* ── Pixel Card ─────────────────────────────────────── */
-.pixel-card {
-  border: 1px solid var(--pixel-red);
-  box-shadow: 0 0 10px rgba(255, 0, 255, 0.4), inset 0 0 5px rgba(255, 0, 255, 0.2);
-  background: var(--pixel-dark);
-  border-radius: 8px;
-  padding: 1rem;
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
 }
 
-.pixel-card-gold {
-  border: 1px solid var(--pixel-gold);
-  box-shadow: 0 0 10px rgba(255, 255, 0, 0.4), inset 0 0 5px rgba(255, 255, 0, 0.2);
-  background: var(--pixel-dark);
-  border-radius: 8px;
-  padding: 1rem;
-}
-
-.pixel-card-teal {
-  border: 1px solid var(--pixel-teal);
-  box-shadow: 0 0 10px rgba(0, 255, 255, 0.4), inset 0 0 5px rgba(0, 255, 255, 0.2);
-  background: var(--pixel-dark);
-  border-radius: 8px;
-  padding: 1rem;
-}
-
-.pixel-card-danger {
-  border: 1px solid var(--pixel-danger);
-  box-shadow: 0 0 10px rgba(255, 0, 0, 0.4), inset 0 0 5px rgba(255, 0, 0, 0.2);
-  background: var(--pixel-dark);
-  border-radius: 8px;
-  padding: 1rem;
-}
-
-.pixel-card-gray {
-  border: 1px solid var(--pixel-gray);
-  box-shadow: 0 0 5px var(--pixel-gray);
-  background: var(--pixel-dark);
-  border-radius: 8px;
-  padding: 1rem;
-  opacity: 0.6;
-}
-
-/* ── Pixel Buttons ──────────────────────────────────── */
-.pixel-btn {
-  font-family: 'VT323', monospace;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-radius: 6px;
+.gradient-card {
+  position: relative;
+  border-radius: 0.75rem;
+  padding: 1px;
+  background: linear-gradient(to right, #c0c1ff, #4edea3);
   cursor: pointer;
   transition: all 0.2s;
-  display: inline-block;
-  padding: 8px 16px;
 }
-
-.pixel-btn:active {
-  transform: translateY(2px);
+.gradient-card:hover {
+  box-shadow: 0 10px 15px -3px rgba(192, 193, 255, 0.1);
 }
-
-.pixel-btn-primary {
-  background: transparent;
-  border: 1px solid var(--pixel-red);
-  box-shadow: 0 0 8px rgba(255,0,255,0.4), inset 0 0 4px rgba(255,0,255,0.2);
-  color: var(--pixel-red);
-}
-
-.pixel-btn-primary:active {
-  box-shadow: 0 0 3px rgba(255,0,255,0.5);
-}
-
-.pixel-btn-ghost {
-  background: transparent;
-  border: 1px solid var(--pixel-gray);
-  box-shadow: 0 0 5px rgba(100,100,100,0.5);
-  color: #e2e8f0;
-}
-
-.pixel-btn-ghost:active {
-  box-shadow: none;
-}
-
-.pixel-btn-danger {
-  background: var(--pixel-danger);
-  border: 1px solid var(--pixel-danger);
-  box-shadow: 0 0 10px rgba(255, 0, 0, 0.4);
-  color: #fff;
-}
-
-.pixel-btn-danger:active {
-  box-shadow: none;
-}
-
-.pixel-btn-blue {
-  background: var(--pixel-blue);
-  border: 1px solid var(--pixel-blue);
-  box-shadow: 0 0 10px rgba(0, 85, 255, 0.4);
-  color: #fff;
-}
-
-.pixel-btn-blue:active {
-  box-shadow: none;
-}
-
-.pixel-btn-yellow {
-  background: transparent;
-  border: 1px solid var(--pixel-gold);
-  box-shadow: 0 0 10px rgba(255, 255, 0, 0.5), inset 0 0 6px rgba(255, 255, 0, 0.3);
-  color: var(--pixel-gold);
-  text-shadow: 0 0 5px var(--pixel-gold);
-}
-
-.pixel-btn-yellow:active {
-  box-shadow: 0 0 3px rgba(255, 255, 0, 0.6);
-}
-
-.pixel-btn-teal {
-  background: transparent;
-  border: 1px solid var(--pixel-teal);
-  box-shadow: 0 0 8px rgba(0, 255, 255, 0.4), inset 0 0 4px rgba(0, 255, 255, 0.2);
-  color: var(--pixel-teal);
-}
-
-.pixel-btn-teal:active {
-  box-shadow: none;
-}
-
-.pixel-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-/* ── Pixel Badge ────────────────────────────────────── */
-.pixel-badge {
-  font-family: 'VT323', monospace;
-  font-size: 12px;
-  text-transform: uppercase;
-  border: 1px solid currentColor;
-  padding: 2px 8px;
-  border-radius: 4px;
-  display: inline-block;
-  box-shadow: 0 0 6px currentColor;
-}
-
-/* ── Pixel Progress Bar ─────────────────────────────── */
-.pixel-progress {
-  height: 12px;
-  background: #1a2744;
-  border: 2px solid var(--pixel-gold);
-  border-radius: 0;
-  overflow: hidden;
-}
-
-.pixel-progress-fill {
+.gradient-card-inner {
+  background: #1E293B;
   height: 100%;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--pixel-gold) 0px,
-    var(--pixel-gold) 10px,
-    #b8960a 10px,
-    #b8960a 12px
-  );
-  transition: width 0.4s ease;
-}
-
-.pixel-progress-teal .pixel-progress-fill {
-  background: repeating-linear-gradient(
-    90deg,
-    var(--pixel-teal) 0px,
-    var(--pixel-teal) 10px,
-    #008fa8 10px,
-    #008fa8 12px
-  );
-}
-
-/* ── Pixel Header ───────────────────────────────────── */
-.pixel-header {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 12px;
-  color: var(--pixel-red);
-  text-shadow: 2px 2px 0px var(--pixel-gold);
-}
-
-/* ── Blinking cursor animation ──────────────────────── */
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.pixel-cursor {
-  animation: blink 0.8s step-end infinite;
-}
-
-/* ── Responsive layout ──────────────────────────────── */
-
-/* Center content and cap width for desktop */
-.page-container {
   width: 100%;
-  max-width: 1024px;
-  margin-left: auto;
-  margin-right: auto;
+  border-radius: 11px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.2s;
+}
+.gradient-card:hover .gradient-card-inner {
+  background: rgba(51, 57, 76, 0.4);
 }
 
-/* Base button sizing */
-@media (min-width: 768px) {
-  .pixel-btn {
-    font-size: 15px;
-    padding: 10px 20px;
-  }
+.glass-nav {
+  background: rgba(35, 41, 60, 0.8);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(70, 69, 84, 0.3);
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 50;
+}
+
+.chat-ai {
+  background: #1E293B;
+  padding: 1rem;
+  border-radius: 1rem;
+  border-top-left-radius: 0.125rem;
+  max-width: 85%;
+  border-left: 4px solid #c0c1ff;
+  border: 1px solid rgba(70, 69, 84, 0.2);
+  border-left: 4px solid #c0c1ff;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.chat-user {
+  background: #23293c;
+  border: 1px solid rgba(70, 69, 84, 0.3);
+  padding: 1rem;
+  border-radius: 1rem;
+  border-top-right-radius: 0.125rem;
+  max-width: 85%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.chat-store {
+  background: #1E293B;
+  padding: 1rem;
+  border-radius: 1rem;
+  border-top-left-radius: 0.125rem;
+  max-width: 85%;
+  border-left: 4px solid #4edea3;
+  border: 1px solid rgba(70, 69, 84, 0.2);
+  border-left: 4px solid #4edea3;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }

@@ -6,10 +6,11 @@ import type { PermitState } from '@/types/context';
 interface Props {
   userAddress: `0x${string}`;
   permitState: PermitState;
+  mode?: 'learn' | 'store';
 }
 
-export function ChatWindow({ userAddress, permitState }: Props) {
-  const { messages, sendMessage, loading, error, needsTopUp } = useChat(userAddress, permitState.serializedPermit);
+export function ChatWindow({ userAddress, permitState, mode = 'learn' }: Props) {
+  const { messages, sendMessage, loading, error, needsSubscription: needsTopUp } = useChat(userAddress);
   const [input, setInput] = useState('');
   const [dismissedError, setDismissedError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -24,21 +25,11 @@ export function ChatWindow({ userAddress, permitState }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading, visibleError]);
 
-  if (!permitState.serializedPermit) {
-    return (
-      <div className="flex items-center justify-center h-full px-4">
-        <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gray)', textAlign: 'center' }}>
-          AI AGENT NOT AUTHORIZED.<br />USE THE AUTHORIZE BUTTON ABOVE TO START CHATTING.
-        </div>
-      </div>
-    );
-  }
-
   async function handleSend() {
     if (!input.trim() || loading) return;
     const msg = input.trim();
     setInput('');
-    await sendMessage(msg);
+    await sendMessage(msg, undefined, mode);
   }
 
   return (

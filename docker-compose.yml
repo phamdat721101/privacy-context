@@ -1,43 +1,29 @@
-version: '3.8'
-
 services:
-  agent:
-    build:
-      context: .
-      dockerfile: Dockerfile.agent
+  api:
+    build: packages/api
     ports:
       - "3001:3001"
     env_file: .env
-    environment:
-      - PORT=3001
-      - PRIVACY_MODE=${PRIVACY_MODE:-off}
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
+  caddy:
+    image: caddy:2-alpine
     ports:
-      - "3000:3000"
-    env_file: .env
-    environment:
-      - NEXT_PUBLIC_AGENT_BACKEND_URL=http://localhost:3001
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
     depends_on:
-      agent:
-        condition: service_healthy
+      - api
+    restart: unless-stopped
+    profiles:
+      - production
 
-  seed:
-    build:
-      context: .
-      dockerfile: Dockerfile.agent
-    env_file: .env
-    entrypoint: ["node", "packages/agent/dist/index.js"]
-    command: ["echo", "Seed complete"]
-    profiles: ["seed"]
-    depends_on:
-      agent:
-        condition: service_healthy
+volumes:
+  caddy_data:

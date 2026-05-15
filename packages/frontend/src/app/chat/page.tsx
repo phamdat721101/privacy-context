@@ -2,108 +2,100 @@
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
-import { useReadContract } from 'wagmi';
-import Link from 'next/link';
-import { PermitManager } from '@/components/PermitManager';
-import { ChatWindow } from '@/components/ChatWindow';
+import { useChat } from '@/hooks/useChat';
 import { BottomNav } from '@/components/BottomNav';
-import { usePermit } from '@/hooks/usePermit';
-import { ContextManagerAbi, CONTEXT_MANAGER_ADDRESS } from '@/lib/contracts';
+import Link from 'next/link';
 
 export default function ChatPage() {
   const { authenticated, user, ready } = usePrivy();
   const router = useRouter();
   const userAddress = user?.wallet?.address as `0x${string}` | undefined;
-  const { permitState, authorize, revoke, loading: permitLoading, error: permitError } = usePermit(userAddress);
+  const [mode, setMode] = useState<'learn' | 'store'>('learn');
+  const [input, setInput] = useState('');
+  const { messages, sendMessage, loading, error, needsSubscription } = useChat(userAddress);
 
-  const { data: contextHandles } = useReadContract({
-    abi: ContextManagerAbi,
-    functionName: 'getContextHandles',
-    args: userAddress ? [userAddress] : undefined,
-    query: { enabled: Boolean(userAddress) },
-  });
-  const contextExists = Boolean(contextHandles && (contextHandles as any).sessionKey !== 0n);
+  useEffect(() => { if (ready && !authenticated) router.push('/'); }, [ready, authenticated, router]);
+  if (!ready || !authenticated || !userAddress) return null;
 
-  useEffect(() => {
-    if (ready && !authenticated) router.push('/');
-  }, [ready, authenticated, router]);
-
-  useEffect(() => {
-    if (ready && authenticated && userAddress && contextHandles !== undefined && !contextExists) {
-      router.push('/onboard');
-    }
-  }, [ready, authenticated, userAddress, contextHandles, contextExists, router]);
-
-  if (!ready || !authenticated) return null;
+  async function handleSend() {
+    if (!input.trim() || loading) return;
+    const msg = input.trim();
+    setInput('');
+    await sendMessage(msg, undefined, mode);
+  }
 
   return (
-    <main className="page-container min-h-screen pb-28 px-4 md:px-8 py-8 flex flex-col" style={{ background: 'var(--pixel-black)' }}>
-      {/* Header */}
-      <header className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <Link href="/" style={{ textDecoration: 'none' }}>
-            <span style={{ fontFamily: "'Press Start 2P'", fontSize: '24px', color: 'var(--pixel-red)', textShadow: '0 0 10px var(--pixel-red)', letterSpacing: '0.1em' }}>
-              FHE AI
-            </span>
+    <div className="bg-background min-h-screen flex flex-col items-center">
+      <div className="w-full max-w-[768px] flex flex-col min-h-screen relative">
+        {/* Header */}
+        <header className="flex justify-between items-center px-4 md:px-8 h-[72px] sticky top-0 z-50 bg-surface-container/80 backdrop-blur-lg border-b border-outline-variant/20">
+          <Link href="/" className="text-on-surface-variant hover:text-primary p-2 rounded-full hover:bg-surface-bright/10">
+            <span className="material-symbols-outlined">arrow_back</span>
           </Link>
-          <span style={{ fontFamily: "'Press Start 2P'", fontSize: '18px', color: 'var(--pixel-gray)' }}>/</span>
-          <span style={{ fontFamily: "'Press Start 2P'", fontSize: '18px', color: '#fff' }}>CHAT</span>
-        </div>
-      </header>
-
-      {/* Main Dual Pane Layout */}
-      <div className="flex flex-col md:flex-row flex-1 gap-6 md:h-[calc(100vh-160px)]">
-        
-        {/* Left Sidebar: Session History */}
-        <div className="w-full md:w-64 flex flex-col gap-4">
-          <div className="pixel-card flex flex-col h-full space-y-4" style={{ padding: '16px' }}>
-            <div style={{ fontFamily: "'Press Start 2P'", fontSize: '12px', color: 'var(--pixel-red)', textShadow: '0 0 5px var(--pixel-red)' }}>
-              SESSION HISTORY
-            </div>
-            
-            <button className="pixel-btn pixel-btn-primary w-full" style={{ padding: '12px' }}>
-              + NEW CHAT
-            </button>
-            
-            <div className="flex-1 overflow-y-auto space-y-2 mt-4">
-               <div style={{ fontFamily: "'VT323'", fontSize: '14px', color: 'var(--pixel-gray)', marginBottom: '8px' }}>TODAY</div>
-               <div className="pixel-card-gray cursor-pointer hover:bg-white/5 transition-colors" style={{ padding: '8px 12px', borderRadius: '4px' }}>
-                 <span style={{ fontFamily: "'VT323'", fontSize: '16px', color: '#fff' }}>Analyze smart contract...</span>
-               </div>
-               <div className="pixel-card-gray cursor-pointer hover:bg-white/5 transition-colors" style={{ padding: '8px 12px', borderRadius: '4px' }}>
-                 <span style={{ fontFamily: "'VT323'", fontSize: '16px', color: '#fff' }}>Explain FHE...</span>
-               </div>
-            </div>
+          <span className="font-headline text-2xl font-bold text-on-surface tracking-tight">SECOND BRAIN</span>
+          <div className="flex bg-surface-container-high rounded-full p-1 border border-outline-variant/30">
+            <button onClick={() => setMode('learn')} className={`px-3 py-1 rounded-full font-mono text-[13px] transition-all ${mode === 'learn' ? 'bg-primary-container text-on-primary-container shadow-sm' : 'text-on-surface-variant hover:text-primary'}`}>LEARN</button>
+            <button onClick={() => setMode('store')} className={`px-3 py-1 rounded-full font-mono text-[13px] transition-all ${mode === 'store' ? 'bg-secondary-container text-on-secondary shadow-sm' : 'text-on-surface-variant hover:text-primary'}`}>STORE</button>
           </div>
-        </div>
+        </header>
 
-        {/* Right Pane: Chat Window */}
-        <div className="flex-1 flex flex-col">
-          {!permitState.serializedPermit && (
-            <div className="mb-4 pixel-card-gold p-4">
-               <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gold)', marginBottom: '8px' }}>
-                 AGENT PERMIT REQUIRED
-               </div>
-               <PermitManager permitState={permitState} authorize={authorize} revoke={revoke} loading={permitLoading} error={permitError} />
+        {/* Messages */}
+        <main className="flex-1 overflow-y-auto px-4 md:px-8 py-8 flex flex-col gap-6 pb-[140px]">
+          {needsSubscription && (
+            <div className="bg-tertiary-container/10 border border-tertiary/30 rounded-xl p-4 text-center">
+              <span className="text-tertiary text-sm">Subscription required. </span>
+              <Link href="/payments" className="text-primary underline text-sm">Subscribe now →</Link>
             </div>
           )}
+          {error && !needsSubscription && (
+            <div className="bg-error-container/20 border border-error/30 rounded-xl p-3 text-error text-sm">{error}</div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={m.role === 'user' ? 'chat-user' : (m.content.includes('stored') ? 'chat-store' : 'chat-ai')}>
+                {m.role === 'assistant' && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="material-symbols-outlined text-primary text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {m.content.includes('stored') ? 'memory' : 'psychology'}
+                    </span>
+                    <span className="font-mono text-[13px] text-primary font-bold">
+                      {m.content.includes('stored') ? 'Stored' : 'FHE Second Brain'}
+                    </span>
+                  </div>
+                )}
+                <p className="text-on-surface-variant">{m.content}</p>
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="chat-ai"><span className="text-primary animate-pulse">Thinking...</span></div>
+            </div>
+          )}
+        </main>
 
-          <div className="flex-1 relative h-[600px] md:h-auto">
-            {userAddress ? (
-               <ChatWindow userAddress={userAddress} permitState={permitState} />
-            ) : (
-               <div className="flex items-center justify-center h-full pixel-card">
-                 <span style={{ fontFamily: "'VT323'", fontSize: '18px', color: 'var(--pixel-gray)' }}>
-                   CONNECTING WALLET<span className="pixel-cursor">_</span>
-                 </span>
-               </div>
-            )}
+        {/* Input */}
+        <div className="fixed bottom-0 w-full max-w-[768px] left-1/2 -translate-x-1/2 bg-surface-container-highest/90 backdrop-blur-xl border-t border-outline-variant/30 p-4 pb-8 z-50">
+          <div className="relative flex items-center">
+            <input
+              value={input} onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSend()}
+              placeholder="Ask your Second Brain..."
+              className="w-full bg-surface text-on-surface border border-outline-variant/50 rounded-full py-3 pl-5 pr-12 focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-text-muted"
+            />
+            <button onClick={handleSend} disabled={!input.trim() || loading}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary text-on-primary rounded-full hover:bg-primary/80 transition-colors shadow-md disabled:opacity-50">
+              <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>send</span>
+            </button>
+          </div>
+          <div className="text-center mt-2">
+            <span className="text-[11px] font-mono text-text-muted flex items-center justify-center gap-1">
+              <span className="material-symbols-outlined text-[12px]">lock</span>
+              End-to-End Encrypted via FHE
+            </span>
           </div>
         </div>
-
       </div>
-
-      <BottomNav />
-    </main>
+    </div>
   );
 }
