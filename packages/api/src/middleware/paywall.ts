@@ -49,3 +49,15 @@ export const subscriptionGate = (req: AuthRequest, res: Response, next: NextFunc
     protocols: ['x402'],
   });
 };
+
+/**
+ * FHE permit gate — requires user to have imported a valid permit.
+ * This proves wallet ownership cryptographically (permit is signed by the wallet).
+ */
+export const permitGate = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.hasPermit) return next();
+  res.status(403).json({
+    error: 'FHE authorization required',
+    message: 'Import a permit first: POST /permit/import with your signed permit.',
+  });
+};

@@ -50,13 +50,29 @@ router.get('/:id', async (req, res) => {
 
 router.post('/publish', auth, async (req: AuthRequest, res) => {
   const { brainId, title, description, tags } = req.body;
+  if (!req.user?.hasPermit) {
+    return res.status(403).json({ error: 'Permit required. Authorize your wallet first.' });
+  }
+  let txHash: string | null = null;
   if (brainId) {
     const { rows } = await pool.query(
       `UPDATE brains SET title = COALESCE($1, title), description = COALESCE($2, description), tags = COALESCE($3, tags), published = true WHERE id = $4 AND owner_address = $5 RETURNING *`,
       [title, description, tags || [], brainId, req.user!.address]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Brain not found or not owned' });
-    return res.json(rows[0]);
+    // On-chain publish (fire-and-forget)
+    try {
+      const { ethers } = await import('ethers');
+      const addr = process.env.KNOWLEDGE_REGISTRY_ADDRESS;
+      if (process.env.PRIVATE_KEY && addr) {
+        const provider = new ethers.JsonRpcProvider(process.env.ARBITRUM_SEPOLIA_RPC || 'https://sepolia-rollup.arbitrum.io/rpc');
+        const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+        const contract = new ethers.Contract(addr, ['function publish(uint256 brainId)'], wallet);
+        const tx = await contract.publish(brainId);
+        txHash = tx.hash;
+      }
+    } catch {}
+    return res.json({ ...rows[0], txHash });
   }
   const { rows } = await pool.query(
     `INSERT INTO brains (owner_address, title, description, tags, published, chain) VALUES ($1,$2,$3,$4,true,'arbitrum-sepolia') RETURNING *`,

@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { pool } from '../db';
 
 export interface AuthRequest extends Request {
-  user?: { address: string; subscribed: boolean; tier?: string };
+  user?: { address: string; subscribed: boolean; tier?: string; hasPermit: boolean };
 }
 
 export const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -14,6 +14,14 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
     [address]
   );
   const sub = rows[0];
-  req.user = { address, subscribed: !!sub, tier: sub?.tier };
+
+  // Check permit (lazy import to avoid crash if @cofhe/sdk not available)
+  let hasPermit = false;
+  try {
+    const { hasPermit: checkPermit } = await import('../fhe/permits');
+    hasPermit = checkPermit(address);
+  } catch {}
+
+  req.user = { address, subscribed: !!sub, tier: sub?.tier, hasPermit };
   next();
 };
