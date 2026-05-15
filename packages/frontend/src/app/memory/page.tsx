@@ -13,6 +13,7 @@ export default function MyBrainPage() {
   const router = useRouter();
   const userAddress = user?.wallet?.address;
   const [brains, setBrains] = useState<Brain[]>([]);
+  const [selectedBrain, setSelectedBrain] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -22,8 +23,23 @@ export default function MyBrainPage() {
   async function fetchMyBrains() {
     try {
       const res = await fetch(`${AGENT_BACKEND_URL}/brains/mine`, { headers: { 'x-wallet-address': userAddress! } });
-      if (res.ok) setBrains(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setBrains(data);
+        if (data.length > 0 && !selectedBrain) setSelectedBrain(data[0].id);
+      }
     } catch {}
+  }
+
+  async function handleCreateBrain() {
+    if (!userAddress) return;
+    const title = prompt('Brain name:');
+    if (!title) return;
+    const res = await fetch(`${AGENT_BACKEND_URL}/brains/create`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-wallet-address': userAddress },
+      body: JSON.stringify({ title }),
+    });
+    if (res.ok) { const brain = await res.json(); setMsg(`Created: ${brain.title}`); fetchMyBrains(); setSelectedBrain(brain.id); }
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -33,23 +49,26 @@ export default function MyBrainPage() {
     try {
       const form = new FormData();
       form.append('file', file);
+      if (selectedBrain) form.append('brainId', String(selectedBrain));
       const res = await fetch(`${AGENT_BACKEND_URL}/upload`, { method: 'POST', headers: { 'x-wallet-address': userAddress }, body: form });
       if (res.status === 402) { setMsg('Subscribe first to upload'); return; }
       if (!res.ok) throw new Error((await res.json()).error);
       const data = await res.json();
-      setMsg(`Uploaded! Brain #${data.brainId} — ${data.estimatedChunks} chunks stored`);
+      setMsg(`Uploaded! Brain #${data.brainId} — ${data.estimatedChunks} chunks added`);
       fetchMyBrains();
     } catch (err: any) { setMsg(err.message); }
-    finally { setUploading(false); }
+    finally { setUploading(false); e.target.value = ''; }
   }
 
   async function handlePublish(brainId: number) {
     if (!userAddress) return;
+    const title = brains.find(b => b.id === brainId)?.title || `Brain #${brainId}`;
     const res = await fetch(`${AGENT_BACKEND_URL}/brains/publish`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-wallet-address': userAddress },
-      body: JSON.stringify({ brainId, title: `Brain #${brainId}`, tags: ['knowledge'] }),
+      body: JSON.stringify({ brainId, title, tags: ['knowledge'] }),
     });
-    if (res.ok) { setMsg('Brain published!'); fetchMyBrains(); }
+    if (res.ok) { setMsg('Brain published to catalog!'); fetchMyBrains(); }
+    else { const err = await res.json(); setMsg(err.error || 'Publish failed'); }
   }
 
   if (!ready || !authenticated) return null;
@@ -65,8 +84,21 @@ export default function MyBrainPage() {
         {/* Upload Zone */}
         <div className="border-2 border-dashed border-outline-variant/50 rounded-xl p-8 text-center hover:border-secondary/50 transition-colors">
           <span className="material-symbols-outlined text-4xl text-text-muted mb-3 block">cloud_upload</span>
-          <p className="text-on-surface-variant mb-1">Drop file or click to upload</p>
-          <p className="text-text-muted text-sm mb-4">.txt, .md, .csv supported</p>
+
+          {/* Brain Selector */}
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <span className="text-on-surface-variant text-sm">Upload to:</span>
+            <select
+              value={selectedBrain || ''}
+              onChange={e => setSelectedBrain(+e.target.value || null)}
+              className="bg-surface border border-outline-variant/50 rounded-lg px-3 py-1.5 text-on-surface text-sm focus:ring-2 focus:ring-primary"
+            >
+              {brains.map(b => <option key={b.id} value={b.id}>{b.title}</option>)}
+            </select>
+            <button onClick={handleCreateBrain} className="text-primary text-sm hover:underline">+ New Brain</button>
+          </div>
+
+          <p className="text-text-muted text-sm mb-4">.txt, .md, .csv — files append to selected brain</p>
           <label className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-full font-semibold cursor-pointer hover:bg-primary/80 transition-colors">
             <span className="material-symbols-outlined text-[18px]">upload_file</span>
             {uploading ? 'Uploading...' : 'Choose File'}
@@ -89,7 +121,8 @@ export default function MyBrainPage() {
           <h2 className="font-headline text-lg font-semibold mb-4">Your Brains ({brains.length})</h2>
           {brains.length === 0 ? (
             <div className="bg-card border border-outline-variant/20 rounded-xl p-8 text-center">
-              <p className="text-on-surface-variant">No brains yet. Upload a file or use Store mode in chat.</p>
+              <p className="text-on-surface-variant mb-4">No brains yet. Create one and upload files.</p>
+              <button onClick={handleCreateBrain} className="px-5 py-2 bg-primary text-on-primary rounded-full font-semibold">Create First Brain</button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -98,7 +131,7 @@ export default function MyBrainPage() {
                   <div className="flex items-center gap-3">
                     <span className="material-symbols-outlined text-primary">psychology</span>
                     <div>
-                      <span className="text-text-primary font-medium">{brain.title || `Brain #${brain.id}`}</span>
+                      <span className="text-text-primary font-medium">{brain.title}</span>
                       <span className={`ml-3 text-xs font-mono ${brain.published ? 'text-secondary' : 'text-text-muted'}`}>
                         {brain.published ? '✓ Published' : '🔒 Private'}
                       </span>

@@ -33,13 +33,22 @@ router.get('/mine', auth, async (req: AuthRequest, res) => {
   res.json(rows);
 });
 
+router.post('/create', auth, async (req: AuthRequest, res) => {
+  const { title = 'New Brain' } = req.body;
+  const { rows } = await pool.query(
+    `INSERT INTO brains (owner_address, title, chain) VALUES ($1, $2, 'arbitrum-sepolia') RETURNING *`,
+    [req.user!.address, title]
+  );
+  res.json(rows[0]);
+});
+
 router.get('/:id', async (req, res) => {
   const { rows } = await pool.query(`SELECT * FROM brains WHERE id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ error: 'Brain not found' });
   res.json(rows[0]);
 });
 
-router.post('/publish', auth, subscriptionGate as any, async (req: AuthRequest, res) => {
+router.post('/publish', auth, async (req: AuthRequest, res) => {
   const { brainId, title, description, tags } = req.body;
   if (brainId) {
     const { rows } = await pool.query(
