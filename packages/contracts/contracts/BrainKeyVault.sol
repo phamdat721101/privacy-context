@@ -13,9 +13,12 @@ contract BrainKeyVault {
     address public platform;
     mapping(uint256 => EncryptedKey) private keys;
     mapping(uint256 => address) public brainOwner;
+    mapping(address => mapping(address => bool)) public authorized;
 
     event KeyStored(uint256 indexed brainId, address indexed brainOwnerAddr);
     event PlatformUpdated(address indexed platform);
+    event Authorized(address indexed user, address indexed platform);
+    event Revoked(address indexed user, address indexed platform);
 
     modifier onlyOwner() { require(msg.sender == owner, "not owner"); _; }
 
@@ -38,6 +41,23 @@ contract BrainKeyVault {
         FHE.allow(k.keyLow, platform);
 
         emit KeyStored(brainId, msg.sender);
+    }
+
+    /// @notice User authorizes a platform to decrypt their brain keys
+    function authorize(address _platform) external {
+        authorized[msg.sender][_platform] = true;
+        emit Authorized(msg.sender, _platform);
+    }
+
+    /// @notice Revoke platform's authorization
+    function revoke(address _platform) external {
+        authorized[msg.sender][_platform] = false;
+        emit Revoked(msg.sender, _platform);
+    }
+
+    /// @notice Check if user authorized platform on-chain
+    function isAuthorized(address user, address _platform) external view returns (bool) {
+        return authorized[user][_platform];
     }
 
     function getKeyHandles(uint256 brainId) external view returns (bytes32 high, bytes32 low) {

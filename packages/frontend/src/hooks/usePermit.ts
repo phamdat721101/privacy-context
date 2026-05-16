@@ -1,15 +1,17 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useWalletClient } from 'wagmi';
 import { useWallets } from '@privy-io/react-auth';
-import { createWalletClient, custom } from 'viem';
-import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
-import { createPermit, revokePermit, arbitrumSepolia } from '@fhe-ai-context/sdk';
+import { BrowserProvider, Contract } from 'ethers';
 import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 import type { PermitState } from '@/types/context';
 
+const VAULT_ABI = [
+  'function authorize(address platform)',
+  'function revoke(address platform)',
+  'function isAuthorized(address user, address platform) view returns (bool)',
+];
+
 export function usePermit(userAddress: `0x${string}` | undefined) {
-  const { data: wagmiWalletClient } = useWalletClient();
   const { wallets } = useWallets();
   const [permitState, setPermitState] = useState<PermitState>({
     serializedPermit: null,
@@ -22,67 +24,61 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
   useEffect(() => {
     if (!userAddress) return;
     const stored = localStorage.getItem(`fhe_permit_${userAddress}`);
-    if (!stored) return;
-    try {
-      const state = JSON.parse(stored);
-      setPermitState(state);
-    } catch { /* ignore corrupted */ }
+    if (stored) {
+      try { setPermitState(JSON.parse(stored)); } catch {}
+    }
   }, [userAddress]);
 
-  async function authorize(agentAddress: `0x${string}`) {
-    if (!userAddress) { setError('No wallet address found'); return; }
+  async function authorize(platformWallet: `0x${string}`) {
+    if (!userAddress || !wallets.length) {
+      setError('Wallet not connected'); return;
+    }
     setLoading(true);
     setError(null);
     try {
-      if (wallets.length === 0) { setError('Wallet disconnected'); setLoading(false); return; }
-      let signer: any = wagmiWalletClient;
-      if (!signer && wallets.length > 0) {
-        const pw = wallets[0];
-        await pw.switchChain(421614);
-        const provider = await pw.getEthereumProvider();
-        signer = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider) });
-      }
-      if (!signer) throw new Error('No wallet client — please reconnect your wallet');
+      const pw = wallets[0];
+      await pw.switchChain(421614);
+      const provider = await pw.getEthereumProvider();
+      const ethersProvider = new BrowserProvider(provider);
+      const signer = await ethersProvider.getSigner();
+      const contract = new Contract(BRAIN_KEY_VAULT_ADDRESS, VAULT_ABI, signer);
 
-      const permit = await createPermit(
-        { contractAddress: BRAIN_KEY_VAULT_ADDRESS, agentAddress },
-        arbitrumSepolia,
-        signer,
-      );
-      const serialized = permit;
-      const res = await fetch(`${AGENT_BACKEND_URL}/permit/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userAddress, serializedPermit: serialized }),
-      });
-      if (!res.ok) {
-        const data = await res.json() as { error?: string };
-        throw new Error(data.error ?? 'Failed to import permit');
-      }
-      const newState = {
-        serializedPermit: serialized,
-        permitId: (permit as any).id ?? null,
-        expiresAt: (permit as any).expiration ?? null,
-      };
+      const tx = await contract.authorize(platformWallet);
+      await tx.wait();
+
+      const newState = { serializedPermit: tx.hash, permitId: tx.hash, expiresAt: null };
       setPermitState(newState);
       localStorage.setItem(`fhe_permit_${userAddress}`, JSON.stringify(newState));
+
+      // Notify backend (it can also read on-chain directly)
+      await fetch(`${AGENT_BACKEND_URL}/permit/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAddress, serializedPermit: tx.hash }),
+      }).catch(() => {});
     } catch (e: any) {
-      setError(e?.message ?? 'Authorization failed');
+      setError(e?.shortMessage || e?.message || 'Authorization failed');
     } finally {
       setLoading(false);
     }
   }
 
   async function revoke() {
-    if (!userAddress || !permitState.permitId) return;
+    if (!userAddress || !wallets.length) return;
     setLoading(true);
-    setError(null);
     try {
-      await revokePermit(permitState.permitId, arbitrumSepolia, userAddress);
+      const pw = wallets[0];
+      const provider = await pw.getEthereumProvider();
+      const signer = await new BrowserProvider(provider).getSigner();
+      const contract = new Contract(BRAIN_KEY_VAULT_ADDRESS, VAULT_ABI, signer);
+      // Revoke against the cached platform address (best effort)
+      const platform = (await fetch(`${AGENT_BACKEND_URL}/platform`).then(r => r.json())).platformWallet;
+      const tx = await contract.revoke(platform);
+      await tx.wait();
       await fetch(`${AGENT_BACKEND_URL}/permit/revoke`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userAddress, permitId: permitState.permitId }),
+        body: JSON.stringify({ userAddress }),
       });
       setPermitState({ serializedPermit: null, permitId: null, expiresAt: null });
       localStorage.removeItem(`fhe_permit_${userAddress}`);
