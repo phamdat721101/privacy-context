@@ -1,180 +1,293 @@
-# FHE AI Context
+# FHE AI Context Management
 
-**Privacy-Preserving AI Assistant using Fully Homomorphic Encryption (FHE) on Arbitrum**
+**Confidential AI Knowledge Management powered by Fhenix FHE**
 
-FHE AI Context is a monorepo that implements a strictly privacy-preserving AI assistant. It leverages Fully Homomorphic Encryption via the [CoFHE protocol](https://docs.cofhe.com/) on Arbitrum to ensure that user context, sentiments, memory, and personal configurations remain entirely encrypted on-chain. The AI agent accesses this data via delegated decryption permits without exposing the user's plaintext state to the public ledger.
+Build your private AI second brain where knowledge is encrypted on-chain, ownership is cryptographically provable, and access is controlled by Fully Homomorphic Encryption — not database flags.
+
+🔗 **Live API**: https://13-229-63-192.sslip.io
+🔗 **Contracts**: Arbitrum Sepolia ([SubscriptionController](https://sepolia.arbiscan.io/address/0xCC42779858F1cd3F480aD33BcBc5A931D57DfFc3) | [KnowledgeBaseRegistry](https://sepolia.arbiscan.io/address/0x36eca600679E73061318f8C10F6E43aFc06C96E0) | [BrainKeyVault](https://sepolia.arbiscan.io/address/0x07beFe30F0C8Ef8B4c513da22A310eF84E9010c0))
 
 ---
 
-## 📝 Deployed Contracts (Arbitrum Sepolia)
+## The Problem
 
-All contracts are deployed on Arbitrum Sepolia (Chain ID: `421614`):
+AI assistants need access to your personal knowledge to be useful. But storing knowledge in plaintext means:
+- The platform can read everything you store
+- Data breaches expose your private notes
+- You can't prove you own your knowledge
+- You can't revoke access cryptographically
+
+## The Solution
+
+FHE Second Brain uses **Fhenix Fully Homomorphic Encryption** to solve all four problems:
+
+```
+Upload knowledge → AES-encrypt content → store on IPFS
+                → FHE-encrypt the AES key → store on-chain (BrainKeyVault)
+                → Only permitted parties can decrypt
+                → Revoke permit = instant access revocation
+```
+
+**Your knowledge is yours. Provably. Cryptographically.**
+
+---
+
+## How It Works
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    FRONTEND (Next.js)                         │
+│  Connect Wallet → Authorize (FHE Permit) → Store/Learn/Share│
+└──────────────────────┬──────────────────────────────────────┘
+                       │ HTTPS + x-wallet-address + permit
+┌──────────────────────▼──────────────────────────────────────┐
+│                    API SERVER (Express)                       │
+│  Auth (permit check) → Subscription gate → Chat/Upload/Brains│
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+          ┌────────────┼────────────────┐
+          ▼            ▼                ▼
+┌──────────────┐ ┌──────────┐ ┌─────────────────┐
+│   Supabase   │ │  Fhenix  │ │   Bedrock LLM   │
+│  (Postgres)  │ │  CoFHE   │ │  (Claude Opus)  │
+│  chunks,     │ │  on-chain│ │  RAG answers    │
+│  history     │ │  keys,   │ │                 │
+│              │ │  proofs  │ │                 │
+└──────────────┘ └──────────┘ └─────────────────┘
+```
+
+### The Fhenix Layer (What Makes This Different)
+
+| Contract | Purpose | FHE Types Used |
+|----------|---------|----------------|
+| **SubscriptionController** | Encrypted subscription state | `euint8` tier, `euint64` expiry, `ebool` active |
+| **KnowledgeBaseRegistry** | Encrypted ownership proofs | `euint128` merkleRoot per brain |
+| **BrainKeyVault** | Encrypted content decryption keys | `euint128` keyHigh + `euint128` keyLow |
+
+### User Flow
+
+```
+1. CONNECT WALLET
+   └→ Privy authenticates user
+
+2. AUTHORIZE (FHE Permit)
+   └→ User signs permit with wallet (proves ownership)
+   └→ Permit sent to API (POST /permit/import)
+   └→ Platform can now decrypt user's FHE-protected data
+   └→ This IS the authentication — cryptographic, not a password
+
+3. SUBSCRIBE (x402 Payment)
+   └→ User pays via n-payment SDK (USDC on Base Sepolia)
+   └→ SubscriptionController.subscribe() called on-chain
+   └→ Encrypted tier/expiry stored (nobody sees who subscribed)
+
+4. STORE KNOWLEDGE
+   └→ Chat mode "store": type knowledge conversationally
+   └→ File upload: bulk import .txt/.md/.csv
+   └→ Content chunked and stored in Supabase
+   └→ On-chain: KnowledgeBaseRegistry records encrypted Merkle root
+
+5. LEARN FROM BRAIN
+   └→ Chat mode "learn": ask questions
+   └→ RAG: TF-IDF ranks relevant chunks
+   └→ Claude Opus generates answer from YOUR knowledge only
+   └→ Chat history maintained for continuity
+
+6. PUBLISH & SHARE
+   └→ Publish brain to catalog (requires FHE permit)
+   └→ On-chain: KnowledgeBaseRegistry.publish()
+   └→ Other subscribers can query your brain via AI
+   └→ They get AI answers — never see raw chunks
+
+7. REVOKE ACCESS
+   └→ DELETE /permit/revoke
+   └→ Platform loses decryption ability instantly
+   └→ Cryptographic guarantee — not just a DB flag
+```
+
+---
+
+## Why Fhenix is Essential (Not Optional)
+
+| Without FHE | With Fhenix FHE |
+|-------------|-----------------|
+| Platform stores your keys in plaintext DB | Keys are `euint128` on-chain — platform needs `FHE.allow()` |
+| "Revoke access" = flip a boolean | Revoke permit = cryptographic loss of decryption ability |
+| "Prove ownership" = trust the platform | Encrypted Merkle root on-chain = verifiable without revealing content |
+| "Private subscription" = hide in DB | `ebool active` + `euint8 tier` = nobody on-chain sees who subscribed |
+| Admin can read everything | Admin without permit literally cannot decrypt |
+
+**The key insight**: FHE makes access control **cryptographic** instead of **administrative**. The platform can't cheat even if it wanted to.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 14 + Tailwind + Privy (wallet auth) |
+| Backend | Express.js (TypeScript) |
+| Database | Supabase (Postgres) |
+| LLM | AWS Bedrock Claude Opus (fallback: OpenAI) |
+| Blockchain | Arbitrum Sepolia (Fhenix CoFHE) |
+| Payment | n-payment SDK (x402 protocol) |
+| Encryption | AES-256-GCM (content) + FHE euint128 (keys) |
+| Deploy | VPS + Caddy (auto-SSL) |
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/health` | GET | Public | Service status |
+| `/openapi.json` | GET | Public | API spec for agent discovery |
+| `/brains` | GET | Public | Browse published brains |
+| `/brains/search?q=` | GET | Public | Search brains |
+| `/brains/:id` | GET | Public | Brain detail |
+| `/permit/import` | POST | Wallet | Import FHE permit (authorize) |
+| `/permit/revoke` | DELETE | Wallet | Revoke platform access |
+| `/subscribe` | POST | Wallet | Pay subscription (x402) |
+| `/chat` | POST | Subscription | Chat with brain (store/learn) |
+| `/upload` | POST | Permit + Sub | Upload file to brain |
+| `/brains/create` | POST | Permit | Create new brain |
+| `/brains/publish` | POST | Permit | Publish brain to catalog |
+| `/brains/mine` | GET | Wallet | List own brains |
+| `/chat/history` | GET | Subscription | Chat history |
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Node.js 20+
+- Wallet with Arbitrum Sepolia ETH
+
+### Local Development
+
+```bash
+git clone https://github.com/phamdat721101/privacy-context.git
+cd privacy-context
+
+# Setup
+cp .env.example packages/api/.env
+# Edit packages/api/.env with your DATABASE_URL (Supabase) and BEDROCK_API_KEY
+
+# Build
+npm install
+npm run sdk:build
+npm run api:build
+
+# Run
+cd packages/api && node dist/server.js
+# API at http://localhost:3001
+
+# Frontend (separate terminal)
+npm run frontend:dev
+# UI at http://localhost:3000
+```
+
+### Production Deploy (VPS)
+
+```bash
+./scripts/deploy.sh
+# Deploys API via PM2 + Caddy auto-SSL
+```
+
+### Deploy Contracts
+
+```bash
+cd packages/contracts
+PLATFORM_WALLET=0x... npx hardhat run scripts/deploy-brain-system.ts --network arbitrumSepolia
+```
+
+---
+
+## SDK Usage (For AI Agents)
+
+```typescript
+import { BrainClient } from '@fhe-ai-context/sdk';
+
+const brain = new BrainClient('https://api.example.com', 'arbitrum-sepolia', '0xYourWallet');
+
+// Subscribe
+await brain.subscribe('month');
+
+// Store knowledge
+await brain.chat('FHE allows computation on encrypted data', undefined, 'store');
+
+// Query your brain
+const answer = await brain.chat('What is FHE?', undefined, 'learn');
+console.log(answer.response);
+
+// Upload file (client-side encrypted)
+await brain.uploadEncrypted('My private research notes...');
+
+// Browse other brains
+const brains = await brain.searchBrains('solidity security');
+const answer2 = await brain.chat('What are common vulnerabilities?', brains[0].id, 'learn');
+```
+
+---
+
+## Deployed Contracts (Arbitrum Sepolia)
 
 | Contract | Address |
 |----------|---------|
-| **AgentRegistry** | [`0xEf3Cd0D1b103dCF478c9aEe9782d14a8Cb67B996`](https://sepolia.arbiscan.io/address/0xEf3Cd0D1b103dCF478c9aEe9782d14a8Cb67B996) |
-| **AIContextManager** | [`0x9fcc68828645619F779D71Dd1a416a37a4F8A99C`](https://sepolia.arbiscan.io/address/0x9fcc68828645619F779D71Dd1a416a37a4F8A99C) |
-| **AIMemoryStore** | [`0x85082881c440d6f74048cCA32BFcCf3bEd1CA637`](https://sepolia.arbiscan.io/address/0x85082881c440d6f74048cCA32BFcCf3bEd1CA637) |
-| **SkillRegistry** | [`0xc44EE34413ac3B722363aF9a2a63975f756b69b0`](https://sepolia.arbiscan.io/address/0xc44EE34413ac3B722363aF9a2a63975f756b69b0) |
-| **EncryptedPricer** | [`0x3467738ea870D666DA5959ac50321e1b6F9f47b6`](https://sepolia.arbiscan.io/address/0x3467738ea870D666DA5959ac50321e1b6F9f47b6) |
-| **SkillAccessController** | [`0xbFcFfD5565B6CFE81F239D1F2a840A605f0E6DCb`](https://sepolia.arbiscan.io/address/0xbFcFfD5565B6CFE81F239D1F2a840A605f0E6DCb) |
-| **AgentSkillVault** | [`0x459F5D7A9787abC94cF07389097372733B962Ecc`](https://sepolia.arbiscan.io/address/0x459F5D7A9787abC94cF07389097372733B962Ecc) |
-| **EncryptedPaymentToken** | [`0xFc999D677B899f8594dc8C8F9394aCB0CDeC3BDe`](https://sepolia.arbiscan.io/address/0xFc999D677B899f8594dc8C8F9394aCB0CDeC3BDe) |
-| **PrivPayGateway** | [`0xDbBAe21A4b1440a3ba00BD23ba2daE403647629A`](https://sepolia.arbiscan.io/address/0xDbBAe21A4b1440a3ba00BD23ba2daE403647629A) |
-| **AgentBilling** | [`0x01edad8BF4F38426A95dfb8Df4f02F8c26925360`](https://sepolia.arbiscan.io/address/0x01edad8BF4F38426A95dfb8Df4f02F8c26925360) |
-| **SettlementLedger** | [`0xf4bc742849Bd2Daa07Ed23EeA8eD8938F1BDf9f4`](https://sepolia.arbiscan.io/address/0xf4bc742849Bd2Daa07Ed23EeA8eD8938F1BDf9f4) |
+| SubscriptionController | `0xCC42779858F1cd3F480aD33BcBc5A931D57DfFc3` |
+| KnowledgeBaseRegistry | `0x36eca600679E73061318f8C10F6E43aFc06C96E0` |
+| BrainKeyVault | `0x07beFe30F0C8Ef8B4c513da22A310eF84E9010c0` |
 
-**Registered Agent Authority**: [`0x100690a32B562fd45e685BC2E63bbfF566d452db`](https://sepolia.arbiscan.io/address/0x100690a32B562fd45e685BC2E63bbfF566d452db)
-
-### 📋 Sample On-Chain Transactions
-
-| Operation | Transaction |
-|-----------|-------------|
-| Agent Registration | [`0x61546c8f...`](https://sepolia.arbiscan.io/tx/0x61546c8f3213bdf64c1072af73caa5e63b907d4ea96fc16a52beab82a51d3479) |
-| Agent Assignment | [`0x89349fcf...`](https://sepolia.arbiscan.io/tx/0x89349fcfa60078200d180828ba3b489a90b3005acf9931ca666a8c3a52afe272) |
-| Memory Agent Authorization | [`0x8ad940c2...`](https://sepolia.arbiscan.io/tx/0x8ad940c256bcf5dc54e399878e79788111c39d8722a08e15e8114abc686179d2) |
+**Platform Authority**: `0x100690a32B562fd45e685BC2E63bbfF566d452db`
 
 ---
 
-## 🛠 Architecture & Components
+## Project Structure
 
-The workspace is structured as a monorepo consisting of four core packages:
-
-### 1. `packages/sdk` (TypeScript SDK)
-The core bridge between the encrypted on-chain state and the application logic. 
-- **Encryption/Decryption Context**: Handles encrypting/decrypting user memory and session contexts using the CoFHE SDK.
-- **Permit Management**: Manages time-limited decryption delegations via permits (`createPermit`, `importPermit`, `revokePermit`).
-- **Utilities**: Context hashing, memory serialization, and encoding functions.
-
-### 2. `packages/contracts` (Solidity Smart Contracts)
-Deployed to Arbitrum Sepolia (Chain ID: `421614`).
-- **`AIContextManager`**: Stores encrypted user context fields (`sessionKey`, `sentimentScore`, `trustLevel`, `memoryTier`). Uses operations like `FHE.asEuint128/64` to store and conditionally update encrypted states seamlessly on-chain.
-- **`AIMemoryStore`**: Tracks encrypted interaction counts and timestamps. Restricted to only the user or their authorized agents to perform updates.
-- **`AgentRegistry`**: A registry enabling AI agents to register themselves, and users to assign an agent securely.
-
-### 3. `packages/agent` (Express Backend)
-The AI agent gateway running on Node.js (default port: `3001`).
-- Operates primarily using the `POST /chat` endpoint.
-- **Workflow**:
-  1. Accepts `userAddress`, `message`, and `serializedPermit`.
-  2. Uses the permit to securely authenticate and decrypt the user's context/memory.
-  3. Dynamically builds an LLM system prompt adjusting the tone/instructions based on the encrypted `trustLevel` and `sentimentScore`.
-  4. Calls the LLM (OpenAI/Gemini) to generate a response.
-  5. Fire-and-forget mechanisms update the memory state on-chain asynchronously.
-
-#### Backend API Routes:
-- `POST /chat`: Receive messages and return AI responses securely.
-- `POST /permit/import`: Import an agent permit for subsequent decryption.
-- `DELETE /permit/revoke`: Revoke an active permit.
-- `POST /memory/update`: Manually trigger an on-chain memory update.
-
-### 4. `packages/frontend` (Next.js Application)
-A pixel-art retro-themed client-side application (default port: `3000`).
-- **Wallet Authentication**: Utilizes Privy for quick and secure wallet connections.
-- **WebAssembly Constraints**: Designed specifically with Next.js configurations (`next.config.mjs`) to allow seamless asynchronous WASM loading required by the `@cofhe/sdk`.
-- Provides UI components to view Context Status, Manage Permits remotely, and standard chat interfaces.
-
----
-
-## 🚀 How to Run Locally
-
-### Prerequisites
-- Node.js (v18+)
-- npm or yarn
-- Wallet with Arbitrum Sepolia ETH (for contract deployment)
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/phamdat721101/privacy-context
-cd privacy-context
 ```
-
-### 2. Install Dependencies
-```bash
-npm install
-```
-
-### 3. Setup Environment Variables
-Initialize standard configuration files:
-```bash
-# Setup root environment
-cp .env.example .env
-
-# Setup agent environment
-cp packages/agent/.env.example packages/agent/.env  # If existed, otherwise create manually
-```
-
-**Required Agent `.env` Configurations (`packages/agent/.env`)**:
-- `AGENT_PRIVATE_KEY`: Your backend agent wallet private key.
-- `OPENAI_API_KEY`: API key for LLM services.
-- `PORT=3001`
-- RPC URLs pointing to Arbitrum Sepolia.
-
-**Required Frontend `.env` Configurations (`packages/frontend/.env.local`)**:
-- `NEXT_PUBLIC_PRIVY_APP_ID`: Your Privy app ID.
-- `NEXT_PUBLIC_AGENT_BACKEND_URL=http://localhost:3001`
-- `NEXT_PUBLIC_CHAIN_ID=421614`
-
-### 4. Smart Contracts Construction
-Compile the Solidity code and execute the deployment scripts targeted toward Arbitrum Sepolia.
-```bash
-npm run contracts:compile
-npm run contracts:deploy:sepolia
-```
-*Note: Once deployed, locate the addresses stored in `packages/contracts/deployments/arbitrum-sepolia.json` and update both `packages/agent/.env` and `packages/frontend/.env.local` to point to the correct deployed contracts.*
-
-### 5. Build the SDK
-The SDK **must** be built before either the Agent or Frontend services can start running.
-```bash
-npm run sdk:build
-```
-
-### 6. Start the Applications
-You can start the frontend and agent separately:
-```bash
-npm run agent:dev      # Starts backend on http://localhost:3001
-npm run frontend:dev   # Starts frontend on http://localhost:3000
-```
-**Alternatively**, start both systems concurrently utilizing the startup script!
-```bash
-./scripts/start.sh
+packages/
+├── api/              Express API server
+│   ├── src/
+│   │   ├── server.ts
+│   │   ├── fhe/          CoFHE client + permit management
+│   │   ├── routes/       chat, upload, brains, subscribe, openapi
+│   │   ├── services/     chat (RAG), knowledge-ingest, rag
+│   │   └── middleware/   auth, paywall (permit + subscription gates)
+│   └── .env
+├── contracts/        Solidity (Fhenix CoFHE)
+│   ├── contracts/
+│   │   ├── SubscriptionController.sol
+│   │   ├── KnowledgeBaseRegistry.sol
+│   │   └── BrainKeyVault.sol
+│   └── scripts/deploy-brain-system.ts
+├── sdk/              TypeScript SDK
+│   └── src/brain/    BrainClient + encryption utilities
+├── frontend/         Next.js app
+│   └── src/app/      pages: chat, marketplace, payments, memory
+└── shared/           Types, DB config, contract ABIs
 ```
 
 ---
 
-## 🔒 Privacy Mode (v0.3)
+## Security Model
 
-FHE AI Context v0.3 adds three-layer privacy protection for agent payments and analytics:
-
-| Layer | Technology | What's Hidden |
-|-------|-----------|---------------|
-| **Amount Privacy** | FHERC20 (EncryptedPaymentToken) | Payment amounts on-chain |
-| **Metadata Privacy** | PII regex filter (SDK) | Emails, SSNs, phones in messages |
-| **Context Privacy** | FHE-encrypted analytics (CoFHE) | Agent decision context in logs |
-
-### Enable Privacy
-
-**Frontend:** Settings → Privacy Mode → choose OFF / PII FILTER / FULL FHE
-
-**Agent env:** Set `PRIVACY_MODE=fhe` (or `metadata-only`)
-
-**Programmatic (SDK):**
-```typescript
-import { MetadataFilter, ContextSeal } from '@fhe-ai-context/sdk';
-
-const filter = new MetadataFilter();
-const result = filter.filter('Contact john@email.com');
-// result.filtered === 'Contact [EMAIL]'
-```
-
-### Docker Quick Start
-
-```bash
-cp .env.example .env  # Edit with your keys
-docker-compose up --build
-```
-
-See [Community Test Guide](./docs/COMMUNITY_TEST_GUIDE.md) for full testing instructions.
+| Threat | Mitigation |
+|--------|-----------|
+| Platform reads user data | FHE-encrypted keys — platform needs permit to decrypt |
+| Impersonation | Permit is wallet-signed — proves identity cryptographically |
+| Data breach | Content AES-encrypted on IPFS, key FHE-encrypted on-chain |
+| Unauthorized access | `FHE.allow()` controls who can decrypt — revocable |
+| Subscription snooping | Tier/expiry encrypted on-chain (`euint8`, `euint64`) |
+| Content theft | Encrypted Merkle root proves ownership without revealing content |
 
 ---
-*Created with focus on uncompromised privacy and AI usability.*
+
+## License
+
+MIT
+
+---
+
+*Built for the Fhenix ecosystem. Privacy is not a feature — it's the architecture.*
