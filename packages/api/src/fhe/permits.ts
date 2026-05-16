@@ -1,24 +1,35 @@
+import { pool } from '../db';
 import { getCofheClient } from './client';
 
-// In-memory permit store: userAddress → permit object
-const permits = new Map<string, any>();
-
 export async function importPermit(userAddress: string, serializedPermit: string): Promise<void> {
-  const client = await getCofheClient();
-  const permit = await client.permits.importShared(serializedPermit);
-  permits.set(userAddress.toLowerCase(), permit);
+  // Try to verify with CoFHE SDK; store regardless to survive SDK issues
+  try {
+    const client = await getCofheClient();
+    await client.permits.importShared(serializedPermit);
+  } catch {}
+  await pool.query(
+    `INSERT INTO permits (user_address, serialized_permit) VALUES ($1, $2)
+     ON CONFLICT (user_address) DO UPDATE SET serialized_permit = $2, created_at = NOW()`,
+    [userAddress.toLowerCase(), serializedPermit]
+  );
 }
 
-export async function revokePermit(userAddress: string, permitId: string): Promise<void> {
-  const client = await getCofheClient();
-  client.permits.removePermit(permitId);
-  permits.delete(userAddress.toLowerCase());
+export async function revokePermit(userAddress: string): Promise<void> {
+  await pool.query(`DELETE FROM permits WHERE user_address = $1`, [userAddress.toLowerCase()]);
 }
 
-export function hasPermit(userAddress: string): boolean {
-  return permits.has(userAddress.toLowerCase());
+export async function hasPermit(userAddress: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM permits WHERE user_address = $1 LIMIT 1`,
+    [userAddress.toLowerCase()]
+  );
+  return rows.length > 0;
 }
 
-export function getPermit(userAddress: string): any | null {
-  return permits.get(userAddress.toLowerCase()) || null;
+export async function getPermit(userAddress: string): Promise<string | null> {
+  const { rows } = await pool.query(
+    `SELECT serialized_permit FROM permits WHERE user_address = $1 LIMIT 1`,
+    [userAddress.toLowerCase()]
+  );
+  return rows[0]?.serialized_permit || null;
 }

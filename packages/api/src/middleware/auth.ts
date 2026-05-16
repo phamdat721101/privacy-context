@@ -19,7 +19,7 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
   let hasPermit = false;
   try {
     const { hasPermit: checkPermit } = await import('../fhe/permits');
-    hasPermit = checkPermit(address);
+    hasPermit = await checkPermit(address);
   } catch {}
 
   req.user = { address, subscribed: !!sub, tier: sub?.tier, hasPermit };

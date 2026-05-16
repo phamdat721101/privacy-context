@@ -5,20 +5,32 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { BottomNav } from '@/components/BottomNav';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import { usePermit } from '@/hooks/usePermit';
 
 interface Brain { id: number; title: string; description: string; tags: string[]; published: boolean; created_at: string; }
 
 export default function MyBrainPage() {
   const { authenticated, user, ready } = usePrivy();
   const router = useRouter();
-  const userAddress = user?.wallet?.address;
+  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+  const { permitState, authorize, loading: permitLoading, error: permitError } = usePermit(userAddress);
   const [brains, setBrains] = useState<Brain[]>([]);
   const [selectedBrain, setSelectedBrain] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [platformWallet, setPlatformWallet] = useState<string | null>(null);
 
   useEffect(() => { if (ready && !authenticated) router.push('/'); }, [ready, authenticated, router]);
   useEffect(() => { if (userAddress) fetchMyBrains(); }, [userAddress]);
+  useEffect(() => {
+    fetch(`${AGENT_BACKEND_URL}/platform`).then(r => r.json()).then(d => setPlatformWallet(d.platformWallet)).catch(() => {});
+  }, []);
+
+  async function handleAuthorize() {
+    if (!platformWallet) { setMsg('Platform info not loaded'); return; }
+    await authorize(platformWallet as `0x${string}`);
+    if (!permitError) setMsg('FHE authorization complete!');
+  }
 
   async function fetchMyBrains() {
     try {
@@ -81,6 +93,26 @@ export default function MyBrainPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 md:px-8 pt-8 space-y-8">
+        {/* FHE Authorization Banner */}
+        {!permitState.serializedPermit && (
+          <div className="bg-primary/10 border border-primary/30 rounded-xl p-5 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <span className="material-symbols-outlined text-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>key</span>
+              <div>
+                <div className="text-text-primary font-semibold">FHE Authorization Required</div>
+                <div className="text-on-surface-variant text-sm">Sign with your wallet to grant the platform decryption access for your brain.</div>
+              </div>
+            </div>
+            <button onClick={handleAuthorize} disabled={permitLoading || !platformWallet}
+              className="px-5 py-2.5 bg-primary text-on-primary rounded-full font-semibold hover:bg-primary/80 transition-colors disabled:opacity-50">
+              {permitLoading ? 'Authorizing...' : 'Authorize FHE'}
+            </button>
+          </div>
+        )}
+        {permitError && (
+          <div className="bg-error-container/20 border border-error/30 text-error text-sm rounded-xl p-3 text-center">{permitError}</div>
+        )}
+
         {/* Upload Zone */}
         <div className="border-2 border-dashed border-outline-variant/50 rounded-xl p-8 text-center hover:border-secondary/50 transition-colors">
           <span className="material-symbols-outlined text-4xl text-text-muted mb-3 block">cloud_upload</span>

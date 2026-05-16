@@ -17,6 +17,14 @@ app.use(express.json());
 
 // Public endpoints
 app.get('/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/platform', (_, res) => res.json({
+  platformWallet: process.env.PLATFORM_WALLET || '',
+  contracts: {
+    subscriptionController: process.env.SUBSCRIPTION_CONTROLLER_ADDRESS,
+    knowledgeRegistry: process.env.KNOWLEDGE_REGISTRY_ADDRESS,
+    brainKeyVault: process.env.BRAIN_KEY_VAULT_ADDRESS,
+  },
+}));
 app.use('/openapi.json', openapiRouter);
 app.use('/brains', brainsRouter);
 
@@ -33,11 +41,11 @@ app.post('/permit/import', async (req, res) => {
   }
 });
 app.delete('/permit/revoke', async (req, res) => {
-  const { userAddress, permitId } = req.body;
+  const { userAddress } = req.body;
   if (!userAddress) return res.status(400).json({ error: 'userAddress required' });
   try {
     const { revokePermit } = await import('./fhe/permits');
-    await revokePermit(userAddress, permitId || '');
+    await revokePermit(userAddress);
     res.json({ ok: true });
   } catch (e: any) {
     res.json({ ok: true });

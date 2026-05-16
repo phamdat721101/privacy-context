@@ -44,3 +44,9 @@ CREATE INDEX IF NOT EXISTS idx_brains_published ON brains(published);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_address);
 CREATE INDEX IF NOT EXISTS idx_chat_history_user ON chat_history(user_address, brain_id);
 CREATE INDEX IF NOT EXISTS idx_chunks_brain ON knowledge_chunks(brain_id);
+
+CREATE TABLE IF NOT EXISTS permits (
+  user_address TEXT PRIMARY KEY,
+  serialized_permit TEXT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
