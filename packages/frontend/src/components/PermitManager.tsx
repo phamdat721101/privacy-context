@@ -1,6 +1,17 @@
 'use client';
+import Link from 'next/link';
 import type { PermitState } from '@/types/context';
+import type { PermitReason } from '@/hooks/usePermit';
 import { AGENT_ADDRESS } from '@/lib/contracts';
+
+const REASON_TEXT: Record<PermitReason, string> = {
+  cache_hit: 'Authorized.',
+  onchain_authorized: 'Authorized on-chain.',
+  never_authorized: 'You have not authorized the platform yet.',
+  cache_expired: 'Your permit cache expired. Re-authorize to continue.',
+  config_unavailable: 'Server is misconfigured (missing platform / vault env vars).',
+  rpc_error: 'Network issue while checking permit. Please retry.',
+};
 
 interface Props {
   permitState: PermitState;
@@ -8,9 +19,10 @@ interface Props {
   revoke: () => Promise<void>;
   loading: boolean;
   error: string | null;
+  reason?: PermitReason | null;
 }
 
-export function PermitManager({ permitState, authorize, revoke, loading, error }: Props) {
+export function PermitManager({ permitState, authorize, revoke, loading, error, reason }: Props) {
   const cardClass = permitState.serializedPermit ? 'pixel-card-gold' : 'pixel-card-gray';
 
   if (permitState.serializedPermit) {
@@ -40,11 +52,12 @@ export function PermitManager({ permitState, authorize, revoke, loading, error }
   }
 
   const isWalletError = Boolean(error && /wallet/i.test(error));
+  const reasonText = reason ? REASON_TEXT[reason] : 'AI agent not authorized to read your context.';
 
   return (
     <div className={`${cardClass} space-y-3`}>
       <div style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)' }}>
-        AI AGENT NOT AUTHORIZED TO READ YOUR CONTEXT.
+        {reasonText.toUpperCase()}
       </div>
       {error && (
         <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-danger)' }}>
@@ -60,6 +73,9 @@ export function PermitManager({ permitState, authorize, revoke, loading, error }
       >
         {loading ? 'AUTHORIZING...' : (error && !isWalletError) ? 'TRY AGAIN' : 'AUTHORIZE AI AGENT'}
       </button>
+      <div className="text-xs text-text-muted mt-2">
+        <Link href="/onboard" className="underline hover:text-primary">Or restart onboarding →</Link>
+      </div>
     </div>
   );
 }

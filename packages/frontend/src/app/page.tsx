@@ -3,6 +3,8 @@ import { usePrivy } from '@privy-io/react-auth';
 import Link from 'next/link';
 import { WalletConnect } from '@/components/WalletConnect';
 import { BottomNav } from '@/components/BottomNav';
+import { PermitManager } from '@/components/PermitManager';
+import { usePermit } from '@/hooks/usePermit';
 
 const CARDS = [
   { href: '/chat', icon: 'psychology', title: 'CHAT', desc: 'Store & Learn' },
@@ -13,7 +15,9 @@ const CARDS = [
 
 export default function HomePage() {
   const { authenticated, ready, user } = usePrivy();
-  const addr = user?.wallet?.address;
+  const addr = user?.wallet?.address as `0x${string}` | undefined;
+  const { permitState, authorize, revoke, loading, error } = usePermit(addr);
+  const isPermitted = !!permitState.serializedPermit;
 
   if (!ready) return (
     <main className="flex items-center justify-center min-h-screen bg-background">
@@ -48,14 +52,50 @@ export default function HomePage() {
         ) : (
           <>
             <h1 className="font-headline text-4xl font-bold mb-6">Overview</h1>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-12">
-              <div className="inline-flex items-center gap-2 bg-secondary/10 border border-secondary/20 rounded-full px-4 py-2">
-                <span className="material-symbols-outlined text-secondary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>shield</span>
-                <span className="text-sm text-secondary font-medium">Subscription Active</span>
+
+            {/* Block the dashboard until the user has signed an FHE permit.
+                Returning users with stale localStorage are reconciled by
+                usePermit and will land here too. */}
+            {!isPermitted && (
+              <div className="mb-8 p-5 rounded-lg border border-tertiary/40 bg-tertiary/5 space-y-4">
+                <div>
+                  <h2 className="font-headline text-xl font-bold mb-1">Authorize your brain</h2>
+                  <p className="text-on-surface-variant text-sm">
+                    One-time wallet signature gives the platform an FHE-gated key to
+                    decrypt your brain. Revocable on-chain.
+                  </p>
+                </div>
+                <PermitManager
+                  permitState={permitState}
+                  authorize={authorize}
+                  revoke={revoke}
+                  loading={loading}
+                  error={error}
+                />
               </div>
-              <div className="inline-flex items-center gap-2 bg-primary/10 border border-primary/20 rounded-full px-4 py-2">
-                <span className="material-symbols-outlined text-primary text-sm" style={{ fontVariationSettings: "'FILL' 1" }}>key</span>
-                <span className="text-sm text-primary font-medium">FHE Authorized</span>
+            )}
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-12">
+              <div className="inline-flex items-center gap-2 bg-surface-container-high border border-outline-variant/30 rounded-full px-4 py-2">
+                <span className="material-symbols-outlined text-text-muted text-sm">credit_card</span>
+                <span className="text-sm text-text-muted">Subscription: check /payments</span>
+              </div>
+              <div
+                className={`inline-flex items-center gap-2 rounded-full px-4 py-2 border ${
+                  isPermitted
+                    ? 'bg-primary/10 border-primary/20'
+                    : 'bg-surface-container-high border-outline-variant/30'
+                }`}
+              >
+                <span
+                  className={`material-symbols-outlined text-sm ${isPermitted ? 'text-primary' : 'text-text-muted'}`}
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  {isPermitted ? 'key' : 'key_off'}
+                </span>
+                <span className={`text-sm font-medium ${isPermitted ? 'text-primary' : 'text-text-muted'}`}>
+                  {isPermitted ? 'FHE Authorized' : 'FHE Not Authorized'}
+                </span>
               </div>
               <div className="inline-flex items-center gap-2 bg-surface-container-high border border-outline-variant/30 rounded-full px-4 py-2">
                 <span className="material-symbols-outlined text-text-muted text-sm">lock</span>

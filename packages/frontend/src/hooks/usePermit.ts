@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useWallets } from '@privy-io/react-auth';
 import { BrowserProvider, Contract } from 'ethers';
 import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
@@ -11,23 +11,68 @@ const VAULT_ABI = [
   'function isAuthorized(address user, address platform) view returns (bool)',
 ];
 
+/**
+ * Mirrors the API's PermitReason union. Defined here so the frontend has
+ * no compile-time dependency on the API package while staying in sync.
+ */
+export type PermitReason =
+  | 'cache_hit'
+  | 'onchain_authorized'
+  | 'never_authorized'
+  | 'cache_expired'
+  | 'config_unavailable'
+  | 'rpc_error';
+
+const EMPTY: PermitState = { serializedPermit: null, permitId: null, expiresAt: null };
+
 export function usePermit(userAddress: `0x${string}` | undefined) {
   const { wallets } = useWallets();
-  const [permitState, setPermitState] = useState<PermitState>({
-    serializedPermit: null,
-    permitId: null,
-    expiresAt: null,
-  });
+  const [permitState, setPermitState] = useState<PermitState>(EMPTY);
+  const [reason, setReason] = useState<PermitReason | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** Re-check server-authoritative status; sync local state to truth. */
+  const refresh = useCallback(async () => {
+    if (!userAddress) return;
+    try {
+      const r = await fetch(`${AGENT_BACKEND_URL}/permit/status?address=${userAddress}`);
+      const data = await r.json() as { authorized: boolean; reason: PermitReason };
+      setReason(data.reason);
+      if (data.authorized) {
+        // Server says yes — keep local state if present, otherwise mark
+        // authorized with a synthetic marker (caller can still call authorize
+        // again to refresh tx hash if needed).
+        const stored = localStorage.getItem(`fhe_permit_${userAddress}`);
+        if (stored) {
+          try { setPermitState(JSON.parse(stored)); return; } catch {}
+        }
+        setPermitState({ serializedPermit: 'on-chain', permitId: 'on-chain', expiresAt: null });
+      } else {
+        // Server says no — clear stale local state.
+        localStorage.removeItem(`fhe_permit_${userAddress}`);
+        setPermitState(EMPTY);
+      }
+    } catch { /* offline tolerance: keep local state */ }
+  }, [userAddress]);
+
+  /** Imperative state-clear callable on 403 from any protected route. */
+  const forceUnauthorized = useCallback((newReason?: PermitReason) => {
+    if (userAddress) localStorage.removeItem(`fhe_permit_${userAddress}`);
+    setPermitState(EMPTY);
+    if (newReason) setReason(newReason);
+  }, [userAddress]);
+
+  // Load from localStorage, then refresh from /permit/status. Stale
+  // localStorage cannot grant access; server is the source of truth.
   useEffect(() => {
     if (!userAddress) return;
     const stored = localStorage.getItem(`fhe_permit_${userAddress}`);
     if (stored) {
       try { setPermitState(JSON.parse(stored)); } catch {}
     }
-  }, [userAddress]);
+    refresh();
+  }, [userAddress, refresh]);
 
   async function authorize(platformWallet: `0x${string}`) {
     if (!userAddress || !wallets.length) {
@@ -48,9 +93,9 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
 
       const newState = { serializedPermit: tx.hash, permitId: tx.hash, expiresAt: null };
       setPermitState(newState);
+      setReason('onchain_authorized');
       localStorage.setItem(`fhe_permit_${userAddress}`, JSON.stringify(newState));
 
-      // Notify backend (it can also read on-chain directly)
       await fetch(`${AGENT_BACKEND_URL}/permit/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,7 +116,6 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
       const provider = await pw.getEthereumProvider();
       const signer = await new BrowserProvider(provider).getSigner();
       const contract = new Contract(BRAIN_KEY_VAULT_ADDRESS, VAULT_ABI, signer);
-      // Revoke against the cached platform address (best effort)
       const platform = (await fetch(`${AGENT_BACKEND_URL}/platform`).then(r => r.json())).platformWallet;
       const tx = await contract.revoke(platform);
       await tx.wait();
@@ -80,8 +124,7 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userAddress }),
       });
-      setPermitState({ serializedPermit: null, permitId: null, expiresAt: null });
-      localStorage.removeItem(`fhe_permit_${userAddress}`);
+      forceUnauthorized('never_authorized');
     } catch (e: any) {
       setError(e?.message ?? 'Revoke failed');
     } finally {
@@ -89,5 +132,5 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
     }
   }
 
-  return { permitState, authorize, revoke, loading, error };
+  return { permitState, reason, authorize, revoke, refresh, forceUnauthorized, loading, error };
 }

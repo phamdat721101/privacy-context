@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useRouter } from 'next/navigation';
 import { useChat } from '@/hooks/useChat';
+import { usePermit } from '@/hooks/usePermit';
+import { PermitManager } from '@/components/PermitManager';
 import { BottomNav } from '@/components/BottomNav';
 import Link from 'next/link';
 
@@ -12,7 +14,9 @@ export default function ChatPage() {
   const userAddress = user?.wallet?.address as `0x${string}` | undefined;
   const [mode, setMode] = useState<'learn' | 'store'>('learn');
   const [input, setInput] = useState('');
-  const { messages, sendMessage, loading, error, needsSubscription } = useChat(userAddress);
+  const { permitState, reason, authorize, revoke, forceUnauthorized, loading: permitLoading, error: permitError } = usePermit(userAddress);
+  const { messages, sendMessage, loading, error, needsSubscription } = useChat(userAddress, forceUnauthorized);
+  const isPermitted = !!permitState.serializedPermit;
 
   useEffect(() => { if (ready && !authenticated) router.push('/'); }, [ready, authenticated, router]);
   if (!ready || !authenticated || !userAddress) return null;
@@ -41,40 +45,63 @@ export default function ChatPage() {
 
         {/* Messages */}
         <main className="flex-1 overflow-y-auto px-4 md:px-8 py-8 flex flex-col gap-6 pb-[140px]">
-          {needsSubscription && (
-            <div className="bg-tertiary-container/10 border border-tertiary/30 rounded-xl p-4 text-center">
-              <span className="text-tertiary text-sm">Subscription required. </span>
-              <Link href="/payments" className="text-primary underline text-sm">Subscribe now →</Link>
-            </div>
-          )}
-          {error && !needsSubscription && (
-            <div className="bg-error-container/20 border border-error/30 rounded-xl p-3 text-error text-sm">{error}</div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={m.role === 'user' ? 'chat-user' : (m.content.includes('stored') ? 'chat-store' : 'chat-ai')}>
-                {m.role === 'assistant' && (
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="material-symbols-outlined text-primary text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>
-                      {m.content.includes('stored') ? 'memory' : 'psychology'}
-                    </span>
-                    <span className="font-mono text-[13px] text-primary font-bold">
-                      {m.content.includes('stored') ? 'Stored' : 'FHE Second Brain'}
-                    </span>
-                  </div>
-                )}
-                <p className="text-on-surface-variant">{m.content}</p>
+          {!isPermitted ? (
+            <div className="rounded-xl border border-tertiary/40 bg-tertiary/5 p-5 space-y-4">
+              <div>
+                <h2 className="font-headline text-xl font-bold mb-1">Authorize before chatting</h2>
+                <p className="text-on-surface-variant text-sm">
+                  Chat requires an FHE permit. The platform decrypts your brain only with
+                  this permit; revoking it cuts access cryptographically.
+                </p>
               </div>
+              <PermitManager
+                permitState={permitState}
+                authorize={authorize}
+                revoke={revoke}
+                loading={permitLoading}
+                error={permitError}
+                reason={reason}
+              />
             </div>
-          ))}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="chat-ai"><span className="text-primary animate-pulse">Thinking...</span></div>
-            </div>
+          ) : (
+            <>
+              {needsSubscription && (
+                <div className="bg-tertiary-container/10 border border-tertiary/30 rounded-xl p-4 text-center">
+                  <span className="text-tertiary text-sm">Subscription required. </span>
+                  <Link href="/payments" className="text-primary underline text-sm">Subscribe now →</Link>
+                </div>
+              )}
+              {error && !needsSubscription && (
+                <div className="bg-error-container/20 border border-error/30 rounded-xl p-3 text-error text-sm">{error}</div>
+              )}
+              {messages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={m.role === 'user' ? 'chat-user' : (m.content.includes('stored') ? 'chat-store' : 'chat-ai')}>
+                    {m.role === 'assistant' && (
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="material-symbols-outlined text-primary text-lg" style={{ fontVariationSettings: "'FILL' 1" }}>
+                          {m.content.includes('stored') ? 'memory' : 'psychology'}
+                        </span>
+                        <span className="font-mono text-[13px] text-primary font-bold">
+                          {m.content.includes('stored') ? 'Stored' : 'FHE Second Brain'}
+                        </span>
+                      </div>
+                    )}
+                    <p className="text-on-surface-variant">{m.content}</p>
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="chat-ai"><span className="text-primary animate-pulse">Thinking...</span></div>
+                </div>
+              )}
+            </>
           )}
         </main>
 
         {/* Input */}
+        {isPermitted && (
         <div className="fixed bottom-0 w-full max-w-[768px] left-1/2 -translate-x-1/2 bg-surface-container-highest/90 backdrop-blur-xl border-t border-outline-variant/30 p-4 pb-8 z-50">
           <div className="relative flex items-center">
             <input
@@ -95,6 +122,7 @@ export default function ChatPage() {
             </span>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

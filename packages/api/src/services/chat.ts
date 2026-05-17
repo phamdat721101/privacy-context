@@ -1,5 +1,6 @@
 import { pool } from '../db';
 import { rankChunks } from './rag';
+import { KnowledgeIngestService } from './knowledge-ingest';
 
 const BEDROCK_REGION = 'us-east-1';
 const BEDROCK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
@@ -46,9 +47,11 @@ export class ChatService {
 
     let context = '';
     if (targetBrain) {
-      const { rows: chunks } = await pool.query(`SELECT content FROM knowledge_chunks WHERE brain_id = $1`, [targetBrain]);
+      // Loads plaintext + transparently decrypts encrypted chunks using the
+      // brain's stored key material (Phase 1.5 — Phase 2 moves into TEE).
+      const chunks = await KnowledgeIngestService.loadChunks(targetBrain);
       const ranked = rankChunks(message, chunks);
-      context = ranked.map(c => c.content).join('\n---\n');
+      context = ranked.map(c => c.content).filter(Boolean).join('\n---\n');
     }
 
     const systemPrompt = context

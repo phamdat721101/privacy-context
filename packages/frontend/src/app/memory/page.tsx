@@ -9,11 +9,30 @@ import { usePermit } from '@/hooks/usePermit';
 
 interface Brain { id: number; title: string; description: string; tags: string[]; published: boolean; created_at: string; }
 
+/**
+ * Encrypt a file with AES-256-GCM in the browser. Returns the ciphertext
+ * (with appended 16-byte auth tag, matching Web Crypto's output) plus the
+ * key and IV as plain hex strings for transport.
+ *
+ * Single-responsibility helper kept colocated with its only caller.
+ */
+async function encryptForUpload(file: File): Promise<{ ciphertext: ArrayBuffer; keyHex: string; ivHex: string }> {
+  const rawKey = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['encrypt']);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, await file.arrayBuffer());
+  return { ciphertext, keyHex: toHex(rawKey), ivHex: toHex(iv) };
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default function MyBrainPage() {
   const { authenticated, user, ready } = usePrivy();
   const router = useRouter();
   const userAddress = user?.wallet?.address as `0x${string}` | undefined;
-  const { permitState, authorize, loading: permitLoading, error: permitError } = usePermit(userAddress);
+  const { permitState, reason, authorize, forceUnauthorized, loading: permitLoading, error: permitError } = usePermit(userAddress);
   const [brains, setBrains] = useState<Brain[]>([]);
   const [selectedBrain, setSelectedBrain] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -59,14 +78,29 @@ export default function MyBrainPage() {
     if (!file || !userAddress) return;
     setUploading(true); setMsg(null);
     try {
+      // Encrypt client-side with AES-256-GCM. The plaintext never leaves the
+      // browser; the API only ever sees ciphertext + key material it stores
+      // as opaque bytes. Phase 2 will move the key from API DB to on-chain
+      // `BrainKeyVault.storeKey` so the API never sees the key at all.
+      const { ciphertext, keyHex, ivHex } = await encryptForUpload(file);
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', new Blob([ciphertext]), `${file.name}.enc`);
+      form.append('encrypted', 'true');
+      form.append('keyHigh', keyHex.slice(0, 32));
+      form.append('keyLow', keyHex.slice(32));
+      form.append('nonce', ivHex);
       if (selectedBrain) form.append('brainId', String(selectedBrain));
       const res = await fetch(`${AGENT_BACKEND_URL}/upload`, { method: 'POST', headers: { 'x-wallet-address': userAddress }, body: form });
       if (res.status === 402) { setMsg('Subscribe first to upload'); return; }
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        forceUnauthorized(body.reason);
+        setMsg('FHE permit required — please re-authorize below.');
+        return;
+      }
       if (!res.ok) throw new Error((await res.json()).error);
       const data = await res.json();
-      setMsg(`Uploaded! Brain #${data.brainId} — ${data.estimatedChunks} chunks added`);
+      setMsg(`Encrypted upload! Brain #${data.brainId} — ciphertext stored, key registered`);
       fetchMyBrains();
     } catch (err: any) { setMsg(err.message); }
     finally { setUploading(false); e.target.value = ''; }
@@ -93,20 +127,31 @@ export default function MyBrainPage() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 md:px-8 pt-8 space-y-8">
-        {/* FHE Authorization Banner */}
+        {/* FHE Authorization Banner — shows when no permit OR after a 403
+            from any protected action via forceUnauthorized(reason). */}
         {!permitState.serializedPermit && (
           <div className="bg-primary/10 border border-primary/30 rounded-xl p-5 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>key</span>
               <div>
                 <div className="text-text-primary font-semibold">FHE Authorization Required</div>
-                <div className="text-on-surface-variant text-sm">Sign with your wallet to grant the platform decryption access for your brain.</div>
+                <div className="text-on-surface-variant text-sm">
+                  {reason === 'cache_expired' && 'Your permit cache expired. Re-authorize to continue uploading.'}
+                  {reason === 'config_unavailable' && 'Server is misconfigured. Please contact support.'}
+                  {reason === 'rpc_error' && 'Network issue while checking permit. Please retry.'}
+                  {(!reason || reason === 'never_authorized') && 'Sign with your wallet to grant the platform decryption access for your brain.'}
+                </div>
               </div>
             </div>
-            <button onClick={handleAuthorize} disabled={permitLoading || !platformWallet}
-              className="px-5 py-2.5 bg-primary text-on-primary rounded-full font-semibold hover:bg-primary/80 transition-colors disabled:opacity-50">
-              {permitLoading ? 'Authorizing...' : 'Authorize FHE'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button onClick={handleAuthorize} disabled={permitLoading || !platformWallet}
+                className="px-5 py-2.5 bg-primary text-on-primary rounded-full font-semibold hover:bg-primary/80 transition-colors disabled:opacity-50">
+                {permitLoading ? 'Authorizing...' : 'Authorize FHE'}
+              </button>
+              <Link href="/onboard" className="text-sm text-text-muted underline hover:text-primary">
+                Or restart onboarding →
+              </Link>
+            </div>
           </div>
         )}
         {permitError && (

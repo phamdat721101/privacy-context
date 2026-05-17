@@ -55,9 +55,25 @@ app.delete('/permit/revoke', async (req, res) => {
 // x402 paywall on subscribe (disabled in dev, enable in production)
 app.use('/subscribe', subscribeRouter);
 
-// Subscription-gated endpoints
-app.use('/chat', auth, subscriptionGate as any, chatRouter);
+// Permit + subscription-gated endpoints
+// Permit is required everywhere user knowledge is touched.
+app.use('/chat', auth, permitGate as any, subscriptionGate as any, chatRouter);
 app.use('/upload', auth, permitGate as any, subscriptionGate as any, uploadRouter);
+
+// Lightweight server-authoritative permit status (used by frontend to
+// reconcile cached state with on-chain truth). Returns {authorized, reason}
+// so the UI can surface diagnostic guidance instead of a generic dead-end.
+app.get('/permit/status', async (req, res) => {
+  const address = (req.query.address as string | undefined)?.toLowerCase();
+  if (!address) return res.status(400).json({ error: 'address required' });
+  try {
+    const { hasPermit } = await import('./fhe/permits');
+    const status = await hasPermit(address);
+    res.json(status);
+  } catch {
+    res.json({ authorized: false, reason: 'rpc_error' });
+  }
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`API listening on :${PORT}`));

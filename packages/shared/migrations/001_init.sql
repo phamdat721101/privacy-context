@@ -50,3 +50,10 @@ CREATE TABLE IF NOT EXISTS permits (
   serialized_permit TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
+
+-- Phase 1.5: client-side encryption support. All additive, IF NOT EXISTS so
+-- both fresh installs and existing databases pick these up.
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS encrypted BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS nonce BYTEA;
+ALTER TABLE brains ADD COLUMN IF NOT EXISTS key_high BYTEA;
+ALTER TABLE brains ADD COLUMN IF NOT EXISTS key_low BYTEA;

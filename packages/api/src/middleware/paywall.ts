@@ -51,13 +51,30 @@ export const subscriptionGate = (req: AuthRequest, res: Response, next: NextFunc
 };
 
 /**
- * FHE permit gate — requires user to have imported a valid permit.
- * This proves wallet ownership cryptographically (permit is signed by the wallet).
+ * FHE permit gate — requires user to have authorized the platform on-chain.
+ * Self-heals on cache miss: if `auth` saw no permit, do one bypass-cache
+ * on-chain check before returning 403. The 403 body carries a `reason`
+ * field the frontend uses to guide the user into the right recovery.
  */
-export const permitGate = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const permitGate = async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.user?.hasPermit) return next();
+
+  // One bypass-cache attempt before failing.
+  let reason = req.user?.permitReason;
+  try {
+    const { hasPermit } = await import('../fhe/permits');
+    const status = await hasPermit(req.user!.address, { forceRefresh: true });
+    if (status.authorized) {
+      req.user!.hasPermit = true;
+      req.user!.permitReason = status.reason;
+      return next();
+    }
+    reason = status.reason;
+  } catch { /* fall through with whatever reason auth saw */ }
+
   res.status(403).json({
     error: 'FHE authorization required',
-    message: 'Import a permit first: POST /permit/import with your signed permit.',
+    message: 'Authorize the platform on-chain (BrainKeyVault.authorize) before this action.',
+    reason: reason ?? 'never_authorized',
   });
 };

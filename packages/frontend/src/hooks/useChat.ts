@@ -2,8 +2,12 @@
 import { useState } from 'react';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import type { ChatMessage } from '@/types/context';
+import type { PermitReason } from './usePermit';
 
-export function useChat(userAddress: `0x${string}` | undefined) {
+export function useChat(
+  userAddress: `0x${string}` | undefined,
+  onAuthError?: (reason: PermitReason) => void,
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +32,14 @@ export function useChat(userAddress: `0x${string}` | undefined) {
       if (res.status === 402) {
         setNeedsSubscription(true);
         setError('Subscription required. Please subscribe to continue.');
+        return;
+      }
+
+      if (res.status === 403) {
+        const body = await res.json().catch(() => ({}));
+        const reason: PermitReason = body.reason ?? 'never_authorized';
+        onAuthError?.(reason);
+        setError('FHE permit required — re-authorize to continue.');
         return;
       }
 
