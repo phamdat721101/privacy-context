@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@fhe-ai-context/sdk": "*",
+    "@fhe-ai-context/ui": "*",
     "@privy-io/react-auth": "^2.0.0",
     "@privy-io/wagmi": "^1.0.0",
     "@tanstack/react-query": "^5.0.0",

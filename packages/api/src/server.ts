@@ -10,13 +10,29 @@ import uploadRouter from './routes/upload';
 import brainsRouter from './routes/brains';
 import subscribeRouter from './routes/subscribe';
 import openapiRouter from './routes/openapi';
+import v2Router from './routes/v2';
+import {
+  logger,
+  correlationId,
+  metricsMiddleware,
+  metricsHandler,
+  healthHandler,
+  installLifecycle,
+} from './lib';
 
 const app = express();
 app.use(cors());
+app.use(correlationId());
+app.use(metricsMiddleware());
 app.use(express.json());
 
 // Public endpoints
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/health', healthHandler);
+app.get('/metrics', metricsHandler);
+
+// v2 API — opaque-only, no plaintext keys
+app.use('/v2', v2Router);
+
 app.get('/platform', (_, res) => res.json({
   platformWallet: process.env.PLATFORM_WALLET || '',
   contracts: {
@@ -75,5 +91,15 @@ app.get('/permit/status', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`API listening on :${PORT}`));
+const PORT = Number(process.env.PORT ?? 3001);
+
+// Boot-time env validation (fail fast)
+const REQUIRED_VARS = ['DATABASE_URL'];
+const missing = REQUIRED_VARS.filter(v => !process.env[v]);
+if (missing.length) {
+  logger.error({ missing }, 'Missing required env vars — exiting');
+  process.exit(1);
+}
+
+const server = app.listen(PORT, () => logger.info({ port: PORT }, 'api:listening'));
+installLifecycle(server);

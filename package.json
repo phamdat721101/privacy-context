@@ -1,9 +1,22 @@
 {
   "name": "fhe-ai-context",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/agent",
+    "packages/api",
+    "packages/contracts",
+    "packages/frontend",
+    "packages/runtime-utils",
+    "packages/sdk",
+    "packages/shared",
+    "packages/ui",
+    "packages/worker",
+    "packages/zama-contracts"
+  ],
   "scripts": {
+    "runtime-utils:build": "npm run build -w packages/runtime-utils",
     "sdk:build": "npm run build -w packages/sdk",
+    "ui:build": "npm run build -w packages/ui",
     "api:dev": "npm run dev -w packages/api",
     "api:build": "npm run build -w packages/api",
     "api:start": "npm run start -w packages/api",
@@ -12,7 +25,7 @@
     "frontend:dev": "npm run dev -w packages/frontend",
     "frontend:build": "npm run build -w packages/frontend",
     "frontend:start": "npm run start -w packages/frontend",
-    "build": "npm run sdk:build && npm run api:build",
+    "build": "npm run runtime-utils:build && npm run sdk:build && npm run ui:build && npm run api:build",
     "dev": "./scripts/start-dev.sh",
     "docker:up": "docker compose up -d",
     "docker:build": "docker compose build --parallel",

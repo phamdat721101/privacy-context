@@ -1,10 +1,26 @@
 import type { Config } from 'tailwindcss';
+import uiPreset from '@fhe-ai-context/ui/dist/tailwind-preset';
 
+/**
+ * Tailwind config for the Next.js frontend.
+ *
+ * The new design tokens live in `packages/ui` and are imported as a preset
+ * so we have a single source of truth. The existing inline tokens are kept
+ * for backward-compat with the legacy pixel-art retro screens; they will
+ * be removed when those screens are retired post-v1.0.
+ */
 const config: Config = {
+  presets: [uiPreset],
   darkMode: 'class',
-  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
+  content: [
+    './src/**/*.{js,ts,jsx,tsx,mdx}',
+    // Pull in component classes used by the design system so Tailwind doesn't
+    // tree-shake them out when the only references live in node_modules.
+    '../ui/dist/**/*.js',
+  ],
   theme: {
     extend: {
+      // Legacy aliases — keep until the old screens are retired.
       colors: {
         background: '#0c1324',
         surface: '#0F172A',

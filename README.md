@@ -208,9 +208,13 @@ PLATFORM_WALLET=0x... npx hardhat run scripts/deploy-brain-system.ts --network a
 ## SDK Usage (For AI Agents)
 
 ```typescript
-import { BrainClient } from '@fhe-ai-context/sdk';
+import { createBrainClient } from '@fhe-ai-context/sdk';
 
-const brain = new BrainClient('https://api.example.com', 'arbitrum-sepolia', '0xYourWallet');
+const brain = createBrainClient('fhenix', {
+  apiUrl: 'https://api.example.com',
+  chain: 'arbitrum-sepolia',
+  walletAddress: '0xYourWallet',
+});
 
 // Subscribe
 await brain.subscribe('month');
@@ -229,6 +233,8 @@ await brain.uploadEncrypted('My private research notes...');
 const brains = await brain.searchBrains('solidity security');
 const answer2 = await brain.chat('What are common vulnerabilities?', brains[0].id, 'learn');
 ```
+
+> Coming in v1.0: `createBrainClient('sui', { ... })` for the Seal+Walrus+Phala stack on Sui.
 
 ---
 
