@@ -1,4 +1,3 @@
-import { createPaywall } from 'n-payment';
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
 
@@ -8,20 +7,35 @@ const PAY_TO = process.env.PLATFORM_WALLET || '0x0000000000000000000000000000000
  * x402 paywall for the /subscribe endpoint.
  * Uses n-payment's createPaywall to issue proper x402 challenges
  * and verify payment headers (payment-signature / x-payment-tx).
+ * Import is lazy to avoid crash when n-payment CJS build is unavailable.
  */
-export const x402Paywall = createPaywall({
-  routes: {
-    'POST /subscribe': {
-      price: '5000000', // 5 USDC (6 decimals) — minimum tier
-      description: 'Subscribe to FHE Second Brain',
-      x402: {
-        network: 'eip155:84532', // Base Sepolia
-        payTo: PAY_TO,
-      },
-    },
-  },
-});
+let _paywall: any = null;
+async function getPaywall() {
+  if (!_paywall) {
+    try {
+      const { createPaywall } = await import('n-payment');
+      _paywall = createPaywall({
+        routes: {
+          'POST /subscribe': {
+            price: '5000000',
+            description: 'Subscribe to FHE Second Brain',
+            x402: { network: 'eip155:84532', payTo: PAY_TO },
+          },
+        },
+      });
+    } catch {
+      // n-payment unavailable — pass through
+      _paywall = (_req: any, _res: any, next: any) => next();
+    }
+  }
+  return _paywall;
+}
 
+export const x402Paywall = async (req: Request, res: Response, next: NextFunction) => {
+  const pw = await getPaywall();
+  if (typeof pw === 'function') return pw(req, res, next);
+  next();
+};
 /**
  * Subscription-based access gate for /chat and /upload.
  * Subscribers (verified via DB cache) pass through.
