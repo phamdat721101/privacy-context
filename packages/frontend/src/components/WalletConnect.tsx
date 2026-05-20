@@ -7,15 +7,18 @@ export function WalletConnect() {
   const [copied, setCopied] = useState(false);
 
   function copyAddress(addr: string) {
-    navigator.clipboard.writeText(addr);
+    navigator.clipboard.writeText(addr).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
   if (!ready) {
     return (
-      <button disabled className="pixel-btn pixel-btn-ghost" style={{ fontSize: '12px', padding: '6px 12px' }}>
-        LOADING...
+      <button
+        disabled
+        className="rounded-full bg-surface-container-high px-4 py-2 text-sm text-on-surface-variant"
+      >
+        Loading…
       </button>
     );
   }
@@ -26,22 +29,28 @@ export function WalletConnect() {
       <div className="flex items-center gap-2">
         <button
           onClick={() => addr && copyAddress(addr)}
-          className="pixel-badge"
           title={addr ?? 'Copy address'}
-          style={{ color: 'var(--pixel-teal)', fontFamily: 'Courier New, monospace', fontSize: '10px', background: 'none', border: 'none', cursor: addr ? 'pointer' : 'default' }}
+          className="flex items-center gap-2 rounded-full border border-outline-variant/40 bg-surface-container-high px-3 py-1.5 font-mono text-xs text-primary transition-colors hover:border-primary/40"
         >
-          {copied ? 'COPIED!' : (addr ? `${addr.slice(0, 5)}..${addr.slice(-3)}` : 'OK')}
+          <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
+          {copied ? 'Copied' : addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '—'}
         </button>
-        <button onClick={logout} className="pixel-btn pixel-btn-danger" style={{ fontSize: '11px', padding: '4px 10px' }}>
-          EXIT
+        <button
+          onClick={logout}
+          className="hidden rounded-full border border-outline-variant/30 px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-error/40 hover:text-error sm:inline"
+        >
+          Sign out
         </button>
       </div>
     );
   }
 
   return (
-    <button onClick={login} className="pixel-btn pixel-btn-primary" style={{ fontSize: '13px' }}>
-      CONNECT WALLET
+    <button
+      onClick={login}
+      className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary/90"
+    >
+      Connect wallet
     </button>
   );
 }

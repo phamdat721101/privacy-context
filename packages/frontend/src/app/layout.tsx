@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { Providers } from './providers';
+import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
-  title: 'FHE AI Context',
-  description: 'Privacy-preserving AI agent powered by Fhenix CoFHE',
+  title: 'Fhedin — Encrypted AI agent marketplace',
+  description:
+    'Hire AI agents trained on FHE-encrypted knowledge. Owners stay in control of their data; consumers get verified answers. Powered by Fhenix CoFHE.',
 };
 
 export const viewport: Viewport = {
@@ -21,7 +23,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="min-h-screen">
-        <Providers>{children}</Providers>
+        <Providers>
+          <AppShell>{children}</AppShell>
+        </Providers>
       </body>
     </html>
   );

@@ -1,82 +1,109 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { usePrivy } from '@privy-io/react-auth';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { BottomNav } from '@/components/BottomNav';
-import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import { useEffect, useMemo, useState } from 'react';
+import { AgentCard } from '@/components/AgentCard';
+import { listAgents, type Agent } from '@/lib/agents';
 
-interface Brain { id: number; owner_address: string; title: string; description: string; tags: string[]; created_at: string; }
-
-export default function BrainCatalogPage() {
-  const { authenticated, ready } = usePrivy();
-  const router = useRouter();
-  const [brains, setBrains] = useState<Brain[]>([]);
+export default function MarketplacePage() {
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [search, setSearch] = useState('');
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => { if (ready && !authenticated) router.push('/'); }, [ready, authenticated, router]);
-  useEffect(() => { fetchBrains(); }, []);
-
-  async function fetchBrains() {
+  useEffect(() => {
     setLoading(true);
-    try {
-      const url = search ? `${AGENT_BACKEND_URL}/brains/search?q=${encodeURIComponent(search)}` : `${AGENT_BACKEND_URL}/brains`;
-      const res = await fetch(url);
-      if (res.ok) setBrains(await res.json());
-    } catch {} finally { setLoading(false); }
-  }
+    listAgents()
+      .then(setAgents)
+      .finally(() => setLoading(false));
+  }, []);
 
-  if (!ready || !authenticated) return null;
+  // Top-10 most-frequent tags, used as filter chips.
+  const tags = useMemo(() => {
+    const seen = new Map<string, number>();
+    agents.forEach((a) => a.tags.forEach((t) => seen.set(t, (seen.get(t) ?? 0) + 1)));
+    return Array.from(seen.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([tag]) => tag);
+  }, [agents]);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return agents.filter((a) => {
+      if (activeTag && !a.tags.includes(activeTag)) return false;
+      if (!q) return true;
+      return (
+        a.title.toLowerCase().includes(q) ||
+        a.description.toLowerCase().includes(q) ||
+        a.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    });
+  }, [agents, search, activeTag]);
 
   return (
-    <main className="bg-background text-text-primary min-h-screen pb-[120px]">
-      <header className="bg-surface-container/80 backdrop-blur-lg border-b border-outline-variant/20 flex items-center px-4 md:px-8 h-[72px] sticky top-0 z-50">
-        <Link href="/" className="text-on-surface-variant hover:text-primary p-2 rounded-full"><span className="material-symbols-outlined">arrow_back</span></Link>
-        <span className="font-headline text-2xl font-bold text-on-surface ml-4">Brain Catalog</span>
-      </header>
-
-      <div className="max-w-6xl mx-auto px-4 md:px-8 pt-8">
-        {/* Search */}
-        <div className="flex gap-3 mb-8">
-          <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && fetchBrains()}
-            placeholder="Search brains..."
-            className="flex-1 bg-surface border border-outline-variant/50 rounded-full py-3 px-5 text-on-surface focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-text-muted" />
-          <button onClick={fetchBrains} className="px-6 py-3 bg-primary text-on-primary rounded-full font-semibold hover:bg-primary/80 transition-colors">Search</button>
-        </div>
-
-        {loading ? (
-          <div className="text-center text-text-muted py-20">Loading...</div>
-        ) : brains.length === 0 ? (
-          <div className="text-center py-20">
-            <span className="material-symbols-outlined text-5xl text-text-muted mb-4 block">psychology</span>
-            <p className="text-on-surface-variant text-lg">No published brains yet.</p>
-            <p className="text-text-muted text-sm mt-1">Be the first to publish your knowledge!</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {brains.map(brain => (
-              <div key={brain.id} className="bg-card border border-outline-variant/20 rounded-xl p-5 hover:shadow-lg hover:-translate-y-0.5 transition-all">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="material-symbols-outlined text-primary">psychology</span>
-                  <h3 className="font-headline font-semibold text-text-primary">{brain.title || `Brain #${brain.id}`}</h3>
-                </div>
-                <p className="text-on-surface-variant text-sm mb-3 line-clamp-2">{brain.description || 'Encrypted knowledge brain'}</p>
-                <div className="flex gap-2 flex-wrap mb-4">
-                  {brain.tags?.map(tag => (
-                    <span key={tag} className="text-[12px] font-mono text-primary border border-primary/30 px-2 py-0.5 rounded-full">{tag}</span>
-                  ))}
-                </div>
-                <Link href={`/chat?brainId=${brain.id}`}
-                  className="inline-flex items-center gap-1 text-sm text-primary font-medium hover:underline">
-                  Chat with brain <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h1 className="font-headline text-3xl font-bold">Marketplace</h1>
+        <p className="text-on-surface-variant">
+          Browse encrypted AI agents. Every answer is cryptographically verified.
+        </p>
       </div>
-      <BottomNav />
-    </main>
+
+      <div className="relative">
+        <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+          search
+        </span>
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search agents, capabilities, tags..."
+          className="w-full rounded-full border border-outline-variant/40 bg-surface py-3 pl-10 pr-4 text-on-surface placeholder:text-on-surface-variant focus:border-primary/60 focus:outline-none"
+        />
+      </div>
+
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveTag(null)}
+            className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
+              activeTag === null
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-outline-variant/40 text-on-surface-variant hover:border-primary/40'
+            }`}
+          >
+            All
+          </button>
+          {tags.map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTag(t === activeTag ? null : t)}
+              className={`rounded-full border px-3 py-1.5 font-mono text-xs transition-colors ${
+                activeTag === t
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-outline-variant/40 text-on-surface-variant hover:border-primary/40'
+              }`}
+            >
+              #{t}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="py-20 text-center text-on-surface-variant">Loading agents…</div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-12 text-center">
+          <span className="material-symbols-outlined mb-3 text-4xl text-on-surface-variant">
+            search_off
+          </span>
+          <p className="text-on-surface-variant">No agents match your search.</p>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((a) => (
+            <AgentCard key={a.id} {...a} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

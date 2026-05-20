@@ -66,7 +66,7 @@ export function PermitManager({ permitState, authorize, revoke, loading, error, 
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-xs text-on-surface-variant bg-surface-container rounded-lg px-3 py-2">
+        <div className="flex items-center gap-2 text-xs text-on-surface-variant bg-surface-container-low rounded-lg px-3 py-2">
           <span className="material-symbols-outlined text-[14px]">link</span>
           <span className="font-mono">Vault: {BRAIN_KEY_VAULT_ADDRESS.slice(0, 10)}...{BRAIN_KEY_VAULT_ADDRESS.slice(-6)}</span>
           <a href={`https://sepolia.arbiscan.io/address/${BRAIN_KEY_VAULT_ADDRESS}`} target="_blank" rel="noopener" className="text-primary hover:underline ml-auto">View ↗</a>
@@ -82,7 +82,7 @@ export function PermitManager({ permitState, authorize, revoke, loading, error, 
   const reasonText = reason ? REASON_TEXT[reason] : null;
 
   return (
-    <div className="rounded-xl border border-outline-variant/40 bg-surface-container p-5 space-y-4">
+    <div className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-5 space-y-4">
       {/* Fhenix explainer */}
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-tertiary/10 flex items-center justify-center shrink-0">
@@ -105,12 +105,12 @@ export function PermitManager({ permitState, authorize, revoke, loading, error, 
               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                 i < step ? 'bg-primary text-on-primary' :
                 i === step ? 'bg-primary/20 text-primary animate-pulse' :
-                'bg-surface-container-high text-text-muted'
+                'bg-surface-container-high text-on-surface-variant'
               }`}>
                 {i < step ? '✓' : i + 1}
               </div>
               <div>
-                <p className={`text-sm font-medium ${i <= step ? 'text-on-surface' : 'text-text-muted'}`}>{s.label}</p>
+                <p className={`text-sm font-medium ${i <= step ? 'text-on-surface' : 'text-on-surface-variant'}`}>{s.label}</p>
                 <p className="text-xs text-on-surface-variant">{s.desc}</p>
               </div>
             </div>
@@ -136,9 +136,9 @@ export function PermitManager({ permitState, authorize, revoke, loading, error, 
         )}
       </button>
 
-      <p className="text-xs text-center text-text-muted">
+      <p className="text-xs text-center text-on-surface-variant">
         Requires 1 wallet signature (on-chain transaction).{' '}
-        <Link href="/onboard" className="text-primary hover:underline">Learn more →</Link>
+        <Link href="/docs" className="text-primary hover:underline">Learn more →</Link>
       </p>
     </div>
   );

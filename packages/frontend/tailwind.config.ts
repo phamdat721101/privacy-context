@@ -1,67 +1,47 @@
 import type { Config } from 'tailwindcss';
-import uiPreset from '@fhe-ai-context/ui/dist/tailwind-preset';
 
 /**
- * Tailwind config for the Next.js frontend.
+ * fhedin_core — design tokens for the encrypted-agent marketplace.
  *
- * The new design tokens live in `packages/ui` and are imported as a preset
- * so we have a single source of truth. The existing inline tokens are kept
- * for backward-compat with the legacy pixel-art retro screens; they will
- * be removed when those screens are retired post-v1.0.
+ * Single source of truth. Dark-mode only by design: privacy-first
+ * products read better on a dark surface and the indigo "encrypted"
+ * accent reads cleanly against #131317.
  */
 const config: Config = {
-  presets: [uiPreset],
   darkMode: 'class',
-  content: [
-    './src/**/*.{js,ts,jsx,tsx,mdx}',
-    // Pull in component classes used by the design system so Tailwind doesn't
-    // tree-shake them out when the only references live in node_modules.
-    '../ui/dist/**/*.js',
-  ],
+  content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
   theme: {
     extend: {
-      // Legacy aliases — keep until the old screens are retired.
       colors: {
-        background: '#0c1324',
-        surface: '#0F172A',
-        'surface-dim': '#0c1324',
-        'surface-bright': '#33394c',
-        'surface-container': '#191f31',
-        'surface-container-low': '#151b2d',
-        'surface-container-high': '#23293c',
-        'surface-container-highest': '#2e3447',
-        'surface-variant': '#2e3447',
-        card: '#1E293B',
+        background: '#131317',
+        surface: '#201f23',
+        'surface-container-low': '#1b1b1f',
+        'surface-container-high': '#2a292d',
         primary: '#c0c1ff',
-        'primary-container': '#8083ff',
-        'on-primary': '#1000a9',
-        'on-primary-container': '#0d0096',
+        'primary-container': '#c0c1ff',
+        'on-primary': '#292b5e',
         secondary: '#4edea3',
-        'secondary-container': '#00a572',
-        'on-secondary': '#003824',
         tertiary: '#ffb95f',
-        'tertiary-container': '#ca8100',
         error: '#ffb4ab',
-        'error-container': '#93000a',
-        'on-surface': '#dce1fb',
-        'on-surface-variant': '#c7c4d7',
-        'on-background': '#dce1fb',
-        'text-primary': '#F8FAFC',
-        'text-muted': '#64748B',
-        outline: '#908fa0',
-        'outline-variant': '#464554',
-        border: '#334155',
-      },
-      spacing: {
-        'nav-height': '72px',
-        'page-margin-mobile': '1rem',
-        'page-margin-desktop': '2rem',
-        'card-gap': '1rem',
+        'on-surface': '#e5e1e7',
+        'on-surface-variant': '#c7c5d0',
+        outline: '#918f9a',
+        'outline-variant': '#46464f',
       },
       fontFamily: {
-        headline: ['Geist', 'sans-serif'],
-        body: ['Inter', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        headline: ['Geist', 'system-ui', 'sans-serif'],
+        body: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      borderRadius: {
+        sm: '2px',
+        DEFAULT: '4px',
+        lg: '8px',
+        xl: '12px',
+      },
+      boxShadow: {
+        'glow-indigo': '0 0 24px rgba(192, 193, 255, 0.18)',
+        'glow-emerald': '0 0 24px rgba(78, 222, 163, 0.18)',
       },
     },
   },

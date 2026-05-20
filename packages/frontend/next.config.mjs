@@ -21,6 +21,22 @@ const config = {
     };
     return config;
   },
+  // Legacy → fhedin URL map. All temporary (308) so search engines don't
+  // freeze a stale redirect once the rewrite settles.
+  async redirects() {
+    return [
+      { source: '/onboard', destination: '/docs', permanent: false },
+      { source: '/memory', destination: '/studio', permanent: false },
+      { source: '/payments', destination: '/settings', permanent: false },
+      { source: '/v2', destination: '/', permanent: false },
+      { source: '/zama-demo', destination: '/', permanent: false },
+      { source: '/brain', destination: '/studio', permanent: false },
+      { source: '/catalog', destination: '/marketplace', permanent: false },
+      { source: '/settings-v2', destination: '/settings', permanent: false },
+      // Bare /chat with no agent goes back to discovery.
+      { source: '/chat', destination: '/marketplace', permanent: false },
+    ];
+  },
 };
 
 export default config;
