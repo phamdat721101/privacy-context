@@ -29,6 +29,7 @@
     "dev": "./scripts/start-dev.sh",
     "docker:up": "docker compose up -d",
     "docker:build": "docker compose build --parallel",
-    "deploy": "./scripts/deploy.sh"
+    "deploy": "./scripts/deploy.sh",
+    "smoke:auth": "tsx scripts/smoke-auth.ts"
   }
 }

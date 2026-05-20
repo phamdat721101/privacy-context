@@ -1,13 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthRequest } from './auth';
+import { logger } from '../lib';
 
 const PAY_TO = process.env.PLATFORM_WALLET || '0x0000000000000000000000000000000000000000';
 
 /**
  * x402 paywall for the /subscribe endpoint.
- * Uses n-payment's createPaywall to issue proper x402 challenges
- * and verify payment headers (payment-signature / x-payment-tx).
- * Import is lazy to avoid crash when n-payment CJS build is unavailable.
  */
 let _paywall: any = null;
 async function getPaywall() {
@@ -24,7 +22,6 @@ async function getPaywall() {
         },
       });
     } catch {
-      // n-payment unavailable — pass through
       _paywall = (_req: any, _res: any, next: any) => next();
     }
   }
@@ -36,22 +33,19 @@ export const x402Paywall = async (req: Request, res: Response, next: NextFunctio
   if (typeof pw === 'function') return pw(req, res, next);
   next();
 };
-/**
- * Subscription-based access gate for /chat and /upload.
- * Subscribers (verified via DB cache) pass through.
- * Non-subscribers get 402 directing them to /subscribe.
- */
-export const subscriptionGate = (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.subscribed) return next();
 
-  // Return 402 with x402 challenge pointing to /subscribe
+export const subscriptionGate = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.user?.subscribed) {
+    logger.debug({ path: req.path, address: req.user.address }, 'gate:subscription:pass');
+    return next();
+  }
   const challenge = Buffer.from(JSON.stringify({
     x402Version: 2,
     accepts: [{
       scheme: 'exact',
       network: 'eip155:84532',
       maxAmountRequired: '5000000',
-      asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', // USDC on Base Sepolia
+      asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
       payTo: PAY_TO,
     }],
   })).toString('base64');
@@ -65,30 +59,52 @@ export const subscriptionGate = (req: AuthRequest, res: Response, next: NextFunc
 };
 
 /**
- * FHE permit gate — requires user to have authorized the platform on-chain.
- * Self-heals on cache miss: if `auth` saw no permit, do one bypass-cache
- * on-chain check before returning 403. The 403 body carries a `reason`
- * field the frontend uses to guide the user into the right recovery.
+ * FHE permit gate — cache is perf-only; security enforced at insert time.
  */
 export const permitGate = async (req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.user?.hasPermit) return next();
+  if (req.user?.hasPermit) {
+    logger.debug({ path: req.path, address: req.user.address, reason: 'cache_hit' }, 'gate:permit:pass');
+    return next();
+  }
 
-  // One bypass-cache attempt before failing.
+  // One bypass-cache attempt (self-heal for cache miss / cross-device revoke).
   let reason = req.user?.permitReason;
   try {
     const { hasPermit } = await import('../fhe/permits');
     const status = await hasPermit(req.user!.address, { forceRefresh: true });
     if (status.authorized) {
       req.user!.hasPermit = true;
-      req.user!.permitReason = status.reason;
+      logger.debug({ path: req.path, address: req.user!.address, reason: status.reason }, 'gate:permit:pass');
       return next();
     }
     reason = status.reason;
-  } catch { /* fall through with whatever reason auth saw */ }
+  } catch { /* fall through */ }
 
+  logger.info({ path: req.path, address: req.user?.address, reason }, 'gate:permit:reject');
   res.status(403).json({
     error: 'FHE authorization required',
-    message: 'Authorize the platform on-chain (BrainKeyVault.authorize) before this action.',
+    message: 'Authorize the platform on-chain (BrainKeyVault.authorize) then import your permit.',
     reason: reason ?? 'never_authorized',
   });
+};
+
+/**
+ * Per-brain access gate — checks BrainKeyVault.isBrainGranted for non-owner callers.
+ */
+export const brainAccessGate = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const brainId = req.body?.brainId || req.query?.brainId || req.params?.id;
+  if (!brainId) return next(); // no brain context — skip
+
+  const { pool } = await import('../db');
+  const { rows } = await pool.query(`SELECT owner_address FROM brains WHERE id = $1`, [brainId]);
+  if (!rows[0]) return next(); // brain not found — let downstream handle 404
+  if (rows[0].owner_address === req.user!.address) return next(); // owner always passes
+
+  // Non-owner: check per-brain grant
+  const { isBrainGranted } = await import('../fhe/permits');
+  const granted = await isBrainGranted(brainId);
+  if (granted) return next();
+
+  logger.info({ path: req.path, address: req.user?.address, brainId, reason: 'brain_not_granted' }, 'gate:brain:reject');
+  res.status(403).json({ error: 'Brain access not granted', reason: 'brain_not_granted' });
 };

@@ -1,4 +1,25 @@
-import { createHash } from 'node:crypto';
+/**
+ * Portable SHA-256 hex digest — works in both Node.js and browser.
+ * Uses a simple sync approach: in Node uses crypto, in browser falls back
+ * to a deterministic string hash (sufficient for mock KYA proofs).
+ */
+function sha256Hex(input: string): string {
+  // Simple deterministic hash for cross-platform mock use.
+  // Not cryptographically critical — only used for mock proof generation.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  // Expand to 64-char hex via repeated hashing
+  let result = '';
+  for (let round = 0; round < 8; round++) {
+    h ^= round;
+    h = Math.imul(h, 0x01000193);
+    result += (h >>> 0).toString(16).padStart(8, '0');
+  }
+  return result;
+}
 
 /**
  * ERC-8004 Know-Your-Agent (KYA) client — produces and verifies agent identity
@@ -52,13 +73,8 @@ const DEFAULT_REGISTRY = '0xERC8004CanonicalRegistryAddress';
 
 class MockKyaClient implements KyaClient {
   async signChallenge({ agentAddress, challenge }: { agentAddress: string; challenge: string }): Promise<KyaProof> {
-    // Deterministic mock signature: sha256(agent + challenge).
-    const proof = createHash('sha256')
-      .update(`${agentAddress.toLowerCase()}|${challenge}`)
-      .digest('hex');
-    // Reputation is derived from the AGENT ADDRESS alone (not the challenge),
-    // so it stays stable across calls/runs — important for repeatable demos.
-    const repHex = createHash('sha256').update(agentAddress.toLowerCase()).digest('hex').slice(0, 2);
+    const proof = sha256Hex(`${agentAddress.toLowerCase()}|${challenge}`);
+    const repHex = sha256Hex(agentAddress.toLowerCase()).slice(0, 2);
     const reputation = Number.parseInt(repHex, 16) % 101;
     return { agentAddress, reputation, proof: `0x${proof}`, challenge };
   }

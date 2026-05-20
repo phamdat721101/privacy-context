@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { pool } from '../db';
 import { logger } from '../lib';
+import { AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -10,8 +11,7 @@ const router = Router();
  * NEVER accepts plaintext key material. Defence in depth.
  */
 router.post('/upload', async (req: Request, res: Response) => {
-  const userAddress = (req.headers['x-wallet-address'] as string)?.toLowerCase();
-  if (!userAddress) return res.status(401).json({ error: 'x-wallet-address required' });
+  const userAddress = (req as AuthRequest).user!.address;
 
   const { brainId, ciphertext, txHash } = req.body;
   if (!ciphertext || !txHash) {
@@ -71,7 +71,18 @@ router.post('/inference', async (req: Request, res: Response) => {
   if (!chunks?.length || !question) {
     return res.status(400).json({ error: 'chunks[] and question required' });
   }
-  const userAddress = (req.headers['x-wallet-address'] as string)?.toLowerCase();
+  const userAddress = (req as AuthRequest).user!.address;
+
+  // Per-brain access check for non-owner callers
+  if (brainId) {
+    const { rows: [brain] } = await pool.query(`SELECT owner_address FROM brains WHERE id = $1`, [brainId]);
+    if (brain && brain.owner_address !== userAddress) {
+      const { isBrainGranted } = await import('../fhe/permits');
+      if (!(await isBrainGranted(brainId))) {
+        return res.status(403).json({ error: 'Brain access not granted', reason: 'brain_not_granted' });
+      }
+    }
+  }
 
   try {
     const context = (chunks as string[]).map((c, i) => `[${i}] ${c}`).join('\n---\n');
@@ -87,10 +98,8 @@ router.post('/inference', async (req: Request, res: Response) => {
       );
     }
 
-    // TN signature — off-chain attestation (gasless per choice 1=c)
-    // Server calls decryptForTx on the first chunk's ctHash to get a TN-signed proof
-    // that this answer was derived from a real Fhenix-encrypted source.
-    let attestation: any = { provider: 'fhenix-tn', verified: false, signature: null, issuedAt: new Date().toISOString() };
+    // TN signature — off-chain attestation (gasless)
+    let attestation: any = { provider: 'fhenix-tn', verified: false, signature: null, error: null, issuedAt: new Date().toISOString() };
     if (req.body.ctHashes?.length && process.env.PRIVATE_KEY) {
       try {
         const { getCofheClient } = await import('../fhe/client');
@@ -103,7 +112,10 @@ router.post('/inference', async (req: Request, res: Response) => {
           ctHash: req.body.ctHashes[0],
           issuedAt: new Date().toISOString(),
         };
-      } catch { /* TN unavailable — return unverified */ }
+      } catch (e: any) {
+        logger.warn({ ctHash: req.body.ctHashes[0], err: e.message }, 'tn:attestation:failed');
+        attestation.error = e.message || 'tn_unavailable';
+      }
     }
 
     res.json({ answer, attestation });
@@ -119,9 +131,8 @@ router.post('/inference', async (req: Request, res: Response) => {
  * via POST /v2/upload, call POST /v2/migrate/:brainId/complete to wipe legacy keys.
  */
 router.post('/migrate/:brainId', async (req: Request, res: Response) => {
-  const userAddress = (req.headers['x-wallet-address'] as string)?.toLowerCase();
+  const userAddress = (req as AuthRequest).user!.address;
   const { brainId } = req.params;
-  if (!userAddress) return res.status(401).json({ error: 'x-wallet-address required' });
 
   try {
     const { rows: [brain] } = await pool.query(
@@ -141,9 +152,8 @@ router.post('/migrate/:brainId', async (req: Request, res: Response) => {
 });
 
 router.post('/migrate/:brainId/complete', async (req: Request, res: Response) => {
-  const userAddress = (req.headers['x-wallet-address'] as string)?.toLowerCase();
+  const userAddress = (req as AuthRequest).user!.address;
   const { brainId } = req.params;
-  if (!userAddress) return res.status(401).json({ error: 'x-wallet-address required' });
 
   try {
     const { rows: [brain] } = await pool.query(

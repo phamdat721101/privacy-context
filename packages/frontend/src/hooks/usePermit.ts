@@ -19,6 +19,7 @@ export type PermitReason =
   | 'cache_hit'
   | 'onchain_authorized'
   | 'never_authorized'
+  | 'permit_revoked'
   | 'cache_expired'
   | 'config_unavailable'
   | 'rpc_error';
@@ -88,19 +89,24 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
       const signer = await ethersProvider.getSigner();
       const contract = new Contract(BRAIN_KEY_VAULT_ADDRESS, VAULT_ABI, signer);
 
+      // On-chain authorize — this triggers the wallet popup
       const tx = await contract.authorize(platformWallet);
       await tx.wait();
+
+      // Notify backend — it will verify on-chain state directly
+      await fetch(`${AGENT_BACKEND_URL}/permit/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAddress, txHash: tx.hash }),
+      }).catch(() => {});
+
+      // Refresh permit status from server (server checks on-chain)
+      await refresh();
 
       const newState = { serializedPermit: tx.hash, permitId: tx.hash, expiresAt: null };
       setPermitState(newState);
       setReason('onchain_authorized');
       localStorage.setItem(`fhe_permit_${userAddress}`, JSON.stringify(newState));
-
-      await fetch(`${AGENT_BACKEND_URL}/permit/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userAddress, serializedPermit: tx.hash }),
-      }).catch(() => {});
     } catch (e: any) {
       setError(e?.shortMessage || e?.message || 'Authorization failed');
     } finally {

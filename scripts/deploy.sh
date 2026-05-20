@@ -13,7 +13,7 @@ fi
 
 # Validate critical vars
 source .env 2>/dev/null || true
-for var in DATABASE_URL NEXT_PUBLIC_BRAIN_KEY_VAULT_V2_ADDRESS; do
+for var in DATABASE_URL PLATFORM_WALLET BRAIN_KEY_VAULT_ADDRESS ARBITRUM_SEPOLIA_RPC NEXT_PUBLIC_BRAIN_KEY_VAULT_V2_ADDRESS; do
   if [ -z "${!var}" ]; then
     echo "✗ Missing required: $var"
     exit 1

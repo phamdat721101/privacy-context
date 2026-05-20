@@ -99,7 +99,7 @@ export default function HomePage() {
               </div>
               <div className="inline-flex items-center gap-2 bg-surface-container-high border border-outline-variant/30 rounded-full px-4 py-2">
                 <span className="material-symbols-outlined text-text-muted text-sm">lock</span>
-                <span className="text-sm text-text-muted">Brain: FHE-encrypted</span>
+                <span className="text-sm text-text-muted">Fhenix CoFHE · Arbitrum Sepolia</span>
               </div>
             </div>
 

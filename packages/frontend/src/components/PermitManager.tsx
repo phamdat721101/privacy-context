@@ -1,21 +1,29 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
 import type { PermitState } from '@/types/context';
 import type { PermitReason } from '@/hooks/usePermit';
-import { AGENT_ADDRESS } from '@/lib/contracts';
+import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 
 const REASON_TEXT: Record<PermitReason, string> = {
-  cache_hit: 'Authorized.',
-  onchain_authorized: 'Authorized on-chain.',
+  cache_hit: 'Authorized via cached permit.',
+  onchain_authorized: 'Authorized — verified on-chain.',
   never_authorized: 'You have not authorized the platform yet.',
+  permit_revoked: 'Your permit was revoked. Re-authorize to continue.',
   cache_expired: 'Your permit cache expired. Re-authorize to continue.',
-  config_unavailable: 'Server is misconfigured (missing platform / vault env vars).',
-  rpc_error: 'Network issue while checking permit. Please retry.',
+  config_unavailable: 'Server misconfigured (missing vault address).',
+  rpc_error: 'Network issue checking on-chain state. Please retry.',
 };
+
+const STEPS = [
+  { label: 'Sign transaction', desc: 'BrainKeyVault.authorize() on Arbitrum Sepolia' },
+  { label: 'Confirm on-chain', desc: 'Waiting for block confirmation...' },
+  { label: 'Verify permit', desc: 'Platform confirms FHE access grant' },
+];
 
 interface Props {
   permitState: PermitState;
-  authorize: (agentAddress: `0x${string}`) => Promise<void>;
+  authorize: (platformWallet: `0x${string}`) => Promise<void>;
   revoke: () => Promise<void>;
   loading: boolean;
   error: string | null;
@@ -23,59 +31,115 @@ interface Props {
 }
 
 export function PermitManager({ permitState, authorize, revoke, loading, error, reason }: Props) {
-  const cardClass = permitState.serializedPermit ? 'pixel-card-gold' : 'pixel-card-gray';
+  const [step, setStep] = useState(0);
+  const [platformWallet, setPlatformWallet] = useState<string | null>(null);
+
+  async function handleAuthorize() {
+    // Fetch platform wallet from API (source of truth)
+    let wallet = platformWallet;
+    if (!wallet) {
+      try {
+        const r = await fetch(`${AGENT_BACKEND_URL}/platform`);
+        const data = await r.json();
+        wallet = data.platformWallet;
+        setPlatformWallet(wallet);
+      } catch {
+        return; // will show error from usePermit
+      }
+    }
+    if (!wallet) return;
+    setStep(1);
+    await authorize(wallet as `0x${string}`);
+  }
 
   if (permitState.serializedPermit) {
-    const expiresDate = permitState.expiresAt
-      ? new Date(permitState.expiresAt * 1000).toLocaleDateString()
-      : 'Unknown';
     return (
-      <div className={`${cardClass} space-y-3`}>
-        <div className="flex items-center gap-2 mb-4">
-           <span style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-gray)' }}>[AUTHORIZATION: FHE_AGENT_01]</span>
-           <span style={{ fontFamily: "'Press Start 2P'", fontSize: '10px', color: 'var(--pixel-green)', textShadow: '0 0 5px var(--pixel-green)' }}>AGENT AUTHORIZED</span>
-        </div>
-        <div style={{ fontFamily: "'VT323'", fontSize: '16px', color: 'var(--pixel-gray)' }}>
-          🤖 FHE CONTEXT AGENT<br />
-          ⏱ EXPIRES: {expiresDate}
-        </div>
-        {error && (
-          <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-danger)' }}>
-            ⚠ {error}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-5 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>verified_user</span>
           </div>
-        )}
-        <button onClick={revoke} disabled={loading} className="pixel-btn pixel-btn-danger mt-2">
-          {loading ? 'REVOKING...' : 'REVOKE ACCESS'}
+          <div>
+            <p className="font-semibold text-on-surface">FHE Permit Active</p>
+            <p className="text-xs text-on-surface-variant">
+              Platform can decrypt your brain via Fhenix CoFHE threshold network
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-on-surface-variant bg-surface-container rounded-lg px-3 py-2">
+          <span className="material-symbols-outlined text-[14px]">link</span>
+          <span className="font-mono">Vault: {BRAIN_KEY_VAULT_ADDRESS.slice(0, 10)}...{BRAIN_KEY_VAULT_ADDRESS.slice(-6)}</span>
+          <a href={`https://sepolia.arbiscan.io/address/${BRAIN_KEY_VAULT_ADDRESS}`} target="_blank" rel="noopener" className="text-primary hover:underline ml-auto">View ↗</a>
+        </div>
+        {error && <p className="text-error text-sm">{error}</p>}
+        <button onClick={revoke} disabled={loading} className="text-sm text-error hover:text-error/80 underline">
+          {loading ? 'Revoking...' : 'Revoke permit (cuts access cryptographically)'}
         </button>
       </div>
     );
   }
 
-  const isWalletError = Boolean(error && /wallet/i.test(error));
-  const reasonText = reason ? REASON_TEXT[reason] : 'AI agent not authorized to read your context.';
+  const reasonText = reason ? REASON_TEXT[reason] : null;
 
   return (
-    <div className={`${cardClass} space-y-3`}>
-      <div style={{ fontFamily: "'VT323'", fontSize: '15px', color: 'var(--pixel-gray)' }}>
-        {reasonText.toUpperCase()}
+    <div className="rounded-xl border border-outline-variant/40 bg-surface-container p-5 space-y-4">
+      {/* Fhenix explainer */}
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-full bg-tertiary/10 flex items-center justify-center shrink-0">
+          <span className="material-symbols-outlined text-tertiary">key</span>
+        </div>
+        <div>
+          <p className="font-semibold text-on-surface">Authorize via Fhenix FHE</p>
+          <p className="text-sm text-on-surface-variant">
+            Your brain's AES key is encrypted with FHE on-chain. This permit lets the platform
+            decrypt it via the Fhenix threshold network — revocable at any time.
+          </p>
+        </div>
       </div>
-      {error && (
-        <div style={{ fontFamily: "'VT323'", fontSize: '13px', color: 'var(--pixel-danger)' }}>
-          {isWalletError
-            ? '⚠ WALLET NOT CONNECTED — PLEASE RECONNECT AND TRY AGAIN.'
-            : `⚠ ${error}`}
+
+      {/* Steps indicator */}
+      {loading && (
+        <div className="space-y-2 pl-2">
+          {STEPS.map((s, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                i < step ? 'bg-primary text-on-primary' :
+                i === step ? 'bg-primary/20 text-primary animate-pulse' :
+                'bg-surface-container-high text-text-muted'
+              }`}>
+                {i < step ? '✓' : i + 1}
+              </div>
+              <div>
+                <p className={`text-sm font-medium ${i <= step ? 'text-on-surface' : 'text-text-muted'}`}>{s.label}</p>
+                <p className="text-xs text-on-surface-variant">{s.desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
       )}
+
+      {reasonText && !loading && (
+        <p className="text-sm text-on-surface-variant bg-surface-container-high rounded-lg px-3 py-2">{reasonText}</p>
+      )}
+
+      {error && <p className="text-error text-sm">{error}</p>}
+
       <button
-        onClick={() => authorize(AGENT_ADDRESS)}
-        disabled={loading || isWalletError}
-        className="pixel-btn pixel-btn-primary"
+        onClick={handleAuthorize}
+        disabled={loading}
+        className="w-full py-3 px-4 bg-primary text-on-primary rounded-full font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
       >
-        {loading ? 'AUTHORIZING...' : (error && !isWalletError) ? 'TRY AGAIN' : 'AUTHORIZE AI AGENT'}
+        {loading ? (
+          <><span className="animate-spin material-symbols-outlined text-[18px]">progress_activity</span> Authorizing...</>
+        ) : (
+          <><span className="material-symbols-outlined text-[18px]">lock_open</span> Authorize FHE Permit</>
+        )}
       </button>
-      <div className="text-xs text-text-muted mt-2">
-        <Link href="/onboard" className="underline hover:text-primary">Or restart onboarding →</Link>
-      </div>
+
+      <p className="text-xs text-center text-text-muted">
+        Requires 1 wallet signature (on-chain transaction).{' '}
+        <Link href="/onboard" className="text-primary hover:underline">Learn more →</Link>
+      </p>
     </div>
   );
 }
