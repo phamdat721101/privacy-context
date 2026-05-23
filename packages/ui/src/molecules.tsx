@@ -288,6 +288,145 @@ export const WalletPill: React.FC<WalletPillProps> = ({ address, chain, onCopy }
   </button>
 );
 
+// ---------- PriceChip ------------------------------------------------------
+// USP: every brain card and every agent-facing endpoint shows the per-query
+// price up-front. SOLID: single responsibility — render a price; nothing else.
+
+export interface PriceChipProps {
+  /** Human amount (e.g. "0.01"). Use plain string so callers control rounding. */
+  amount: string;
+  /** Default "USDC". Allow override for FHERC20 etc. */
+  currency?: string;
+  /** "per query" by default; "/mo" for subscription contexts. */
+  unit?: string;
+}
+
+export const PriceChip: React.FC<PriceChipProps> = ({
+  amount,
+  currency = 'USDC',
+  unit = 'per query',
+}) => (
+  <Badge tone="success" icon={<span aria-hidden>💸</span>}>
+    {amount} {currency} <span className="opacity-70">· {unit}</span>
+  </Badge>
+);
+
+// ---------- AgentIdBadge ----------------------------------------------------
+// Renders an ERC-8004 agent identity. `verified=true` ⇒ green tick, else neutral.
+// Reuses KYABadge styling but always shows a truncated address as the primary
+// affordance — agents *are* their address, unlike human KYA.
+
+export interface AgentIdBadgeProps {
+  agentAddress: string;
+  verified?: boolean;
+  reputation?: number;
+}
+
+function shortAddr(addr: string): string {
+  return addr.length > 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+}
+
+export const AgentIdBadge: React.FC<AgentIdBadgeProps> = ({
+  agentAddress,
+  verified,
+  reputation,
+}) => (
+  <Badge
+    tone={verified ? 'success' : 'default'}
+    icon={<span aria-hidden>{verified ? '🤖✓' : '🤖'}</span>}
+  >
+    <span className="font-mono">{shortAddr(agentAddress)}</span>
+    {typeof reputation === 'number' && <span className="opacity-70"> · {reputation}/100</span>}
+  </Badge>
+);
+
+// ---------- AttestationBadge -----------------------------------------------
+// Compact inline badge surfaced next to TEE-attested answers. The full
+// receipt (with the quote) is rendered by <AttestationReceipt> further down.
+
+export interface AttestationBadgeProps {
+  provider: 'phala-tee' | 'fhenix-tn' | string;
+  verified: boolean;
+  onView?: () => void;
+}
+
+export const AttestationBadge: React.FC<AttestationBadgeProps> = ({
+  provider,
+  verified,
+  onView,
+}) => {
+  const label = verified ? `${provider} verified` : `${provider} unverified`;
+  const inner = (
+    <Badge
+      tone={verified ? 'success' : 'warning'}
+      icon={<span aria-hidden>🛡️</span>}
+    >
+      {label}
+    </Badge>
+  );
+  if (!onView) return inner;
+  return (
+    <button type="button" onClick={onView} className="cursor-pointer">
+      {inner}
+    </button>
+  );
+};
+
+// ---------- EarningsReceipt -------------------------------------------------
+// The "holy shit" moment: the seller sees their first inflow as a receipt
+// row, not a dashboard chart. Gstack: show your work — receipts beat charts.
+
+export interface EarningsReceiptProps {
+  amount: string;            // "0.01"
+  currency?: string;         // "USDC"
+  agentAddress: string;
+  agentVerified?: boolean;
+  /** ISO timestamp; rendered relative if within 24h, absolute otherwise. */
+  at: string;
+  /** Optional explorer link (Etherscan / Basescan tx). */
+  txUrl?: string;
+}
+
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return iso;
+  const delta = Math.max(0, Date.now() - t);
+  if (delta < 60_000) return 'just now';
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+export const EarningsReceipt: React.FC<EarningsReceiptProps> = ({
+  amount,
+  currency = 'USDC',
+  agentAddress,
+  agentVerified,
+  at,
+  txUrl,
+}) => (
+  <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+    <div className="flex items-center gap-2">
+      <span className="font-semibold text-secondary">+{amount} {currency}</span>
+      <span className="text-text-muted">from</span>
+      <AgentIdBadge agentAddress={agentAddress} verified={agentVerified} />
+    </div>
+    <div className="flex items-center gap-2 text-xs text-text-muted">
+      <span>{relativeTime(at)}</span>
+      {txUrl && (
+        <a
+          href={txUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary hover:underline"
+        >
+          tx ↗
+        </a>
+      )}
+    </div>
+  </div>
+);
+
 // ---------- BottomNav -------------------------------------------------------
 
 export interface BottomNavItem {

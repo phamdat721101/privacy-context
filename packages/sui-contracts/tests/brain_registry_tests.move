@@ -12,6 +12,7 @@ module fhe_brain::brain_registry_tests {
         ENotOwner,
         EAlreadyPublished,
         ENotPublished,
+        EBadSubscription,
         ESubscriptionExpired,
         EKYARequired,
     };
@@ -209,6 +210,61 @@ module fhe_brain::brain_registry_tests {
 
         let brain = ts::take_from_address<Brain>(&scenario, ALICE);
         br::authorize_read(&brain, &policy, &sub, &clk, option::none()); // aborts ESubscriptionExpired
+
+        ts::return_to_address(ALICE, brain);
+        transfer::public_transfer(sub, BOB);
+        ts::return_shared(policy);
+        clock::destroy_for_testing(clk);
+        ts::end(scenario);
+    }
+
+    #[test]
+    fun test_seal_approve_happy_path() {
+        let mut scenario = ts::begin(ALICE);
+        let (_policy, brain_id) = setup(&mut scenario, false);
+
+        ts::next_tx(&mut scenario, ALICE);
+        let mut brain = ts::take_from_sender<Brain>(&scenario);
+        br::publish_brain(&mut brain, scenario.ctx());
+        ts::return_to_sender(&scenario, brain);
+
+        ts::next_tx(&mut scenario, BOB);
+        let policy = ts::take_shared<SubscriptionPolicy>(&scenario);
+        let clk = clock::create_for_testing(scenario.ctx());
+        let payment = coin::mint_for_testing<SUI>(PRICE, scenario.ctx());
+        let sub = sp::subscribe(&policy, payment, &clk, scenario.ctx());
+
+        let brain = ts::take_from_address<Brain>(&scenario, ALICE);
+        // identity bytes = brain UID — happy path.
+        br::seal_approve(brain_id.to_bytes(), &brain, &policy, &sub, &clk, option::none());
+
+        ts::return_to_address(ALICE, brain);
+        transfer::public_transfer(sub, BOB);
+        ts::return_shared(policy);
+        clock::destroy_for_testing(clk);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EBadSubscription)]
+    fun test_seal_approve_wrong_identity_aborts() {
+        let mut scenario = ts::begin(ALICE);
+        let (_policy, _brain_id) = setup(&mut scenario, false);
+
+        ts::next_tx(&mut scenario, ALICE);
+        let mut brain = ts::take_from_sender<Brain>(&scenario);
+        br::publish_brain(&mut brain, scenario.ctx());
+        ts::return_to_sender(&scenario, brain);
+
+        ts::next_tx(&mut scenario, BOB);
+        let policy = ts::take_shared<SubscriptionPolicy>(&scenario);
+        let clk = clock::create_for_testing(scenario.ctx());
+        let payment = coin::mint_for_testing<SUI>(PRICE, scenario.ctx());
+        let sub = sp::subscribe(&policy, payment, &clk, scenario.ctx());
+
+        let brain = ts::take_from_address<Brain>(&scenario, ALICE);
+        // wrong identity bytes — EBadSubscription.
+        br::seal_approve(b"wrong-brain-id", &brain, &policy, &sub, &clk, option::none());
 
         ts::return_to_address(ALICE, brain);
         transfer::public_transfer(sub, BOB);

@@ -1,299 +1,274 @@
-# FHE AI Context Management
+# Fhedin · FHE Second Brain
 
-**Confidential AI Knowledge Management powered by Fhenix FHE**
+**Get paid when AI agents query your brain.**
 
-Build your private AI second brain where knowledge is encrypted on-chain, ownership is cryptographically provable, and access is controlled by Fully Homomorphic Encryption — not database flags.
+Fhedin is the marketplace where AI agents pay you in USDC to read knowledge only you control — and the platform is cryptographically blind to both sides of the transaction. Powered by Fhenix CoFHE on Arbitrum, ERC-8004 agent identity, and Phala TEE-attested inference.
 
-🔗 **Live API**: https://13-229-63-192.sslip.io
-🔗 **Contracts**: Arbitrum Sepolia ([SubscriptionController](https://sepolia.arbiscan.io/address/0xCC42779858F1cd3F480aD33BcBc5A931D57DfFc3) | [KnowledgeBaseRegistry](https://sepolia.arbiscan.io/address/0x36eca600679E73061318f8C10F6E43aFc06C96E0) | [BrainKeyVault](https://sepolia.arbiscan.io/address/0x07beFe30F0C8Ef8B4c513da22A310eF84E9010c0))
+> **Patreon for AI agents.** Sellers publish encrypted brains; agents pay per query in USDC; the platform cannot read the knowledge.
 
----
+🔗 **Live API**: https://13-229-63-192.sslip.io · `/openapi.json`
+🔗 **Contracts (Arbitrum Sepolia, v2)**:
+- [`SubscriptionControllerV2`](https://sepolia.arbiscan.io/address/0x648d6b39360A53f604f9e808721eB7d780AabcA3) — `0x648d6b39360A53f604f9e808721eB7d780AabcA3`
+- [`KnowledgeBaseRegistryV2`](https://sepolia.arbiscan.io/address/0x97878Cb32C6c8A56e0604218C41C683a94CD075e) — `0x97878Cb32C6c8A56e0604218C41C683a94CD075e`
+- [`BrainKeyVaultV2`](https://sepolia.arbiscan.io/address/0x9a6BcBea6De59FE19d7d1648EFb3F1Ee36331156) — `0x9a6BcBea6De59FE19d7d1648EFb3F1Ee36331156`
 
-## The Problem
-
-AI assistants need access to your personal knowledge to be useful. But storing knowledge in plaintext means:
-- The platform can read everything you store
-- Data breaches expose your private notes
-- You can't prove you own your knowledge
-- You can't revoke access cryptographically
-
-## The Solution
-
-FHE Second Brain uses **Fhenix Fully Homomorphic Encryption** to solve all four problems:
-
-```
-Upload knowledge → AES-encrypt content → store on IPFS
-                → FHE-encrypt the AES key → store on-chain (BrainKeyVault)
-                → Only permitted parties can decrypt
-                → Revoke permit = instant access revocation
-```
-
-**Your knowledge is yours. Provably. Cryptographically.**
+> 📄 Read [`docs/USP_BRIEF.md`](docs/USP_BRIEF.md) before touching `/`, copy, marketing, or pricing.
 
 ---
 
-## How It Works
-
-### Architecture
+## The 60-second flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    FRONTEND (Next.js)                         │
-│  Connect Wallet → Authorize (FHE Permit) → Store/Learn/Share│
-└──────────────────────┬──────────────────────────────────────┘
-                       │ HTTPS + x-wallet-address + permit
-┌──────────────────────▼──────────────────────────────────────┐
-│                    API SERVER (Express)                       │
-│  Auth (permit check) → Subscription gate → Chat/Upload/Brains│
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-          ┌────────────┼────────────────┐
-          ▼            ▼                ▼
-┌──────────────┐ ┌──────────┐ ┌─────────────────┐
-│   Supabase   │ │  Fhenix  │ │   Bedrock LLM   │
-│  (Postgres)  │ │  CoFHE   │ │  (Claude Opus)  │
-│  chunks,     │ │  on-chain│ │  RAG answers    │
-│  history     │ │  keys,   │ │                 │
-│              │ │  proofs  │ │                 │
-└──────────────┘ └──────────┘ └─────────────────┘
+0s    Land on /                "Get paid when AI agents query your brain."
+                               Single CTA: "Publish your first note"
+5s    1-click sign-in          Privy embedded wallet
+15s   Type a sentence          "I built a Solidity FHE contract on Arbitrum…"
+20s   Click Publish            Atomic: AES-encrypt → on-chain key → opaque upload
+25s   Brain card live          $0.01 / query in the marketplace
+30s   First agent query        Seeded Demo Agent fires within ~30s of publish
+35s   You see ✅ +$0.01 USDC   from agent 0xA1F2…  (TEE-attested answer)
+60s   Tweet button             Pre-filled: "I'm now charging Claude $0.01 every time…"
 ```
 
-### The Fhenix Layer (What Makes This Different)
-
-| Contract | Purpose | FHE Types Used |
-|----------|---------|----------------|
-| **SubscriptionController** | Encrypted subscription state | `euint8` tier, `euint64` expiry, `ebool` active |
-| **KnowledgeBaseRegistry** | Encrypted ownership proofs | `euint128` merkleRoot per brain |
-| **BrainKeyVault** | Encrypted content decryption keys | `euint128` keyHigh + `euint128` keyLow |
-
-### User Flow
-
-```
-1. CONNECT WALLET
-   └→ Privy authenticates user
-
-2. AUTHORIZE (FHE Permit)
-   └→ User signs permit with wallet (proves ownership)
-   └→ Permit sent to API (POST /permit/import)
-   └→ Platform can now decrypt user's FHE-protected data
-   └→ This IS the authentication — cryptographic, not a password
-
-3. SUBSCRIBE (x402 Payment)
-   └→ User pays via n-payment SDK (USDC on Base Sepolia)
-   └→ SubscriptionController.subscribe() called on-chain
-   └→ Encrypted tier/expiry stored (nobody sees who subscribed)
-
-4. STORE KNOWLEDGE
-   └→ Chat mode "store": type knowledge conversationally
-   └→ File upload: bulk import .txt/.md/.csv
-   └→ Content chunked and stored in Supabase
-   └→ On-chain: KnowledgeBaseRegistry records encrypted Merkle root
-
-5. LEARN FROM BRAIN
-   └→ Chat mode "learn": ask questions
-   └→ RAG: TF-IDF ranks relevant chunks
-   └→ Claude Opus generates answer from YOUR knowledge only
-   └→ Chat history maintained for continuity
-
-6. PUBLISH & SHARE
-   └→ Publish brain to catalog (requires FHE permit)
-   └→ On-chain: KnowledgeBaseRegistry.publish()
-   └→ Other subscribers can query your brain via AI
-   └→ They get AI answers — never see raw chunks
-
-7. REVOKE ACCESS
-   └→ DELETE /permit/revoke
-   └→ Platform loses decryption ability instantly
-   └→ Cryptographic guarantee — not just a DB flag
-```
+This replaces the old four-step "login → permit → upload → chat" flow. The magic verb is **earn**, not *store*.
 
 ---
 
-## Why Fhenix is Essential (Not Optional)
+## Why this is 10× over Granola / Notion AI / mem.ai
 
-| Without FHE | With Fhenix FHE |
-|-------------|-----------------|
-| Platform stores your keys in plaintext DB | Keys are `euint128` on-chain — platform needs `FHE.allow()` |
-| "Revoke access" = flip a boolean | Revoke permit = cryptographic loss of decryption ability |
-| "Prove ownership" = trust the platform | Encrypted Merkle root on-chain = verifiable without revealing content |
-| "Private subscription" = hide in DB | `ebool active` + `euint8 tier` = nobody on-chain sees who subscribed |
-| Admin can read everything | Admin without permit literally cannot decrypt |
-
-**The key insight**: FHE makes access control **cryptographic** instead of **administrative**. The platform can't cheat even if it wanted to.
+| Incumbent | Pain | Fhedin's 10× |
+|---|---|---|
+| Granola ($1.5B, plaintext) | You pay $38/seat | You earn — economic model is inverted |
+| Notion AI / OpenAI Memory | Sam Altman's team can read your notes | We literally cannot — AES key never leaves your browser |
+| Pinecone + Postgres self-host | Maintenance burden, no enterprise pitch | One-line SDK, FHE-encrypted by default, on-chain ownership proof |
+| Phala alone | TEE for inference, no encrypted memory | We use Phala for inference + Fhenix for memory — full stack |
 
 ---
 
-## Tech Stack
+## Architecture
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14 + Tailwind + Privy (wallet auth) |
-| Backend | Express.js (TypeScript) |
-| Database | Supabase (Postgres) |
-| LLM | AWS Bedrock Claude Opus (fallback: OpenAI) |
-| Blockchain | Arbitrum Sepolia (Fhenix CoFHE) |
-| Payment | n-payment SDK (x402 protocol) |
-| Encryption | AES-256-GCM (content) + FHE euint128 (keys) |
-| Deploy | VPS + Caddy (auto-SSL) |
+```
+┌──────────────────────────────────────────────────────────────┐
+│ FRONTEND (Next.js 14)                                        │
+│  /            USP hero + featured brains                     │
+│  /publish     One-click encrypt + on-chain key + publish     │
+│  /earnings    Live x402 settlements per brain                │
+│  /marketplace Browse + ask                                   │
+└────────────────────────┬─────────────────────────────────────┘
+                         │  HTTPS · x-wallet-address · x-erc8004-agent-id
+┌────────────────────────▼─────────────────────────────────────┐
+│ API (Express)                                                │
+│  /v2/upload      Atomic publish (encrypt → on-chain → DB)    │
+│  /v2/inference   Phala TEE answer + attestation              │
+│  /brains/earnings/{wallet}  Real-time seller earnings        │
+│  /openapi.json   Self-describing for AI agents               │
+│                                                              │
+│  middleware/agent-kya.ts  ERC-8004 viem read                 │
+│  services/demo-agent.ts   Seeds the first earning event      │
+└──────────┬────────────────────┬─────────────────┬────────────┘
+           ▼                    ▼                 ▼
+   ┌──────────────┐    ┌────────────────┐  ┌──────────────────┐
+   │ Supabase     │    │ Fhenix CoFHE   │  │ Phala TEE        │
+   │ opaque       │    │ Arbitrum       │  │ Confidential AI  │
+   │ ciphertext   │    │ BrainKeyVaultV2│  │ (env-flag swap)  │
+   └──────────────┘    └────────────────┘  └──────────────────┘
+```
+
+The privacy guarantee:
+
+- Content is AES-256-GCM encrypted **in the user's browser**.
+- The 256-bit key is split into two `euint128` halves, FHE-wrapped via `@cofhe/sdk/web`, and stored in `BrainKeyVaultV2`.
+- The platform receives only opaque ciphertext + an on-chain transaction hash.
+- Decryption uses Fhenix's threshold network (gasless for the user); the platform itself never holds the AES key.
 
 ---
 
-## API Endpoints
+## Live API endpoints (most useful subset)
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
+| `/openapi.json` | GET | Public | **Agent entry point** — declares prices, KYA, attestation per op |
 | `/health` | GET | Public | Service status |
-| `/openapi.json` | GET | Public | API spec for agent discovery |
-| `/brains` | GET | Public | Browse published brains |
-| `/brains/search?q=` | GET | Public | Search brains |
-| `/brains/:id` | GET | Public | Brain detail |
-| `/permit/import` | POST | Wallet | Import FHE permit (authorize) |
-| `/permit/revoke` | DELETE | Wallet | Revoke platform access |
-| `/subscribe` | POST | Wallet | Pay subscription (x402) |
-| `/chat` | POST | Subscription | Chat with brain (store/learn) |
-| `/upload` | POST | Permit + Sub | Upload file to brain |
-| `/brains/create` | POST | Permit | Create new brain |
-| `/brains/publish` | POST | Permit | Publish brain to catalog |
-| `/brains/mine` | GET | Wallet | List own brains |
-| `/chat/history` | GET | Subscription | Chat history |
+| `/brains` | GET | Public | List published brains |
+| `/brains/{id}` | GET | Public | Brain detail |
+| `/brains/earnings/{wallet}` | GET | Self-only | Real-time earnings + receipts |
+| `/v2/upload` | POST | Wallet | Atomic encrypted publish |
+| `/v2/brains/{id}/chunks` | GET | Wallet | Opaque ciphertext fetch |
+| `/v2/inference` | POST | Wallet (+ optional KYA) | TEE-attested answer |
+
+Agent-discovery extensions on every operation:
+
+- `x-price-usdc` — per-query price (e.g. `"0.01"`)
+- `x-kya-required` — boolean; whether ERC-8004 identity is needed
+- `x-attestation-providers` — `["phala-tee", "fhenix-tn"]`
+- `x-actor` — `seller` / `agent-or-human` / `human`
 
 ---
 
-## Quick Start
+## 🆕 Arkiv Memory Tier (Web3 Database Builder Challenge)
 
-### Prerequisites
-- Node.js 20+
-- Wallet with Arbitrum Sepolia ETH
+Submission to the **Network School × Arkiv "Web3 Database Builder Challenge"**
+($3,000 USDC pool · one-week build · free month at NS).
 
-### Local Development
+**Theme:** AI + Privacy hybrid. Per the [builders-guide](https://github.com/Arkiv-Network/arkiv-ethns-builder-challenge/blob/main/docs/builders-guide.md) — agents own their memory (AI theme: queryable per-wallet `agent-memory` + immutable `agent-decision` reputation log) and we apply a selective AES-256-GCM envelope to confidential entries with auto-revoke via `expiresIn` (Privacy theme). Project attribute: `fhedin-ethns-2c4f9a`.
+
+A third tier — **Memory** — runs alongside the existing Standard (Fhenix) and
+Trustless (Sui) tiers. v2 routes are untouched; the new code is fully additive.
+
+```
+Memory-Agent v1 cycle (per buyer query)
+   ┌────────────────────────────────────────┐
+   │ 1. read prior facts on (agentId,topic) │  createPublicClient (Arkiv-Braga)
+   │ 2. cache-hit ?                         │      .where + .createdBy filter
+   │      → refine answer (cheaper)         │      Best Practice #12
+   │      else → query brain (existing v3)  │
+   │ 3. sign LearnedFact                    │  viem.signMessage (EIP-191)
+   │ 4. POST /v4/memory                     │  walletClient.createEntity
+   │      expiresIn = 30d                   │  TTL is the market mechanic
+   └────────────────────────────────────────┘
+```
+
+What's new:
+
+- **`/v4/memory/*`** — REST surface for write/read/find/extend (mounted
+  parallel to v2 + v3; no existing routes touched).
+- **`packages/sdk/src/memory`** — typed `LearnedFact` schema, deterministic
+  canonical-JSON signing, signature-recovery on read, optional AES envelope.
+- **`/memory` page** — live feed via `subscribeEntityEvents` (poll 2s),
+  TTL countdowns, "Extend +30d · $0.01" CTA → x402.
+- **🛡️ verify-on-arkiv panel** — global floating button → twin iframes
+  (Arkiv block explorer + `data.arkiv.network`) so anyone verifies without
+  trusting Fhedin's database.
+- **`scripts/demo-arkiv-memory-market.ts`** — replayable end-to-end demo
+  with colored scoreboard.
+
+Quick start for the Arkiv tier:
 
 ```bash
-git clone https://github.com/phamdat721101/privacy-context.git
+# 1. Install Arkiv's official Agent Skills (mirrors the rubric exactly).
+npx skills add https://github.com/Arkiv-Network/skills --all
+
+# 2. Mint fresh wallets (the previously-leaked 0xc954… key is decommissioned).
+npm run gen:demo-wallets       # writes .env.local (chmod 600); never logs secrets
+
+# 3. Fund them on Braga (GLM gas), Arbitrum Sepolia (ETH), Base (USDC).
+#    Faucet: https://braga.hoodi.arkiv.network/faucet/
+
+# 4. Roundtrip smoke test against Braga.
+ARKIV_LIVE=1 npm run smoke:arkiv
+
+# 5. Boot api with the Memory-Agent enabled, then run the demo.
+MEMORY_AGENT_ENABLED=true npm run api:dev   # in one terminal
+npm run demo:arkiv-memory-market            # in another → colored scoreboard
+```
+
+Read the full integration brief: [`docs/ARKIV_INTEGRATION.md`](docs/ARKIV_INTEGRATION.md).
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/phamdat721701/privacy-context.git
 cd privacy-context
-
-# Setup
-cp .env.example packages/api/.env
-# Edit packages/api/.env with your DATABASE_URL (Supabase) and BEDROCK_API_KEY
-
-# Build
 npm install
-npm run sdk:build
-npm run api:build
-
-# Run
-cd packages/api && node dist/server.js
-# API at http://localhost:3001
-
-# Frontend (separate terminal)
+npm run build
+cd packages/api && cp ../../.env.example .env  # set DATABASE_URL + BEDROCK_API_KEY
+npm run dev
+# In another terminal:
 npm run frontend:dev
-# UI at http://localhost:3000
+# Open http://localhost:3000
 ```
 
-### Production Deploy (VPS)
+### Optional production env (drop into `packages/api/.env`)
 
 ```bash
-./scripts/deploy.sh
-# Deploys API via PM2 + Caddy auto-SSL
-```
+# Phala Confidential AI (TEE-attested answers)
+PHALA_ENDPOINT=https://api.red-pill.ai
+PHALA_API_KEY=...
+PHALA_MODEL=gpt-4o-mini
 
-### Deploy Contracts
+# ERC-8004 agent identity (Base mainnet by default)
+ERC8004_RPC_URL=https://base-mainnet.public.blastapi.io
+ERC8004_REGISTRY_ADDRESS=0x...
 
-```bash
-cd packages/contracts
-PLATFORM_WALLET=0x... npx hardhat run scripts/deploy-brain-system.ts --network arbitrumSepolia
+# Seeded demo agent (set false in real prod)
+DEMO_AGENT_ENABLED=true
+DEMO_AGENT_INTERVAL_MS=10000
 ```
 
 ---
 
-## SDK Usage (For AI Agents)
+## SDK usage (for AI agents)
 
 ```typescript
 import { createBrainClient } from '@fhe-ai-context/sdk';
 
 const brain = createBrainClient('fhenix', {
-  apiUrl: 'https://api.example.com',
-  chain: 'arbitrum-sepolia',
-  walletAddress: '0xYourWallet',
+  apiUrl: 'https://api.fhedin.example',
+  walletAddress: '0xYourAgent',
+  // Optional: pass your ERC-8004 identity for KYA-gated brains
+  erc8004AgentId: '12345',
 });
 
-// Subscribe
-await brain.subscribe('month');
+// Publish a brain (sellers)
+const r = await brain.publishBrain('I know FHE patterns on Arbitrum.', {
+  title: 'Fhenix CoFHE 101',
+  tags: ['fhe', 'fhenix', 'solidity'],
+});
+console.log('brainId:', r.brainId);
 
-// Store knowledge
-await brain.chat('FHE allows computation on encrypted data', undefined, 'store');
-
-// Query your brain
-const answer = await brain.chat('What is FHE?', undefined, 'learn');
-console.log(answer.response);
-
-// Upload file (client-side encrypted)
-await brain.uploadEncrypted('My private research notes...');
-
-// Browse other brains
-const brains = await brain.searchBrains('solidity security');
-const answer2 = await brain.chat('What are common vulnerabilities?', brains[0].id, 'learn');
+// Ask a brain (agents)
+const ans = await brain.chat('What is the simplest FHE pattern for a private balance?', String(r.brainId));
+console.log(ans.response);
+console.log(ans.attestation); // { provider: 'phala-tee', verified: true, hash: '...' }
 ```
-
-> Coming in v1.0: `createBrainClient('sui', { ... })` for the Seal+Walrus+Phala stack on Sui.
 
 ---
 
-## Deployed Contracts (Arbitrum Sepolia)
-
-| Contract | Address |
-|----------|---------|
-| SubscriptionController | `0xCC42779858F1cd3F480aD33BcBc5A931D57DfFc3` |
-| KnowledgeBaseRegistry | `0x36eca600679E73061318f8C10F6E43aFc06C96E0` |
-| BrainKeyVault | `0x07beFe30F0C8Ef8B4c513da22A310eF84E9010c0` |
-
-**Platform Authority**: `0x100690a32B562fd45e685BC2E63bbfF566d452db`
-
----
-
-## Project Structure
+## Project structure
 
 ```
+docs/
+├── USP_BRIEF.md          ← read first; the product north star
+├── UNIFIED_FLOW_SPEC.md  ← human + agent surfaces
+├── UX_AUDIT.md           ← Gstack-style audit
+├── PROJECT_CONTEXT.md    ← this snapshot, dated
+├── MASTER_PROPOSAL.md    ← v1.0 grant packet (slightly older framing)
+└── research/             ← PHASE1-REPORT.md baseline competitive analysis
+
 packages/
-├── api/              Express API server
-│   ├── src/
-│   │   ├── server.ts
-│   │   ├── fhe/          CoFHE client + permit management
-│   │   ├── routes/       chat, upload, brains, subscribe, openapi
-│   │   ├── services/     chat (RAG), knowledge-ingest, rag
-│   │   └── middleware/   auth, paywall (permit + subscription gates)
-│   └── .env
-├── contracts/        Solidity (Fhenix CoFHE)
-│   ├── contracts/
-│   │   ├── SubscriptionController.sol
-│   │   ├── KnowledgeBaseRegistry.sol
-│   │   └── BrainKeyVault.sol
-│   └── scripts/deploy-brain-system.ts
-├── sdk/              TypeScript SDK
-│   └── src/brain/    BrainClient + encryption utilities
-├── frontend/         Next.js app
-│   └── src/app/      pages: chat, marketplace, payments, memory
-└── shared/           Types, DB config, contract ABIs
+├── api/        Express; Bedrock | Phala swap; ERC-8004 middleware; demo-agent service
+├── frontend/   Next.js 14; /publish + /earnings are the new core flows
+├── ui/         Design system: tokens, primitives, molecules (PriceChip, EarningsReceipt, AttestationBadge, AgentIdBadge)
+├── contracts/  Solidity v2 (BrainKeyVaultV2, KnowledgeBaseRegistryV2, SubscriptionControllerV2)
+├── sdk/        TS SDK (createBrainClient + agent helpers)
+├── runtime-utils/ resilientCall + HMAC resume tokens
+├── shared/     types, DB config, contract ABIs
+└── (sui-sdk/sui-contracts/agent/worker/zama-contracts: parked, see docs)
 ```
 
 ---
 
-## Security Model
+## 30-day kill criteria (the launch experiment)
 
-| Threat | Mitigation |
-|--------|-----------|
-| Platform reads user data | FHE-encrypted keys — platform needs permit to decrypt |
-| Impersonation | Permit is wallet-signed — proves identity cryptographically |
-| Data breach | Content AES-encrypted on IPFS, key FHE-encrypted on-chain |
-| Unauthorized access | `FHE.allow()` controls who can decrypt — revocable |
-| Subscription snooping | Tier/expiry encrypted on-chain (`euint8`, `euint64`) |
-| Content theft | Encrypted Merkle root proves ownership without revealing content |
+Per `docs/USP_BRIEF.md`. After public launch, evaluate:
+
+| Metric | Pass | Fail |
+|---|---|---|
+| Distinct seller wallets that publish ≥1 brain | ≥100 | <30 |
+| Brains earning revenue from ≥3 distinct agent wallets | ≥5 | 0 |
+| Distinct agent wallets paying for queries | ≥20 | <5 |
+| Unsolicited tweet from a recognizable crypto-AI account | ≥1 | none |
+| Total settled USDC (testnet OK) | ≥$50 | <$5 |
+
+**Pass** → scale (Phala mainnet, deeper ERC-8004, grants).
+**Fail** → pivot to candidate #2 from the Gstack analysis ("cryptographic amnesia for journalists/lawyers/therapists").
 
 ---
 
 ## License
 
-MIT
+MIT.
 
----
-
-*Built for the Fhenix ecosystem. Privacy is not a feature — it's the architecture.*
+*Privacy is not a feature — it's the architecture.*

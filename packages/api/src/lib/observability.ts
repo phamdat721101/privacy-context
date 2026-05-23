@@ -52,6 +52,29 @@ export const v2ChatsTotal = new client.Counter({
   registers: [registry],
 });
 
+// v3 agentic-marketplace metrics
+export const v3RailReceiptsTotal = new client.Counter({
+  name: 'v3_rail_receipts_total',
+  help: 'Total v3 paid agent calls per rail',
+  labelNames: ['rail'] as const,
+  registers: [registry],
+});
+
+export const v3PayLatencyMs = new client.Histogram({
+  name: 'v3_pay_latency_ms',
+  help: 'PayRouter rail dispatch latency',
+  labelNames: ['rail'] as const,
+  buckets: [10, 50, 100, 250, 500, 1000, 2500, 5000],
+  registers: [registry],
+});
+
+export const v3BundleStepsTotal = new client.Counter({
+  name: 'v3_bundle_steps_total',
+  help: 'Total bundle steps executed (hosted runner)',
+  labelNames: ['outcome'] as const,
+  registers: [registry],
+});
+
 /** Express middleware that records request count + duration. Mount once, near the top. */
 export function metricsMiddleware(): RequestHandler {
   return (req, res, next) => {

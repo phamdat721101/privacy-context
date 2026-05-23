@@ -33,6 +33,73 @@ router.get('/mine', auth, async (req: AuthRequest, res) => {
   res.json(rows);
 });
 
+/**
+ * GET /brains/earnings/:wallet — what this seller has earned.
+ * Auth-gated; sellers see only their own. Sellers do NOT need a subscription.
+ *
+ * Earnings model (v0): every chat_history row authored by a non-owner is
+ * counted as one paid query at PRICE_PER_QUERY_USDC. Demo agent traffic is
+ * deliberately included — the seller seeing traffic IS the magic moment.
+ */
+const PRICE_PER_QUERY_USDC = 0.01;
+router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
+  const wallet = req.params.wallet.toLowerCase();
+  if (req.user!.address.toLowerCase() !== wallet) {
+    return res.status(403).json({ error: 'Can only view your own earnings' });
+  }
+  try {
+    const { rows: brains } = await pool.query(
+      `SELECT b.id, b.title, b.tags,
+              COUNT(h.id) FILTER (WHERE h.role = 'user' AND LOWER(h.user_address) <> LOWER(b.owner_address)) AS query_count,
+              MAX(h.created_at) FILTER (WHERE h.role = 'user' AND LOWER(h.user_address) <> LOWER(b.owner_address)) AS last_at
+         FROM brains b
+         LEFT JOIN chat_history h ON h.brain_id = b.id
+        WHERE LOWER(b.owner_address) = $1
+        GROUP BY b.id
+        ORDER BY query_count DESC NULLS LAST, b.id DESC`,
+      [wallet],
+    );
+    const { rows: receipts } = await pool.query(
+      `SELECT h.brain_id, h.user_address AS agent_address, h.created_at, b.title AS brain_title
+         FROM chat_history h
+         JOIN brains b ON b.id = h.brain_id
+        WHERE h.role = 'user'
+          AND LOWER(b.owner_address) = $1
+          AND LOWER(h.user_address) <> $1
+        ORDER BY h.created_at DESC
+        LIMIT 50`,
+      [wallet],
+    );
+
+    const totalQueries = brains.reduce((s, r) => s + Number(r.query_count || 0), 0);
+    const totalUsdc = +(totalQueries * PRICE_PER_QUERY_USDC).toFixed(2);
+    res.json({
+      wallet,
+      pricePerQueryUsdc: PRICE_PER_QUERY_USDC,
+      totalQueries,
+      totalUsdc,
+      brains: brains.map((b) => ({
+        id: b.id,
+        title: b.title,
+        tags: b.tags ?? [],
+        queryCount: Number(b.query_count || 0),
+        earnedUsdc: +((Number(b.query_count || 0)) * PRICE_PER_QUERY_USDC).toFixed(2),
+        lastAt: b.last_at,
+      })),
+      receipts: receipts.map((r) => ({
+        brainId: r.brain_id,
+        brainTitle: r.brain_title,
+        agentAddress: r.agent_address,
+        amount: PRICE_PER_QUERY_USDC.toFixed(2),
+        currency: 'USDC',
+        at: r.created_at,
+      })),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: 'Failed to load earnings' });
+  }
+});
+
 router.post('/create', auth, async (req: AuthRequest, res) => {
   const { title = 'New Brain' } = req.body;
   const { rows } = await pool.query(

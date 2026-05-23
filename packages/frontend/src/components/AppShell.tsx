@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { WalletConnect } from './WalletConnect';
+import { ArkivProofPanel } from './ArkivProofPanel';
 import { useRole } from '@/hooks/useRole';
 
 interface NavItem {
@@ -13,7 +14,10 @@ interface NavItem {
 
 const BASE_NAV: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
+  { href: '/publish', icon: 'edit_note', label: 'Publish' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
+  { href: '/memory', icon: 'memory', label: 'Memory' },
+  { href: '/earnings', icon: 'paid', label: 'Earnings' },
 ];
 const PRODUCER_NAV: NavItem = { href: '/studio', icon: 'science', label: 'Studio' };
 const TAIL_NAV: NavItem[] = [{ href: '/settings', icon: 'tune', label: 'Settings' }];
@@ -102,6 +106,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </ul>
       </nav>
+
+      <ArkivProofPanel />
     </div>
   );
 }

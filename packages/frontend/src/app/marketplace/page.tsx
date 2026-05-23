@@ -1,13 +1,36 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { AgentCard } from '@/components/AgentCard';
 import { listAgents, type Agent } from '@/lib/agents';
+import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import { createLogger } from '@/lib/clientLogger';
+
+const log = createLogger('marketplace');
+
+interface DiscoverBundle {
+  id: string;
+  aggregate_price_usdc: string;
+  expires_at: number;
+  steps: Array<{ rail: string; price_usdc: string; agent_id: string }>;
+}
+interface DiscoverResult {
+  candidates: Array<{ agent_id: string; persona_summary: string; chain: string; score: number }>;
+  bundle: DiscoverBundle | null;
+}
 
 export default function MarketplacePage() {
+  const router = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [search, setSearch] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Discovery concierge state.
+  const [discoverMsg, setDiscoverMsg] = useState('');
+  const [discoverBusy, setDiscoverBusy] = useState(false);
+  const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null);
+  const [discoverErr, setDiscoverErr] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -46,6 +69,80 @@ export default function MarketplacePage() {
         <p className="text-on-surface-variant">
           Browse encrypted AI agents. Every answer is cryptographically verified.
         </p>
+      </div>
+
+      {/* Discovery concierge — describe what you need; get a signed bundle. */}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+        <div className="mb-2 text-xs uppercase text-primary">Find an agent</div>
+        <div className="flex gap-2">
+          <input
+            value={discoverMsg}
+            onChange={(e) => setDiscoverMsg(e.target.value)}
+            placeholder="I need to audit a Solidity FHE contract and write a one-pager."
+            className="flex-1 rounded-lg border border-outline-variant/40 bg-surface px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
+            onKeyDown={async (e) => {
+              if (e.key !== 'Enter' || !discoverMsg.trim() || discoverBusy) return;
+              setDiscoverBusy(true);
+              setDiscoverErr(null);
+              try {
+                const r = await fetch(`${AGENT_BACKEND_URL}/v3/discover`, {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ message: discoverMsg }),
+                });
+                if (!r.ok) throw new Error(`${r.status}`);
+                setDiscoverResult(await r.json());
+                log.info('discover:ok', { len: discoverMsg.length });
+              } catch (err: any) {
+                log.warn('discover:failed', { err: err?.message });
+                setDiscoverErr(`${err?.message ?? err} — API may be on an older build.`);
+              } finally {
+                setDiscoverBusy(false);
+              }
+            }}
+          />
+          <button
+            disabled={discoverBusy || !discoverMsg.trim()}
+            onClick={async () => {
+              setDiscoverBusy(true);
+              setDiscoverErr(null);
+              try {
+                const r = await fetch(`${AGENT_BACKEND_URL}/v3/discover`, {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ message: discoverMsg }),
+                });
+                if (!r.ok) throw new Error(`${r.status}`);
+                setDiscoverResult(await r.json());
+              } catch (err: any) {
+                setDiscoverErr(`${err?.message ?? err} — API may be on an older build.`);
+              } finally {
+                setDiscoverBusy(false);
+              }
+            }}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary disabled:opacity-50"
+          >
+            {discoverBusy ? '…' : 'Discover'}
+          </button>
+        </div>
+        {discoverErr && <p className="mt-2 text-xs text-amber-500">{discoverErr}</p>}
+        {discoverResult && discoverResult.bundle && (
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-primary/40 bg-surface px-3 py-2">
+            <div>
+              <div className="text-xs text-on-surface-variant">{discoverResult.candidates.length} candidates · bundle ready</div>
+              <div className="font-mono text-[10px] text-on-surface-variant">{discoverResult.bundle.id}</div>
+            </div>
+            <button
+              onClick={() => router.push(`/bundles/${encodeURIComponent(discoverResult.bundle!.id)}`)}
+              className="rounded-full bg-primary px-3 py-1 text-xs text-on-primary"
+            >
+              ${Number(discoverResult.bundle.aggregate_price_usdc).toFixed(4)} → review
+            </button>
+          </div>
+        )}
+        {discoverResult && !discoverResult.bundle && (
+          <p className="mt-2 text-xs text-on-surface-variant">No matches yet — try different phrasing or browse below.</p>
+        )}
       </div>
 
       <div className="relative">

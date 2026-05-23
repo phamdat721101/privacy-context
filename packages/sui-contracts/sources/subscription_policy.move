@@ -7,7 +7,6 @@
 module fhe_brain::subscription_policy {
     use sui::event;
     use sui::coin::{Self, Coin};
-    use sui::sui::SUI;
     use sui::clock::{Self, Clock};
     use sui::transfer;
 
@@ -68,11 +67,17 @@ module fhe_brain::subscription_policy {
         policy
     }
 
-    /// Subscribe to a policy by paying `>= price_mist`. Mints a `Subscription`
-    /// owned by the caller; payment is forwarded to the policy owner.
-    public fun subscribe(
+    /// Subscribe by paying `>= price_mist` of any coin type `T`.
+    ///
+    /// Mock-first: tests call this with `Coin<SUI>`. Real-prod (post-T3 deploy)
+    /// instantiates `T` with the mainnet `0x…::usdc::USDC` type so subscriptions
+    /// settle in stablecoin and benefit from Sui's protocol-level gasless
+    /// stablecoin transfer (live since 2026-05-20). The price unit `price_mist`
+    /// is interpreted in the smallest unit of whichever `T` is passed
+    /// (1 MIST for SUI, 1e-6 USDC for the USDC type).
+    public fun subscribe<T>(
         policy: &SubscriptionPolicy,
-        payment: Coin<SUI>,
+        payment: Coin<T>,
         clock: &Clock,
         ctx: &mut TxContext,
     ): Subscription {

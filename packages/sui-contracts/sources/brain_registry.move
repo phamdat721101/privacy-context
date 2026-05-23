@@ -99,6 +99,29 @@ module fhe_brain::brain_registry {
         let _ = kya_claim;
     }
 
+    /// Canonical Seal entrypoint. The Seal threshold key servers fetch the
+    /// transaction kind that calls this function and run it dry against the
+    /// Sui RPC; if it does not abort, they release a key share. The function
+    /// signature MUST be `seal_approve(id, ...)` per the Seal spec — `id` is
+    /// the IBE identity bytes the SDK encrypted under (we use the brain UID).
+    ///
+    /// Mock-first: in dev the off-chain `SealKeyClient` skips this call
+    /// entirely; once `@mysten/seal` is wired (deferred), the SDK will build
+    /// a tx kind that targets this function and pass it to `client.decrypt`.
+    public fun seal_approve(
+        id: vector<u8>,
+        brain: &Brain,
+        policy: &SubscriptionPolicy,
+        sub: &Subscription,
+        clock: &Clock,
+        kya_claim: Option<KYAClaim>,
+    ) {
+        // Identity bytes must match the brain UID — prevents cross-brain key release.
+        let brain_id_bytes = object::id(brain).to_bytes();
+        assert!(id == brain_id_bytes, EBadSubscription);
+        authorize_read(brain, policy, sub, clock, kya_claim);
+    }
+
     // --- read accessors ----------------------------------------------------
 
     public fun walrus_blob_ids(b: &Brain): &vector<vector<u8>> { &b.walrus_blob_ids }

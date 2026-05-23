@@ -5,12 +5,15 @@ import express from 'express';
 import cors from 'cors';
 import { auth } from './middleware/auth';
 import { x402Paywall, subscriptionGate, permitGate, brainAccessGate } from './middleware/paywall';
+import { agentKya } from './middleware/agent-kya';
 import chatRouter from './routes/chat';
 import uploadRouter from './routes/upload';
 import brainsRouter from './routes/brains';
 import subscribeRouter from './routes/subscribe';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
+import v3Router from './routes/v3';
+import v4Router from './routes/v4';
 import {
   logger,
   correlationId,
@@ -30,8 +33,20 @@ app.use(express.json());
 app.get('/health', healthHandler);
 app.get('/metrics', metricsHandler);
 
-// v2 API — opaque-only, no plaintext keys; same auth chain as v1
-app.use('/v2', auth, permitGate as any, subscriptionGate as any, v2Router);
+// v2 API — opaque-only, no plaintext keys. Auth + agent identity only.
+// Per docs/USP_BRIEF.md: sellers don't subscribe (publish-and-earn);
+// buyers pay per-query via x402 outside this gate. Each v2 route
+// owns any further gating (e.g. ownership checks).
+app.use('/v2', auth, agentKya, v2Router);
+
+// v3 API — dual-chain agentic marketplace. Additive; v2 untouched.
+// Per-route ownership/KYA gating happens inside the sub-router.
+app.use('/v3', auth, agentKya, v3Router);
+
+// v4 API — Arkiv Memory tier (Web3 Database Builder Challenge).
+// Mounted WITHOUT parent auth: writes opt-in to auth, reads are public,
+// pay-to-extend uses an inline x402 HMAC paywall sharing PAYMENT_SECRET.
+app.use('/v4', v4Router);
 
 app.get('/platform', (_, res) => res.json({
   platformWallet: process.env.PLATFORM_WALLET || '',
@@ -94,7 +109,7 @@ app.delete('/permit/revoke', async (req, res) => {
 app.use('/subscribe', subscribeRouter);
 
 // Permit + subscription-gated endpoints
-app.use('/chat', auth, permitGate as any, subscriptionGate as any, brainAccessGate as any, chatRouter);
+app.use('/chat', auth, agentKya, permitGate as any, subscriptionGate as any, brainAccessGate as any, chatRouter);
 app.use('/upload', auth, permitGate as any, subscriptionGate as any, uploadRouter);
 
 // Lightweight server-authoritative permit status (used by frontend to
@@ -125,3 +140,10 @@ if (missing.length) {
 
 const server = app.listen(PORT, () => logger.info({ port: PORT }, 'api:listening'));
 installLifecycle(server);
+
+// T4: seeded demo agent — fires test queries against newly-published brains so
+// sellers see their first earning event within seconds. No-op when
+// DEMO_AGENT_ENABLED=false. Must run after listen so logs interleave nicely.
+import('./services/demo-agent').then((m) => m.startDemoAgent()).catch((err) =>
+  logger.warn({ err: err?.message }, 'demo-agent:boot:error'),
+);

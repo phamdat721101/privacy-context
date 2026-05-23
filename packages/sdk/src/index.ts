@@ -5,6 +5,9 @@ export * from './context/encryptContext';
 export * from './context/decryptContext';
 export * from './memory/encryptMemory';
 export * from './memory/decryptMemory';
+// Arkiv memory schema (NEW — Web3 Database Builder Challenge)
+export * from './memory/types';
+export * from './memory/serialize';
 export * from './permits/createPermit';
 export * from './permits/importPermit';
 export * from './permits/revokePermit';
@@ -16,6 +19,8 @@ export * from './skill/decryptSkill';
 export * from './payment/paymentTypes';
 export * from './payment/encryptPayment';
 export * from './payment/decryptPayment';
+export * from './payment/payRouter';
+export * from './bundle/BundleRunner';
 export * from './billing/billingTypes';
 export * from './billing/encryptBilling';
 export * from './privacy/index';

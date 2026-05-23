@@ -23,10 +23,11 @@ const config = {
   },
   // Legacy → fhedin URL map. All temporary (308) so search engines don't
   // freeze a stale redirect once the rewrite settles.
+  // NOTE: /memory is intentionally NOT in this list — it now hosts the Arkiv
+  //       Memory Tier (Web3 Database Builder Challenge). Do not re-add it.
   async redirects() {
     return [
       { source: '/onboard', destination: '/docs', permanent: false },
-      { source: '/memory', destination: '/studio', permanent: false },
       { source: '/payments', destination: '/settings', permanent: false },
       { source: '/v2', destination: '/', permanent: false },
       { source: '/zama-demo', destination: '/', permanent: false },
