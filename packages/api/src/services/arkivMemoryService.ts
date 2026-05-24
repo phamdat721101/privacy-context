@@ -234,6 +234,55 @@ export function arkivConfigSummary() {
   };
 }
 
+// ─── Sovereign-tier reads (entities owned by an arbitrary user wallet) ──────
+
+export interface OwnerReadOpts {
+  /** The user wallet that owns the entities (== signer of createEntity). */
+  ownedBy: Hex;
+  topic?: string;
+  minConfidence?: number;
+  limit?: number;
+}
+
+/**
+ * Topic-filtered query restricted to entities a specific user wallet owns.
+ * Used by /v4/chat-with-memory to assemble the user's own context. Skips
+ * the createdBy filter intentionally — for sovereign-tier writes the user
+ * is both creator and owner, so ownedBy alone is sufficient and forward-
+ * compatible with future ownership transfers.
+ */
+export async function findByOwner(opts: OwnerReadOpts): Promise<{ facts: LearnedFact[]; entityKeys: string[] }> {
+  const reader = getPublic();
+  const wheres = [eq('project', projectAttribute()), eq('entityType', 'agent-memory')];
+  if (opts.topic) wheres.push(eq('topic', opts.topic));
+  if (typeof opts.minConfidence === 'number') wheres.push(gt('confidence', opts.minConfidence));
+
+  const result = await resilientCall(RESILIENT, async () =>
+    reader
+      .buildQuery()
+      .where(wheres)
+      .ownedBy(opts.ownedBy.toLowerCase() as Hex)
+      .orderBy(desc('createdAt', 'number'))
+      .withPayload(true)
+      .withAttributes(true)
+      .limit(Math.min(opts.limit ?? 10, 100))
+      .fetch(),
+  );
+
+  const facts: LearnedFact[] = [];
+  const entityKeys: string[] = [];
+  for (const e of result.entities) {
+    try {
+      const fact = await fromEntity({ payload: e.payload, attributes: e.attributes });
+      facts.push(fact);
+      entityKeys.push(e.key);
+    } catch (err) {
+      logger.warn({ entityKey: e.key, err: (err as Error).message }, 'arkiv:memory:bad-entity');
+    }
+  }
+  return { facts, entityKeys };
+}
+
 // ─── AgentDecision read paths (2nd entity type) ─────────────────────────────
 
 export interface DecisionReadOpts {

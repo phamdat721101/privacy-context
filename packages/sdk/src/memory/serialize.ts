@@ -52,9 +52,14 @@ export function canonicalize(value: unknown): string {
 
 /** The exact bytes a Memory-Agent signs. Same on write and read. Generic over
  *  any "signed entity" shape — works for LearnedFact, AgentDecision, and any
- *  future signed type that carries a `signer: Hex` field. */
+ *  future signed type that carries a `signer: Hex` field.
+ *
+ *  Strips `signature` if the caller passed a fully-signed object — verification
+ *  receives the signed object back from the wire and must reconstruct the EXACT
+ *  same canonical body the sender signed (which excluded the signature itself). */
 export function buildSigningMessage<T extends { signer: import('viem').Hex }>(unsigned: T): string {
-  return canonicalize({ ...unsigned, signer: (unsigned.signer as string).toLowerCase() });
+  const { signature: _drop, ...body } = unsigned as { signature?: unknown } & T;
+  return canonicalize({ ...body, signer: (body.signer as string).toLowerCase() });
 }
 
 // ─── Write side ─────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import { KnowledgeIngestService } from './knowledge-ingest';
 const BEDROCK_REGION = 'us-east-1';
 const BEDROCK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
 
-async function llmChat(system: string, messages: Array<{ role: string; content: string }>): Promise<string> {
+export async function llmChat(system: string, messages: Array<{ role: string; content: string }>): Promise<string> {
   const apiKey = process.env.BEDROCK_API_KEY;
   if (apiKey) {
     // Bedrock Claude Opus

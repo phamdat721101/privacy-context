@@ -21,6 +21,7 @@ import { logger } from '../lib';
 import {
   arkivConfigSummary,
   extend,
+  findByOwner,
   findRelevant,
   findDecisions,
   getOne,
@@ -29,6 +30,7 @@ import {
   writeDecision,
   writeLearned,
 } from '../services/arkivMemoryService';
+import { llmChat } from '../services/chat';
 import type { LearnedFact, AgentDecision } from '@fhe-ai-context/sdk';
 import type { Hex } from 'viem';
 
@@ -43,7 +45,8 @@ v4.get('/version', (_req: Request, res: Response) => {
     config: arkivConfigSummary(),
     routes: [
       '/memory', '/memory/by-agent/:id', '/memory/find', '/memory/:key/extend',
-      '/decisions/by-agent/:id', '/decisions/find',
+      '/decisions', '/decisions/by-agent/:id', '/decisions/find',
+      '/chat-with-memory', '/onboard/unfurl',
     ],
     entityTypes: ['agent-memory', 'agent-decision'],
   });
@@ -146,6 +149,122 @@ v4.post('/decisions/find', async (req: Request, res: Response) => {
     res.json({ count: r.decisions.length, decisions: r.decisions, entityKeys: r.entityKeys });
   } catch (err) {
     const e = err as Error & { status?: number };
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+
+// ─── /v4/onboard/unfurl — URL → og:tags preview (helps users save links) ────
+
+const UNFURL_TIMEOUT_MS = 5_000;
+const UNFURL_MAX_BYTES = 1_000_000; // 1 MB — covers any sane HTML head
+
+v4.get('/onboard/unfurl', async (req: Request, res: Response) => {
+  try {
+    const raw = String(req.query.url ?? '');
+    let url: URL;
+    try { url = new URL(raw); } catch { return res.status(400).json({ error: 'invalid url' }); }
+    if (!/^https?:$/.test(url.protocol)) return res.status(400).json({ error: 'http(s) only' });
+    // Block private + loopback ranges to prevent SSRF.
+    if (/^(localhost|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|0\.0\.0\.0|::1)/.test(url.hostname)) {
+      return res.status(400).json({ error: 'private host blocked' });
+    }
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), UNFURL_TIMEOUT_MS);
+    let html = '';
+    try {
+      const r = await fetch(url.toString(), { signal: ctrl.signal, redirect: 'follow', headers: { 'user-agent': 'Fhedin-Unfurl/1.0' } });
+      if (!r.ok) return res.status(502).json({ error: `upstream ${r.status}` });
+      // Read up to UNFURL_MAX_BYTES of the HTML head, then stop.
+      const buf = new Uint8Array(UNFURL_MAX_BYTES);
+      const reader = r.body?.getReader();
+      if (!reader) return res.status(502).json({ error: 'no body' });
+      let off = 0;
+      while (off < UNFURL_MAX_BYTES) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const room = UNFURL_MAX_BYTES - off;
+        const slice = value.length > room ? value.slice(0, room) : value;
+        buf.set(slice, off);
+        off += slice.length;
+      }
+      html = new TextDecoder('utf-8', { fatal: false }).decode(buf.subarray(0, off));
+    } finally { clearTimeout(t); }
+
+    // Tiny meta extractor — no parser dependency. Looks for og:* / twitter:* / <title>.
+    function meta(name: string): string | null {
+      const re = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]+content=["']([^"']+)["']`, 'i');
+      const m = html.match(re);
+      return m ? m[1] : null;
+    }
+    const titleMeta = meta('og:title') ?? meta('twitter:title') ?? html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ?? null;
+    const descMeta = meta('og:description') ?? meta('twitter:description') ?? meta('description');
+    const imageMeta = meta('og:image') ?? meta('twitter:image');
+
+    res.json({
+      url: url.toString(),
+      hostname: url.hostname,
+      title: titleMeta?.trim().slice(0, 200) ?? null,
+      description: descMeta?.trim().slice(0, 400) ?? null,
+      image: imageMeta?.trim().slice(0, 500) ?? null,
+    });
+  } catch (err) {
+    const e = err as Error & { name?: string };
+    if (e.name === 'AbortError') return res.status(504).json({ error: 'unfurl timeout' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+v4.post('/chat-with-memory', async (req: Request, res: Response) => {
+  try {
+    const { question, ownedBy, topic, limit } = req.body as { question?: string; ownedBy?: string; topic?: string; limit?: number };
+    if (!question || !ownedBy) return res.status(400).json({ error: 'question and ownedBy required' });
+
+    const { facts, entityKeys } = await findByOwner({
+      ownedBy: ownedBy as Hex,
+      topic,
+      limit: Math.min(limit ?? 12, 25),
+    });
+
+    if (facts.length === 0) {
+      res.json({
+        answer: "I don't see any memories on that topic in your wallet's namespace yet. Save a few facts and ask again.",
+        citations: [],
+        memoriesConsidered: 0,
+      });
+      return;
+    }
+
+    // Strict prompt: never invent. Only cite provided memories.
+    const indexed = facts.map((f, i) => `[${i + 1}] ${f.fact} (confidence ${f.confidence}, ${new Date(f.derivedAt).toISOString().slice(0, 10)})`).join('\n');
+    const system =
+      'You are the user\'s personal memory agent. Answer ONLY using the numbered memories below. ' +
+      'Cite each memory you use with its bracketed index, e.g. [1]. ' +
+      'If none apply, say so plainly — never invent. Be concise (≤120 words).\n\n' +
+      `User memories (${facts.length}):\n${indexed}`;
+
+    const answer = await llmChat(system, [{ role: 'user', content: question }]);
+
+    // Build citation list — only those whose [n] reference appears in the answer.
+    const cited = new Set<number>();
+    for (const m of answer.matchAll(/\[(\d{1,3})\]/g)) {
+      const idx = Number(m[1]);
+      if (idx >= 1 && idx <= facts.length) cited.add(idx);
+    }
+    const citations = Array.from(cited)
+      .sort((a, b) => a - b)
+      .map((idx) => ({
+        index: idx,
+        entityKey: entityKeys[idx - 1],
+        snippet: facts[idx - 1].fact.slice(0, 200),
+        confidence: facts[idx - 1].confidence,
+        derivedAt: facts[idx - 1].derivedAt,
+      }));
+
+    res.json({ answer, citations, memoriesConsidered: facts.length });
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    logger.error({ err: e.message }, 'v4:chat-with-memory:failed');
     res.status(e.status ?? 500).json({ error: e.message });
   }
 });

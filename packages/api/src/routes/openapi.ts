@@ -196,6 +196,26 @@ const spec = {
         responses: { '200': { description: '{ count, decisions, entityKeys }' } },
       },
     },
+    '/v4/chat-with-memory': {
+      post: {
+        summary: 'Read-back chat over a wallet\'s sovereign memory namespace',
+        description: 'Pillar 2 of the sovereign tier — agent runs ownedBy(<user>) on Arkiv, builds a strict prompt that may only cite the returned memories, and returns answer + inline [n] citations resolving to live entityKeys.',
+        'x-actor': 'agent-or-human',
+        'x-kya-required': false,
+        'x-price-usdc': '0',
+        responses: { '200': { description: '{ answer, citations: [{index, entityKey, snippet, confidence, derivedAt}], memoriesConsidered }' } },
+      },
+    },
+    '/v4/onboard/unfurl': {
+      get: {
+        summary: 'Server-side fetch of og:title / og:description for a URL',
+        description: 'Helper for the SovereignSaveForm preview card. Capped at 1 MB / 5 s; SSRF-blocked against private hosts. Pure read, no Arkiv I/O.',
+        parameters: [{ name: 'url', in: 'query', required: true, schema: { type: 'string' } }],
+        'x-kya-required': false,
+        'x-price-usdc': '0',
+        responses: { '200': { description: '{ url, hostname, title, description, image }' }, '400': { description: 'invalid url' }, '504': { description: 'timeout' } },
+      },
+    },
   },
   components: {
     securitySchemes: {

@@ -13,10 +13,11 @@
  *   3. extend → POST /v4/memory/:key/extend (402 → x402 receipt → 200)
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   fetchMemoriesByAgent,
+  fetchMyMemories,
   fetchDecisionsByAgent,
   subscribeMemoryEvents,
   ARKIV_BLOCK_EXPLORER,
@@ -27,11 +28,22 @@ import {
   type DecisionRow,
 } from '@/lib/arkiv';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import { SovereignSaveForm } from '@/components/SovereignSaveForm';
+import { MemoryChat } from '@/components/MemoryChat';
+import { useArkivWallet } from '@/hooks/useArkivWallet';
+
+type Lane = 'platform' | 'mine';
+const LANES: Lane[] = ['platform', 'mine'];
 
 const POLL_MS = 2000;
 
 export default function MemoryPage() {
+  const arkiv = useArkivWallet();
+  const userAddress = (arkiv.address ?? '').toLowerCase();
+  const [lane, setLane] = useState<Lane>('platform');
+  const [pendingChatPrompt, setPendingChatPrompt] = useState<string | null>(null);
   const [cards, setCards] = useState<MemoryCard[]>([]);
+  const [myCards, setMyCards] = useState<MemoryCard[]>([]);
   const [decisions, setDecisions] = useState<DecisionRow[]>([]);
   const [tickN, setTickN] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -39,6 +51,26 @@ export default function MemoryPage() {
 
   const agentId = MEMORY_AGENT_WALLET;
 
+  // URL ↔ state binding for the lane tab. Default to 'mine' when a user is
+  // connected (their lane is more interesting); otherwise platform.
+  useEffect(() => {
+    try {
+      const fromUrl = new URL(window.location.href).searchParams.get('lane');
+      if (fromUrl === 'platform' || fromUrl === 'mine') setLane(fromUrl);
+      else setLane(userAddress ? 'mine' : 'platform');
+    } catch { /* SSR */ }
+  }, [userAddress]);
+
+  const switchLane = useCallback((next: Lane) => {
+    setLane(next);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set('lane', next);
+      window.history.replaceState({}, '', u.toString());
+    } catch { /* SSR */ }
+  }, []);
+
+  // Initial fetch + 30s refresh for both lanes.
   useEffect(() => {
     if (!agentId) return;
     let cancelled = false;
@@ -51,21 +83,30 @@ export default function MemoryPage() {
     return () => { cancelled = true; };
   }, [agentId]);
 
-  // Live event subscription — refresh both lists on any create/extend/expire.
+  useEffect(() => {
+    if (!userAddress) { setMyCards([]); return; }
+    let cancelled = false;
+    fetchMyMemories(userAddress as `0x${string}`, 50)
+      .then((m) => { if (!cancelled) setMyCards(m); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [userAddress]);
+
+  // Live event subscription — refresh both feeds + decisions on any change.
   useEffect(() => {
     if (!agentId) return;
     let unsub: (() => void) | null = null;
     subscribeMemoryEvents(
       {
-        onCreated: () => void refreshSoon(setCards, setDecisions, agentId as `0x${string}`),
-        onExtended: () => void refreshSoon(setCards, setDecisions, agentId as `0x${string}`),
-        onExpired: () => void refreshSoon(setCards, setDecisions, agentId as `0x${string}`),
+        onCreated: () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | ''),
+        onExtended: () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | ''),
+        onExpired: () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | ''),
         onError: (err) => setError(err.message),
       },
       POLL_MS,
     ).then((u) => { unsub = u; }).catch((e) => setError((e as Error).message));
     return () => { if (unsub) unsub(); };
-  }, [agentId]);
+  }, [agentId, userAddress]);
 
   // 1-second TTL countdown ticker.
   useEffect(() => {
@@ -73,17 +114,18 @@ export default function MemoryPage() {
     return () => clearInterval(t);
   }, []);
 
+  const activeCards = lane === 'mine' ? myCards : cards;
   const stats = useMemo(() => {
     const byTopic = new Map<string, number>();
     let plaintext = 0;
     let confidential = 0;
-    for (const c of cards) {
+    for (const c of activeCards) {
       const topic = String(c.attributes.topic ?? 'unknown');
       byTopic.set(topic, (byTopic.get(topic) ?? 0) + 1);
       if (c.confidential) confidential += 1; else plaintext += 1;
     }
-    return { topics: byTopic.size, plaintext, confidential, total: cards.length };
-  }, [cards, tickN]);
+    return { topics: byTopic.size, plaintext, confidential, total: activeCards.length };
+  }, [activeCards, tickN]);
 
   if (!agentId) {
     return (
@@ -99,29 +141,76 @@ export default function MemoryPage() {
 
   return (
     <div className="space-y-6">
+      <CrossStoreHint
+        storageKey="fhedin:memory-cross-store-hint"
+        text={
+          <>
+            This is your queryable on-chain memory on Arkiv. To publish a paid AI agent for sale,
+            head to <Link href="/publish" className="underline hover:text-secondary">/publish</Link> instead.
+            Brains and memories live in two separate stores by design.
+          </>
+        }
+      />
+
       <header className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-6">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-secondary">memory</span>
-          <h1 className="font-headline text-2xl font-bold">Memory-Agent profile</h1>
+          <h1 className="font-headline text-2xl font-bold">
+            {lane === 'mine' ? 'Your chain memory' : 'Memory-Agent profile'}
+          </h1>
           <span className="rounded-full border border-secondary/30 bg-secondary/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-secondary">
             arkiv · braga
           </span>
         </div>
+
+        <ActingAsChip
+          address={arkiv.address}
+          balanceWei={arkiv.balanceWei}
+          needsFaucet={arkiv.needsFaucet}
+          faucetUrl={arkiv.faucetUrl}
+        />
         <p className="text-sm text-on-surface-variant">
-          Every learned fact below is a public Arkiv entity tagged{' '}
-          <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">project={ARKIV_PROJECT_ATTRIBUTE}</code>.
-          Read them yourself with a{' '}
-          <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">createPublicClient</code> —
-          no Fhedin server in the trust path.
+          {lane === 'mine' ? (
+            <>
+              Save anything below. Your wallet signs every entity — Fhedin never holds the key.
+              Each save is a real on-chain transaction on Arkiv-Braga, queryable by any tool that
+              filters{' '}
+              <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">
+                ownedBy({userAddress ? `${userAddress.slice(0, 8)}…` : '<your wallet>'})
+              </code>.
+            </>
+          ) : (
+            <>
+              Every learned fact below is a public Arkiv entity tagged{' '}
+              <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">project={ARKIV_PROJECT_ATTRIBUTE}</code>.
+              Read them yourself with a{' '}
+              <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">createPublicClient</code> —
+              no Fhedin server in the trust path.
+            </>
+          )}
         </p>
         <dl className="grid grid-cols-3 gap-4 pt-2 text-xs">
           <Stat label="memories" value={stats.total} />
           <Stat label="topics" value={stats.topics} />
           <Stat label="confidential" value={stats.confidential} hint={`${stats.plaintext} plaintext`} />
         </dl>
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <div className="inline-flex rounded-full border border-outline-variant/40 p-0.5 font-mono text-[11px]">
+            {LANES.map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => switchLane(l)}
+                className={`rounded-full px-3 py-1 transition-colors ${
+                  lane === l ? 'bg-secondary/15 text-secondary' : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+              >
+                {l === 'mine' ? 'Yours' : 'Platform'}
+              </button>
+            ))}
+          </div>
           <a
-            href={`${ARKIV_DATA_EXPLORER}?owner=${agentId}`}
+            href={`${ARKIV_DATA_EXPLORER}?owner=${lane === 'mine' ? userAddress || agentId : agentId}`}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant/40 px-3 py-1 font-mono text-[11px] hover:border-primary/40"
@@ -145,32 +234,58 @@ export default function MemoryPage() {
         </div>
       )}
 
-      {decisions.length > 0 && <DecisionsStrip rows={decisions} />}
+      {lane === 'mine' && (
+        <>
+          <SovereignSaveForm
+            onSaved={(_entityKey, _txHash, topic) => {
+              if (userAddress) fetchMyMemories(userAddress as `0x${string}`, 50).then(setMyCards).catch(() => undefined);
+              // Auto-prefill the chat with a question about what was just saved.
+              setPendingChatPrompt(`What did I just save about ${topic}?`);
+            }}
+            askMemory={(topic) => setPendingChatPrompt(`What did I just save about ${topic}?`)}
+          />
+          <MemoryChat
+            ownedBy={(userAddress || null) as `0x${string}` | null}
+            topicHints={Array.from(new Set(myCards.map((c) => String(c.attributes.topic ?? '')).filter(Boolean))).slice(0, 2)}
+            prefill={pendingChatPrompt}
+          />
+        </>
+      )}
 
-      {cards.length === 0 ? (
+      {lane === 'platform' && decisions.length > 0 && <DecisionsStrip rows={decisions} />}
+
+      {activeCards.length === 0 ? (
         <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center">
           <p className="text-on-surface-variant">
-            No memories yet. Boot the api with{' '}
-            <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-sm">MEMORY_AGENT_ENABLED=true</code>{' '}
-            and publish a brain — the first fact appears within seconds.
+            {lane === 'mine'
+              ? 'No memories yet. Paste something above and click Save — your wallet signs the on-chain tx.'
+              : 'No platform memories yet. Boot the api with MEMORY_AGENT_ENABLED=true and publish a brain.'}
           </p>
         </div>
       ) : (
         <div className="grid gap-3">
-          {cards.map((c) => (
-            <MemoryCardRow key={c.entityKey} card={c} now={Date.now() + tickN * 0} onExtend={async () => {
-              if (busy) return;
-              setBusy(true);
-              try {
-                await extendOne(c.entityKey);
-                const fresh = await fetchMemoriesByAgent(agentId as `0x${string}`, 50);
-                setCards(fresh);
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }} />
+          {activeCards.map((c) => (
+            <MemoryCardRow
+              key={c.entityKey}
+              card={c}
+              now={Date.now() + tickN * 0}
+              onExtend={async () => {
+                if (busy) return;
+                setBusy(true);
+                try {
+                  await extendOne(c.entityKey);
+                  if (lane === 'mine' && userAddress) {
+                    setMyCards(await fetchMyMemories(userAddress as `0x${string}`, 50));
+                  } else {
+                    setCards(await fetchMemoriesByAgent(agentId as `0x${string}`, 50));
+                  }
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
           ))}
         </div>
       )}
@@ -184,12 +299,15 @@ let _refreshTimer: ReturnType<typeof setTimeout> | null = null;
 function refreshSoon(
   setCards: (m: MemoryCard[]) => void,
   setDecisions: (d: DecisionRow[]) => void,
+  setMyCards: (m: MemoryCard[]) => void,
   agentId: `0x${string}`,
+  userAddress: `0x${string}` | '',
 ) {
   if (_refreshTimer) clearTimeout(_refreshTimer);
   _refreshTimer = setTimeout(() => {
     fetchMemoriesByAgent(agentId, 50).then(setCards).catch(() => undefined);
     fetchDecisionsByAgent(agentId, 10).then(setDecisions).catch(() => undefined);
+    if (userAddress) fetchMyMemories(userAddress, 50).then(setMyCards).catch(() => undefined);
   }, 800);
 }
 
@@ -289,6 +407,82 @@ function MemoryCardRow({ card, onExtend }: { card: MemoryCard; now?: number; onE
           </button>
         </span>
       </div>
+    </div>
+  );
+}
+
+
+// ─── Inline helpers (used only by this page) ────────────────────────────────
+
+function ActingAsChip({
+  address,
+  balanceWei,
+  needsFaucet,
+  faucetUrl,
+}: {
+  address: `0x${string}` | null;
+  balanceWei: bigint;
+  needsFaucet: boolean;
+  faucetUrl: string;
+}) {
+  if (!address) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border border-error/30 bg-error/10 px-3 py-1 font-mono text-[11px] text-error">
+        <span className="material-symbols-outlined text-[14px]">link_off</span>
+        not connected — sign in to act on this page
+      </div>
+    );
+  }
+  const glm = (Number(balanceWei) / 1e18).toFixed(4);
+  const tone = needsFaucet ? 'tertiary' : 'secondary';
+  return (
+    <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
+      <span className={`inline-flex items-center gap-1.5 rounded-full border border-${tone}/40 bg-${tone}/10 px-3 py-1 text-${tone}`}>
+        <span className="material-symbols-outlined text-[14px]">account_circle</span>
+        you are acting as {address.slice(0, 6)}…{address.slice(-4)}
+      </span>
+      <span className="rounded-full border border-outline-variant/30 bg-surface-container-low px-2 py-1 text-on-surface-variant">
+        {glm} GLM
+      </span>
+      {needsFaucet && (
+        <a
+          href={faucetUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 rounded-full border border-tertiary/40 bg-tertiary/10 px-2 py-1 text-tertiary hover:bg-tertiary/20"
+        >
+          <span className="material-symbols-outlined text-[14px]">water_drop</span>
+          top up GLM ↗
+        </a>
+      )}
+      <span className="text-on-surface-variant">
+        ↳ saves AND queries below use this exact wallet.
+      </span>
+    </div>
+  );
+}
+
+function CrossStoreHint({ storageKey, text }: { storageKey: string; text: React.ReactNode }) {
+  const [dismissed, setDismissed] = useState(true); // start true so SSR hydrates blank
+  useEffect(() => {
+    try { setDismissed(window.localStorage.getItem(storageKey) === '1'); } catch { /* ignore */ }
+  }, [storageKey]);
+  if (dismissed) return null;
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+      <span className="material-symbols-outlined text-[18px] text-primary">info</span>
+      <div className="flex-1">{text}</div>
+      <button
+        type="button"
+        onClick={() => {
+          try { window.localStorage.setItem(storageKey, '1'); } catch { /* ignore */ }
+          setDismissed(true);
+        }}
+        className="rounded p-1 text-on-surface-variant hover:bg-surface-container"
+        aria-label="Dismiss"
+      >
+        <span className="material-symbols-outlined text-[16px]">close</span>
+      </button>
     </div>
   );
 }

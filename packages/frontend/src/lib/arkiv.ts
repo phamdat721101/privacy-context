@@ -71,6 +71,24 @@ export async function fetchMemoriesByAgent(agentId: Hex, limit = 20): Promise<Me
   return result.entities.map((e: any) => buildCard(e));
 }
 
+/** Sovereign-tier read: memories *owned by* the connected user (their own
+ *  signed entities, regardless of who created them — identical when the user
+ *  signed createEntity, but allows future ownership transfers). */
+export async function fetchMyMemories(userAddress: Hex, limit = 50): Promise<MemoryCard[]> {
+  const reader = getArkivPublicClient();
+  const result = await reader
+    .buildQuery()
+    .where([eq('project', ARKIV_PROJECT_ATTRIBUTE), eq('entityType', 'agent-memory')])
+    .ownedBy(userAddress.toLowerCase() as Hex)
+    .orderBy(desc('createdAt', 'number'))
+    .withPayload(true)
+    .withAttributes(true)
+    .withMetadata(true)
+    .limit(Math.min(limit, 100))
+    .fetch();
+  return result.entities.map((e: any) => buildCard(e));
+}
+
 /** Decision row shape — minimal, matches the agent-decision attribute set. */
 export interface DecisionRow {
   entityKey: string;

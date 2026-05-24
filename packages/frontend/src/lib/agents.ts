@@ -30,7 +30,7 @@ interface BrainDto {
 function brainToAgent(b: BrainDto): Agent {
   return {
     id: b.id,
-    title: b.title || `Agent #${b.id}`,
+    title: b.title || `📝 Untitled · Agent #${b.id}`,
     description: b.description || 'Encrypted AI agent powered by Fhenix CoFHE.',
     tags: Array.isArray(b.tags) ? b.tags : [],
     ownerAddress: b.owner_address,
