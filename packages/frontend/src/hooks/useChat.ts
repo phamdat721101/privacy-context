@@ -90,10 +90,10 @@ export function useChat(
       const isOwner = onChainOwner.toLowerCase() === userAddress.toLowerCase();
 
       // Owner: real decrypt (errors propagate so user sees actual issue).
-      // Non-owner: placeholder chunk; API fires 402 before LLM runs.
+      // Non-owner: send empty chunks — API loads brain content server-side for published brains.
       const chunks: string[] = isOwner
         ? (await decryptAndRank(Number(brainId), content)).topK
-        : [content];
+        : [];
 
       const r = await fetch(`${AGENT_BACKEND_URL}/v2/inference`, {
         method: 'POST',
