@@ -104,15 +104,11 @@ router.post('/inference', async (req: Request, res: Response) => {
     const { rows: [brain] } = await pool.query(
       `SELECT owner_address, published FROM brains WHERE id = $1`, [brainId]
     );
-    if (brain && brain.owner_address.toLowerCase() !== userAddress.toLowerCase()) {
+    const isOwner = brain && brain.owner_address.toLowerCase() === userAddress.toLowerCase();
+
+    if (!isOwner && brain) {
       if (brain.published) {
-        // Published brain: load chunks server-side — free public access.
-        if (!chunks?.length) {
-          const { rows: chunkRows } = await pool.query(
-            `SELECT content FROM knowledge_chunks WHERE brain_id = $1 ORDER BY chunk_index`, [brainId]
-          );
-          req.body.chunks = chunkRows.map((r: any) => r.content).filter(Boolean);
-        }
+        // Published brain: free public access — chunks loaded below.
       } else {
         // Unpublished brain: paywall for non-owners.
         const { isBrainGranted } = await import('../fhe/permits');
@@ -159,10 +155,21 @@ router.post('/inference', async (req: Request, res: Response) => {
 
   try {
     const effectiveChunks = req.body.chunks?.length ? req.body.chunks : chunks;
-    if (!effectiveChunks?.length) {
+    if (!effectiveChunks?.length && brainId) {
+      // Fallback: load plaintext chunks from DB (covers v1 brains, owner without FHE, published brains).
+      const { rows: chunkRows } = await pool.query(
+        `SELECT content FROM knowledge_chunks WHERE brain_id = $1 AND encrypted = false ORDER BY chunk_index`, [brainId]
+      );
+      const dbChunks = chunkRows.map((r: any) => r.content).filter(Boolean);
+      if (dbChunks.length) {
+        req.body.chunks = dbChunks;
+      }
+    }
+    const finalChunks = req.body.chunks?.length ? req.body.chunks : (effectiveChunks?.length ? effectiveChunks : null);
+    if (!finalChunks?.length) {
       return res.status(400).json({ error: 'No knowledge chunks available for this brain.' });
     }
-    const context = (effectiveChunks as string[]).map((c, i) => `[${i}] ${c}`).join('\n---\n');
+    const context = (finalChunks as string[]).map((c, i) => `[${i}] ${c}`).join('\n---\n');
     const system = `You are a Second Brain assistant. Answer using ONLY the following knowledge:\n${context}`;
 
     const llm = await callLLM(system, question);
