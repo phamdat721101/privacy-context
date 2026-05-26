@@ -89,10 +89,10 @@ export function PermitManager({ permitState, authorize, revoke, loading, error, 
           <span className="material-symbols-outlined text-tertiary">key</span>
         </div>
         <div>
-          <p className="font-semibold text-on-surface">Authorize via Fhenix FHE</p>
+          <p className="font-semibold text-on-surface">Sign in to your encrypted brain</p>
           <p className="text-sm text-on-surface-variant">
-            Your brain's AES key is encrypted with FHE on-chain. This permit lets the platform
-            decrypt it via the Fhenix threshold network — revocable at any time.
+            Your brain&apos;s AES key is encrypted on-chain via Fhenix CoFHE. This one-time signature
+            lets the platform decrypt it via the Fhenix threshold network — revocable any time.
           </p>
         </div>
       </div>
@@ -130,9 +130,9 @@ export function PermitManager({ permitState, authorize, revoke, loading, error, 
         className="w-full py-3 px-4 bg-primary text-on-primary rounded-full font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
       >
         {loading ? (
-          <><span className="animate-spin material-symbols-outlined text-[18px]">progress_activity</span> Authorizing...</>
+          <><span className="animate-spin material-symbols-outlined text-[18px]">progress_activity</span> Signing in…</>
         ) : (
-          <><span className="material-symbols-outlined text-[18px]">lock_open</span> Authorize FHE Permit</>
+          <><span className="material-symbols-outlined text-[18px]">lock_open</span> Sign in to your encrypted brain</>
         )}
       </button>
 

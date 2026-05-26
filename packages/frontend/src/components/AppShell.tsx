@@ -17,7 +17,6 @@ const BASE_NAV: NavItem[] = [
   { href: '/publish', icon: 'edit_note', label: 'Publish' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
   { href: '/memory', icon: 'memory', label: 'Memory' },
-  { href: '/earnings', icon: 'paid', label: 'Earnings' },
 ];
 const PRODUCER_NAV: NavItem = { href: '/studio', icon: 'science', label: 'Studio' };
 const TAIL_NAV: NavItem[] = [{ href: '/settings', icon: 'tune', label: 'Settings' }];

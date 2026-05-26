@@ -85,12 +85,25 @@ async function findUnvisitedBrains(agentAddress: string, limit: number) {
 }
 
 /** Record a (user, assistant) pair authored by the demo agent. The /v2/earnings
- *  endpoint counts these rows as billable queries. We deliberately do NOT call
- *  the LLM — keeps the seed traffic free, and the seller sees "an agent asked"
- *  not "we charged ourselves to call Bedrock". */
+ *  endpoint counts these rows as billable queries. Calls the same LLM helper
+ *  /v2/inference uses (Phala if configured → Bedrock → mock); marks the row
+ *  with a "seed" prefix so /earnings UI can label these honestly. */
 async function recordAgentQuery(brain: { id: number; title: string; tags: string[] | null }, agent: string) {
   const question = pickQuestion(brain.tags);
-  const answer = `[demo agent] Asked "${question}" against brain "${brain.title}". The owner earned 0.01 USDC.`;
+  let answer: string;
+  try {
+    // Lazy-import so the demo agent doesn't bloat /v2 hot path startup.
+    const { callLLMSeed } = await import('../routes/v2');
+    const llm = await callLLMSeed(
+      `You are a Second Brain assistant. Brief seed answer for "${brain.title}".`,
+      question,
+    );
+    const provider = llm.phalaAttestationHash ? 'phala-tee' : (process.env.BEDROCK_API_KEY ? 'bedrock' : 'mock');
+    answer = `[seed · ${provider}] ${llm.text}`;
+  } catch (err) {
+    answer = `[seed · mock] Asked "${question}" against "${brain.title}". The owner earned 0.01 USDC (testnet seed).`;
+    logger.warn({ err: (err as Error).message }, 'demo-agent:llm:fallback');
+  }
   await pool.query(
     `INSERT INTO chat_history (user_address, brain_id, role, content)
      VALUES ($1, $2, 'user', $3), ($1, $2, 'assistant', $4)`,

@@ -5,28 +5,44 @@ import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 
 /**
  * useBrainChunks — browser-side decrypt pipeline (GASLESS via decryptForView).
+ * OWNER-ONLY: only the brain owner has FHE.allow on the deployed V1 contract.
+ * Non-owners must use the server-mediated /v2/inference path (useChat handles routing).
  *
  * Flow:
  *   1. GET /v2/brains/:id/chunks → opaque ciphertext array
- *   2. Read BrainKeyVaultV2.getKeyHandles(brainId) → bytes32 high/low handles
+ *   2. Read BrainKeyVaultV1.getKeyHandles(brainId) → bytes32 high/low handles
  *   3. cofheClient.decryptForView(highHandle, FheTypes.Uint128) → bigint
  *   4. Reconstruct 32-byte AES key from two 128-bit halves
  *   5. AES-GCM decrypt each chunk in browser
  *   6. TF-IDF rank against question, return top-K
  */
-export function useBrainChunks() {
-  const { client, ensurePermit } = useFheClient();
+
+/** Typed error so callers can route to payment UX without string-matching. */
+export class BrainAccessDeniedError extends Error {
+  constructor(public readonly ownerAddress: string) {
+    super('Brain access denied — on-chain grant required.');
+    this.name = 'BrainAccessDeniedError';
+  }
+}
+export function useBrainChunks(userAddress: `0x${string}` | undefined) {
+  const { client, ensurePermit, init } = useFheClient();
   const [loading, setLoading] = useState(false);
 
   const decryptAndRank = useCallback(async (brainId: number, question: string, topK = 5) => {
-    if (!client) throw new Error('FHE client not ready');
+    // Lazy WASM init — first call waits for /chat/[id] mount; subsequent calls hit the singleton.
+    const c = client ?? (await init());
+    if (!c) throw new Error('FHE client not ready — connect a wallet first.');
+    if (!userAddress) throw new Error('Connect a wallet to load brain chunks.');
     setLoading(true);
 
     try {
       await ensurePermit();
 
-      // 1. Fetch opaque chunks
-      const res = await fetch(`${AGENT_BACKEND_URL}/v2/brains/${brainId}/chunks`);
+      // 1. Fetch opaque chunks — every /v2 route is wallet-gated, so the
+      // x-wallet-address header is mandatory (see packages/api/src/middleware/auth.ts).
+      const res = await fetch(`${AGENT_BACKEND_URL}/v2/brains/${brainId}/chunks`, {
+        headers: { 'x-wallet-address': userAddress },
+      });
       if (!res.ok) throw new Error(`Fetch chunks failed: ${res.status}`);
       const chunks: Array<{ chunk_index: number; ciphertext: string }> = await res.json();
       if (!chunks.length) return { plaintexts: [], topK: [] };
@@ -46,8 +62,8 @@ export function useBrainChunks() {
 
       // 3. Decrypt key halves via Threshold Network (GASLESS)
       const { FheTypes } = await import('@cofhe/sdk');
-      const highBig: bigint = await client.decryptForView(highHandle, FheTypes.Uint128).execute();
-      const lowBig: bigint = await client.decryptForView(lowHandle, FheTypes.Uint128).execute();
+      const highBig: bigint = await c.decryptForView(highHandle, FheTypes.Uint128).execute();
+      const lowBig: bigint = await c.decryptForView(lowHandle, FheTypes.Uint128).execute();
 
       // 4. Reconstruct AES-256 key
       const fromBigInt = (b: bigint) => {
@@ -73,7 +89,7 @@ export function useBrainChunks() {
     } finally {
       setLoading(false);
     }
-  }, [client, ensurePermit]);
+  }, [client, ensurePermit, init, userAddress]);
 
   return { decryptAndRank, loading };
 }

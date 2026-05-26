@@ -32,6 +32,7 @@
     "deploy": "./scripts/deploy.sh",
     "smoke:auth": "tsx scripts/smoke-auth.ts",
     "smoke:arkiv": "tsx scripts/smoke-arkiv.ts",
+    "smoke:chunks-auth": "tsx scripts/smoke-chunks-auth.ts",
     "gen:demo-wallets": "tsx scripts/gen-demo-wallets.ts",
     "drain:leaked": "tsx scripts/drain-leaked-wallet.ts",
     "demo:agentic-market": "tsx scripts/demo-agentic-market.ts",

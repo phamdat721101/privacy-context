@@ -79,30 +79,90 @@ router.get('/brains/:id/chunks', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /v2/inference — stateless LLM call.
- * Receives already-decrypted chunks from browser (top-K only), question.
- * Returns answer. Never persists plaintext chunks.
+ * POST /v2/inference — stateless LLM call, browser-decrypted top-K chunks.
+ *
+ * Privacy contract:
+ *   - Server never sees the AES key (browser pulls handles via Fhenix threshold).
+ *   - Top-K plaintext lives only in this request frame; chat_history persists
+ *     question + answer (not chunks).
+ *
+ * Gating (per docs/USP_BRIEF.md "sellers don't subscribe"):
+ *   - Owner: always passes.
+ *   - Non-owner with on-chain grant (FHE.allow): passes.
+ *   - Non-owner without grant: 402 + x402 challenge to pay the *brain owner*
+ *     (not platform). UI captures the settlement tx via x-payment-tx and
+ *     creates a brain_access_requests row that the owner grants.
  */
 router.post('/inference', async (req: Request, res: Response) => {
   const { chunks, question, brainId } = req.body;
-  if (!chunks?.length || !question) {
-    return res.status(400).json({ error: 'chunks[] and question required' });
+  if (!question || (!chunks?.length && !brainId)) {
+    return res.status(400).json({ error: 'question required (chunks[] required when no brainId)' });
   }
   const userAddress = (req as AuthRequest).user!.address;
 
-  // Per-brain access check for non-owner callers
   if (brainId) {
-    const { rows: [brain] } = await pool.query(`SELECT owner_address FROM brains WHERE id = $1`, [brainId]);
-    if (brain && brain.owner_address !== userAddress) {
-      const { isBrainGranted } = await import('../fhe/permits');
-      if (!(await isBrainGranted(brainId))) {
-        return res.status(403).json({ error: 'Brain access not granted', reason: 'brain_not_granted' });
+    const { rows: [brain] } = await pool.query(
+      `SELECT owner_address, published FROM brains WHERE id = $1`, [brainId]
+    );
+    if (brain && brain.owner_address.toLowerCase() !== userAddress.toLowerCase()) {
+      if (brain.published) {
+        // Published brain: load chunks server-side — free public access.
+        if (!chunks?.length) {
+          const { rows: chunkRows } = await pool.query(
+            `SELECT content FROM knowledge_chunks WHERE brain_id = $1 ORDER BY chunk_index`, [brainId]
+          );
+          req.body.chunks = chunkRows.map((r: any) => r.content).filter(Boolean);
+        }
+      } else {
+        // Unpublished brain: paywall for non-owners.
+        const { isBrainGranted } = await import('../fhe/permits');
+        if (!(await isBrainGranted(brainId))) {
+          const txHash = (req.headers['x-payment-tx'] as string | undefined) || null;
+          if (txHash) {
+            await pool.query(
+              `INSERT INTO brain_access_requests (brain_id, buyer_address, paid_tx_hash, status)
+               VALUES ($1, $2, $3, 'paid')
+               ON CONFLICT (brain_id, buyer_address) DO UPDATE
+                 SET paid_tx_hash = EXCLUDED.paid_tx_hash, status = 'paid'`,
+              [brainId, userAddress.toLowerCase(), txHash]
+            ).catch((e) => logger.warn({ err: e.message }, 'access:upsert:error'));
+          } else {
+            await pool.query(
+              `INSERT INTO brain_access_requests (brain_id, buyer_address, status)
+               VALUES ($1, $2, 'pending')
+               ON CONFLICT (brain_id, buyer_address) DO NOTHING`,
+              [brainId, userAddress.toLowerCase()]
+            ).catch((e) => logger.warn({ err: e.message }, 'access:upsert:error'));
+          }
+
+          const challenge = Buffer.from(JSON.stringify({
+            x402Version: 2,
+            accepts: [{
+              scheme: 'exact',
+              network: 'eip155:84532',
+              maxAmountRequired: '10000',
+              asset: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+              payTo: brain.owner_address,
+              description: `Ask brain #${brainId}`,
+            }],
+          })).toString('base64');
+          res.setHeader('payment-required', challenge);
+          return res.status(402).json({
+            error: 'Payment required',
+            reason: 'brain_not_granted',
+            message: 'Pay 0.01 USDC to the brain owner; they will grant on-chain access.',
+          });
+        }
       }
     }
   }
 
   try {
-    const context = (chunks as string[]).map((c, i) => `[${i}] ${c}`).join('\n---\n');
+    const effectiveChunks = req.body.chunks?.length ? req.body.chunks : chunks;
+    if (!effectiveChunks?.length) {
+      return res.status(400).json({ error: 'No knowledge chunks available for this brain.' });
+    }
+    const context = (effectiveChunks as string[]).map((c, i) => `[${i}] ${c}`).join('\n---\n');
     const system = `You are a Second Brain assistant. Answer using ONLY the following knowledge:\n${context}`;
 
     const llm = await callLLM(system, question);
@@ -278,6 +338,69 @@ router.get('/admin/stats', async (req: Request, res: Response) => {
 
 // --- helpers ---
 
+/**
+ * GET /v2/access/requests?owner=<addr>  → owner sees pending+paid requests for their brains.
+ * GET /v2/access/requests?buyer=<addr>  → buyer sees their own request statuses.
+ *
+ * No auth gate (read-only, address-scoped); the (brain_id, buyer_address) unique
+ * index keeps the surface predictable.
+ */
+router.get('/access/requests', async (req: Request, res: Response) => {
+  const owner = (req.query.owner as string | undefined)?.toLowerCase();
+  const buyer = (req.query.buyer as string | undefined)?.toLowerCase();
+  if (!owner && !buyer) return res.status(400).json({ error: 'owner or buyer query param required' });
+  try {
+    const sql = owner
+      ? `SELECT r.id, r.brain_id, r.buyer_address, r.paid_tx_hash, r.granted_tx, r.status, r.created_at,
+                b.title AS brain_title
+           FROM brain_access_requests r JOIN brains b ON b.id = r.brain_id
+          WHERE LOWER(b.owner_address) = $1 AND r.status IN ('pending','paid')
+          ORDER BY r.created_at DESC LIMIT 50`
+      : `SELECT r.id, r.brain_id, r.buyer_address, r.paid_tx_hash, r.granted_tx, r.status, r.created_at,
+                b.title AS brain_title
+           FROM brain_access_requests r JOIN brains b ON b.id = r.brain_id
+          WHERE r.buyer_address = $1 ORDER BY r.created_at DESC LIMIT 50`;
+    const { rows } = await pool.query(sql, [owner || buyer]);
+    res.json(rows);
+  } catch (e: any) {
+    logger.error({ err: e.message }, 'access:list:error');
+    res.status(500).json({ error: 'Failed to load access requests' });
+  }
+});
+
+/**
+ * POST /v2/access/grant  → owner records that BrainKeyVault.grantBrainAccess was called.
+ * Body: { brainId, buyerAddress, grantedTx }
+ *
+ * The FHE.allow on-chain is the actual gate; this endpoint just flips the human
+ * status row so the buyer's UI sees "granted" and retries the inference call.
+ */
+router.post('/access/grant', async (req: Request, res: Response) => {
+  const owner = (req as AuthRequest).user!.address.toLowerCase();
+  const { brainId, buyerAddress, grantedTx } = req.body || {};
+  if (!brainId || !buyerAddress || !grantedTx) {
+    return res.status(400).json({ error: 'brainId, buyerAddress, grantedTx required' });
+  }
+  try {
+    const { rows: [b] } = await pool.query(`SELECT owner_address FROM brains WHERE id = $1`, [brainId]);
+    if (!b) return res.status(404).json({ error: 'Brain not found' });
+    if (b.owner_address.toLowerCase() !== owner) return res.status(403).json({ error: 'Not owner' });
+
+    await pool.query(
+      `INSERT INTO brain_access_requests (brain_id, buyer_address, granted_tx, status, updated_at)
+       VALUES ($1, $2, $3, 'granted', now())
+       ON CONFLICT (brain_id, buyer_address) DO UPDATE
+         SET granted_tx = EXCLUDED.granted_tx, status = 'granted', updated_at = now()`,
+      [brainId, String(buyerAddress).toLowerCase(), grantedTx]
+    );
+    logger.info({ brainId, buyer: buyerAddress, grantedTx }, 'access:granted');
+    res.json({ ok: true });
+  } catch (e: any) {
+    logger.error({ err: e.message }, 'access:grant:error');
+    res.status(500).json({ error: 'Grant failed' });
+  }
+});
+
 async function getOrCreateBrainV2(userAddress: string): Promise<number> {
   const { rows } = await pool.query(
     `SELECT id FROM brains WHERE owner_address = $1 AND privacy_version = 2 ORDER BY created_at LIMIT 1`,
@@ -302,7 +425,12 @@ async function callBedrock(system: string, question: string): Promise<string> {
  *   neither             → mock (local dev)
  *
  * Returns text + optional Phala attestation hash from the response headers.
+ * Exported as `callLLMSeed` for the demo-agent loop (single source of truth).
  */
+export async function callLLMSeed(system: string, question: string): Promise<{ text: string; phalaAttestationHash?: string }> {
+  return callLLM(system, question);
+}
+
 async function callLLM(system: string, question: string): Promise<{ text: string; phalaAttestationHash?: string }> {
   const phalaEndpoint = process.env.PHALA_ENDPOINT;
   const phalaKey = process.env.PHALA_API_KEY;

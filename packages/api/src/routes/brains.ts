@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { auth, AuthRequest } from '../middleware/auth';
-import { subscriptionGate } from '../middleware/paywall';
 import { pool } from '../db';
 
 const router = Router();

@@ -6,12 +6,11 @@ import { usePrivy } from '@privy-io/react-auth';
 import { getAgent, publishAgent, type Agent } from '@/lib/agents';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
-type Tab = 'overview' | 'knowledge' | 'earnings' | 'settings';
+type Tab = 'overview' | 'knowledge' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'dashboard' },
   { id: 'knowledge', label: 'Knowledge', icon: 'book_2' },
-  { id: 'earnings', label: 'Earnings', icon: 'payments' },
   { id: 'settings', label: 'Settings', icon: 'tune' },
 ];
 
@@ -152,18 +151,6 @@ export default function StudioAgentPage() {
           </label>
           <p className="mt-3 font-mono text-[11px] text-on-surface-variant">
             🔒 Files are AES-encrypted before upload. Key wrapped via Fhenix CoFHE.
-          </p>
-        </div>
-      )}
-
-      {tab === 'earnings' && (
-        <div className="rounded-xl border border-outline-variant/30 bg-surface p-6 text-center">
-          <span className="material-symbols-outlined mb-2 block text-4xl text-on-surface-variant">
-            payments
-          </span>
-          <p className="text-on-surface-variant">Earnings dashboard coming soon.</p>
-          <p className="mt-1 font-mono text-xs text-on-surface-variant">
-            Settlement via x402 + USDC on Base Sepolia.
           </p>
         </div>
       )}

@@ -1,6 +1,7 @@
 'use client';
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { useWallets } from '@privy-io/react-auth';
+import { PermitUtils } from '@cofhe/sdk/permits';
 
 /**
  * useFheClient — singleton React hook wrapping @cofhe/sdk/web.
@@ -26,8 +27,13 @@ export function useFheClient() {
   const [error, setError] = useState<string | null>(null);
   const initRef = useRef(false);
 
-  const init = useCallback(async () => {
-    if (_client || _clientPromise || !wallets[0]) return;
+  const init = useCallback(async (): Promise<CofheClient | null> => {
+    // Already connected → return module-level singleton (covers cross-component reuse).
+    if (_client) return _client;
+    // Init in flight → join it instead of starting a second WASM load.
+    if (_clientPromise) return _clientPromise;
+    // No wallet → caller should prompt sign-in; we don't auto-fail here.
+    if (!wallets[0]) return null;
     initRef.current = true;
 
     _clientPromise = (async () => {
@@ -42,8 +48,9 @@ export function useFheClient() {
         const client = createCofheClient(config);
 
         const provider = await wallets[0].getEthereumProvider();
+        const account = wallets[0].address as `0x${string}`;
         const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: http() });
-        const walletClient = createWalletClient({ chain: arbitrumSepolia, transport: custom(provider) });
+        const walletClient = createWalletClient({ account, chain: arbitrumSepolia, transport: custom(provider) });
 
         await client.connect(publicClient as any, walletClient as any);
         _client = client;
@@ -68,6 +75,13 @@ export function useFheClient() {
   const ensurePermit = useCallback(async () => {
     const c = _client ?? (await _clientPromise);
     if (!c) throw new Error('FHE client not initialized');
+    // SDK's getOrCreateSelfPermit returns expired self-permits as-is. Evict
+    // the stale entry so the create-new branch fires and the wallet signs a
+    // fresh permit (single popup, then cached for the SDK's default TTL).
+    const active = c.permits.getActivePermit();
+    if (active && PermitUtils.isExpired(active)) {
+      await c.permits.removePermit(active.hash);
+    }
     await c.permits.getOrCreateSelfPermit();
   }, []);
 

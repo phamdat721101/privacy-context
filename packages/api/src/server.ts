@@ -4,12 +4,10 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import { auth } from './middleware/auth';
-import { x402Paywall, subscriptionGate, permitGate, brainAccessGate } from './middleware/paywall';
+import { permitGate, brainAccessGate } from './middleware/paywall';
 import { agentKya } from './middleware/agent-kya';
-import chatRouter from './routes/chat';
 import uploadRouter from './routes/upload';
 import brainsRouter from './routes/brains';
-import subscribeRouter from './routes/subscribe';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
 import v3Router from './routes/v3';
@@ -106,11 +104,12 @@ app.delete('/permit/revoke', async (req, res) => {
 });
 
 // x402 paywall on subscribe (disabled in dev, enable in production)
-app.use('/subscribe', subscribeRouter);
+// /chat → 308 redirect to /v2/inference (legacy path; UI uses /v2/inference directly).
+// /subscribe removed — sellers don't subscribe; buyers pay per-call x402 on /v2/inference.
+app.all('/chat', (_req, res) => res.redirect(308, '/v2/inference'));
 
-// Permit + subscription-gated endpoints
-app.use('/chat', auth, agentKya, permitGate as any, subscriptionGate as any, brainAccessGate as any, chatRouter);
-app.use('/upload', auth, permitGate as any, subscriptionGate as any, uploadRouter);
+// Permit-gated upload only (no subscription gate; buyers pay per-call on /v2/inference).
+app.use('/upload', auth, permitGate as any, uploadRouter);
 
 // Lightweight server-authoritative permit status (used by frontend to
 // reconcile cached state with on-chain truth). Returns {authorized, reason}

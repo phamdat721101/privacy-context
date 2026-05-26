@@ -125,7 +125,7 @@ export default function PublishPage() {
       <div className="mx-auto max-w-2xl space-y-6 py-12">
         <div className="rounded-xl border border-secondary/40 bg-secondary/5 p-8 text-center">
           <div className="mb-4 text-5xl">🎉</div>
-          <h1 className="font-headline text-3xl font-bold">You're earning.</h1>
+          <h1 className="font-headline text-3xl font-bold">Published!</h1>
           <p className="mt-2 text-on-surface-variant">
             Brain #{done.brainId} is live
             {done.agentId && (
@@ -142,13 +142,7 @@ export default function PublishPage() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Link
-            href="/earnings"
-            className="rounded-lg border border-primary/40 bg-primary/10 px-4 py-3 text-center font-medium text-primary hover:bg-primary/20"
-          >
-            See earnings →
-          </Link>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Link
             href="/marketplace"
             className="rounded-lg border border-outline-variant/40 px-4 py-3 text-center hover:border-primary/40"
@@ -321,7 +315,7 @@ export default function PublishPage() {
             ? 'Sign in & publish'
             : submitting
               ? STEP_COPY[step] ?? 'Publishing…'
-              : 'Publish & start earning'}
+              : 'Publish'}
         </button>
 
         {error && (
