@@ -15,7 +15,8 @@ import { useBrainChunks } from './useBrainChunks';
  *   4) POST top-K chunks + question to /v2/inference (server never sees the key)
  *
  * For mode='store' (owner-only, legacy plaintext add) we still POST /chat. The
- * /publish flow is the v2-correct surface for adding encrypted knowledge.
+ * v2 surface for adding encrypted knowledge has been removed; the active
+ * surface for user-owned memory is /memory (sovereign Arkiv writes).
  *
  * SOLID: single responsibility (chat round-trip); composes useBrainChunks;
  * caller-owned auth-error callback so the hook stays decoupled from <Permit/>.

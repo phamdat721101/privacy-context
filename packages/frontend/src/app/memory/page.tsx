@@ -143,17 +143,6 @@ export default function MemoryPage() {
 
   return (
     <div className="space-y-6">
-      <CrossStoreHint
-        storageKey="fhedin:memory-cross-store-hint"
-        text={
-          <>
-            This is your queryable on-chain memory on Arkiv. To publish a paid AI agent for sale,
-            head to <Link href="/publish" className="underline hover:text-secondary">/publish</Link> instead.
-            Brains and memories live in two separate stores by design.
-          </>
-        }
-      />
-
       <header className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-6">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-secondary">memory</span>
@@ -460,31 +449,6 @@ function ActingAsChip({
       <span className="text-on-surface-variant">
         ↳ saves AND queries below use this exact wallet.
       </span>
-    </div>
-  );
-}
-
-function CrossStoreHint({ storageKey, text }: { storageKey: string; text: React.ReactNode }) {
-  const [dismissed, setDismissed] = useState(true); // start true so SSR hydrates blank
-  useEffect(() => {
-    try { setDismissed(window.localStorage.getItem(storageKey) === '1'); } catch { /* ignore */ }
-  }, [storageKey]);
-  if (dismissed) return null;
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
-      <span className="material-symbols-outlined text-[18px] text-primary">info</span>
-      <div className="flex-1">{text}</div>
-      <button
-        type="button"
-        onClick={() => {
-          try { window.localStorage.setItem(storageKey, '1'); } catch { /* ignore */ }
-          setDismissed(true);
-        }}
-        className="rounded p-1 text-on-surface-variant hover:bg-surface-container"
-        aria-label="Dismiss"
-      >
-        <span className="material-symbols-outlined text-[16px]">close</span>
-      </button>
     </div>
   );
 }

@@ -88,3 +88,32 @@ export async function publishAgent(
   });
   return r.ok;
 }
+
+/**
+ * Cognitive snapshot for an agent's underlying brain. Public — no auth — but
+ * counts/topics/attestations only (no plaintext bodies). Used by the brain
+ * detail page to replace the hardcoded "Capabilities" / "$15/mo" mock data.
+ *
+ * Returns null when the brain has no cognitive activity yet (fresh brain or
+ * pre-Cognitive-v1 brain) — caller falls back to the metadata-only view.
+ */
+export interface AgentCognitiveSnapshot {
+  brainId: number;
+  episodes: number;
+  facts: number;
+  skills: number;
+  topics: Array<{ key: string; count: number }>;
+  activity14d: number[];
+  lastQueryAt: string | null;
+  fhenixVaultAddress: string | null;
+  recentSkills: Array<{ id: string; procedureKey: string; defaultPriceUsdc: string; runCount: number }>;
+  recentAttestations: Array<{ runId: number; attestation: string; createdAt: string }>;
+}
+
+export async function getAgentCognitiveSnapshot(
+  brainId: number | string,
+): Promise<AgentCognitiveSnapshot | null> {
+  const r = await fetch(`${AGENT_BACKEND_URL}/v4/cognitive/brain/${brainId}/snapshot`);
+  if (!r.ok) return null;
+  return r.json() as Promise<AgentCognitiveSnapshot>;
+}

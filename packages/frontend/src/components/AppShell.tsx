@@ -15,9 +15,9 @@ interface NavItem {
 
 const BASE_NAV: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
-  { href: '/publish', icon: 'edit_note', label: 'Publish' },
-  { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
+  { href: '/brain', icon: 'psychology', label: 'Brain' },
   { href: '/memory', icon: 'memory', label: 'Memory' },
+  { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
 ];
 const PRODUCER_NAV: NavItem = { href: '/studio', icon: 'science', label: 'Studio' };
 const TAIL_NAV: NavItem[] = [{ href: '/settings', icon: 'tune', label: 'Settings' }];

@@ -185,11 +185,45 @@ v3.post('/agents/:id/chat', paymentGate as any, async (req: PriceableRequest, re
       receipt: req.receipt,
       attestation: { provider: 'phala-tee', verified: true, mock: true },
     });
+
+    // Cognitive Memory v1 — non-blocking L1 episode write + consolidation pass.
+    // Errors are logged at WARN, never crash the chat response. The chat
+    // reply has already been sent above; this runs in the same tick but
+    // detached from the response lifecycle.
+    Promise.resolve().then(async () => {
+      try {
+        const { writeEpisode, consolidateAndWrite } = await import('../services/cognitiveMemoryService');
+        const ownerAddr = String(agent.owner_address);
+        await writeEpisode({
+          ownerAddr,
+          agentId: buyer,
+          brainId: Number(agent.brain_id),
+          // Topic = 16-hex of keccak-like; reuse the existing message-derived
+          // sha-256 short hash to stay deterministic and dependency-light.
+          topic: shortTopicHash(message),
+          sessionId: `session-${agent.id}-${buyer}`,
+          body: `${message} → ${result.response}`,
+        });
+        const consolidation = await consolidateAndWrite(ownerAddr);
+        if (consolidation.newFacts > 0 || consolidation.newBundles > 0) {
+          logger.info({ owner: ownerAddr, ...consolidation }, 'v3:agent:chat:cognitive:promoted');
+        }
+      } catch (err) {
+        logger.warn({ err: (err as Error).message, agentId: agent.id }, 'v3:agent:chat:cognitive:failed');
+      }
+    });
   } catch (err) {
     logger.error({ err: (err as Error).message, agentId: agent.id }, 'v3:agent:chat:failed');
     res.status(500).json({ error: 'inference failed' });
   }
 });
+
+// 16-hex deterministic short hash for the topic attribute. Kept inline (one
+// helper, used only here) per "essential files only".
+import { createHash } from 'node:crypto';
+function shortTopicHash(s: string): string {
+  return createHash('sha256').update(s.toLowerCase().slice(0, 200), 'utf8').digest('hex').slice(0, 16);
+}
 
 // ---------------------------------------------------------------------------
 // /v3/earnings/:wallet — per-rail breakdown (T12)

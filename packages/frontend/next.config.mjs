@@ -25,13 +25,16 @@ const config = {
   // freeze a stale redirect once the rewrite settles.
   // NOTE: /memory is intentionally NOT in this list — it now hosts the Arkiv
   //       Memory Tier (Web3 Database Builder Challenge). Do not re-add it.
+  // NOTE: /brain is intentionally NOT in this list — it now hosts the
+  //       Cognitive Memory v1 surface (L1/L2/L3, Fhenix-encrypted, Postgres-
+  //       backed). The old "/brain → /studio" alias was a different feature
+  //       and has been retired. Do not re-add it.
   async redirects() {
     return [
       { source: '/onboard', destination: '/docs', permanent: false },
       { source: '/payments', destination: '/settings', permanent: false },
       { source: '/v2', destination: '/', permanent: false },
       { source: '/zama-demo', destination: '/', permanent: false },
-      { source: '/brain', destination: '/studio', permanent: false },
       { source: '/catalog', destination: '/marketplace', permanent: false },
       { source: '/settings-v2', destination: '/settings', permanent: false },
       // Bare /chat with no agent goes back to discovery.

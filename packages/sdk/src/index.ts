@@ -8,6 +8,13 @@ export * from './memory/decryptMemory';
 // Arkiv memory schema (NEW — Web3 Database Builder Challenge)
 export * from './memory/types';
 export * from './memory/serialize';
+// Cognitive Memory v1 (L1/L2/L3 — Fhenix-encrypted, Postgres-backed)
+// keyWrap.ts is intentionally NOT re-exported here — it imports node:crypto
+// and is server-only. Server code imports it via the deep path
+// '@fhe-ai-context/sdk/cognitive/keyWrap' (or relative path); the frontend
+// never needs it (decryption happens server-side under owner auth).
+export * from './cognitive/types';
+export * from './cognitive/consolidator';
 export * from './permits/createPermit';
 export * from './permits/importPermit';
 export * from './permits/revokePermit';

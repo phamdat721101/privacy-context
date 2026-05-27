@@ -326,4 +326,89 @@ v4.post('/memory/:entityKey/extend', extendPaywall, async (req: Request, res: Re
   }
 });
 
+// ─── /v4/cognitive/* — Cognitive Memory v1 (L1/L2/L3) ───────────────────────
+// Phase 1: free reads, free skill runs. Postgres-backed; Arkiv flow above is
+// untouched. Hooks pre-shaped for Phase 2 monetization (see PRD 4).
+import {
+  listEpisodes,
+  listFacts,
+  listSkills,
+  runSkill,
+  getBrainSnapshot,
+} from '../services/cognitiveMemoryService';
+
+/** Require the request's x-wallet-address header to match the :addr URL param.
+ *  Owner-only paths return decrypted plaintext; non-owners get 403 to avoid
+ *  leaking the existence of cognitive rows for other addresses. */
+function requireOwner(req: Request, res: Response): boolean {
+  const wallet = String(req.headers['x-wallet-address'] ?? '').toLowerCase();
+  const target = String(req.params.addr ?? '').toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(wallet) || wallet !== target) {
+    res.status(403).json({ error: 'x-wallet-address must match :addr (owner-only)' });
+    return false;
+  }
+  return true;
+}
+
+v4.get('/cognitive/episodes/by-owner/:addr', async (req: Request, res: Response) => {
+  if (!requireOwner(req, res)) return;
+  try {
+    const limit = Math.min(Number(req.query.limit ?? 50), 200);
+    const items = await listEpisodes(req.params.addr, { limit });
+    res.json({ items });
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    logger.warn({ err: e.message }, 'v4:cognitive:episodes:failed');
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+
+v4.get('/cognitive/facts/by-owner/:addr', async (req: Request, res: Response) => {
+  if (!requireOwner(req, res)) return;
+  try {
+    const limit = Math.min(Number(req.query.limit ?? 50), 200);
+    const items = await listFacts(req.params.addr, { limit });
+    res.json({ items });
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+
+v4.get('/cognitive/skills/by-owner/:addr', async (req: Request, res: Response) => {
+  if (!requireOwner(req, res)) return;
+  try {
+    const limit = Math.min(Number(req.query.limit ?? 50), 200);
+    const items = await listSkills(req.params.addr, { limit });
+    res.json({ items });
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+
+v4.post('/cognitive/skills/:id/run', async (req: Request, res: Response) => {
+  try {
+    const buyer = (req.headers['x-wallet-address'] as string) ?? 'agent-anonymous';
+    const r = await runSkill(req.params.id, buyer, req.body?.input);
+    res.json(r);
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+
+v4.get('/cognitive/brain/:brainId/snapshot', async (req: Request, res: Response) => {
+  try {
+    const brainId = Number(req.params.brainId);
+    if (!Number.isFinite(brainId)) return res.status(400).json({ error: 'brainId must be numeric' });
+    const snap = await getBrainSnapshot(brainId);
+    if (!snap) return res.status(404).json({ error: 'brain not found' });
+    res.json(snap);
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+
 export default v4;
