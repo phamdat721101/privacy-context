@@ -57,8 +57,12 @@ export async function getArkivWalletClient(privyWallet: ConnectedWallet) {
  *  - switch first (no prompt if already on Braga)
  *  - on 4902, fall through to add (single prompt)
  *  - on 4001 (any rejection), throw a typed marker error for the UI
+ *
+ * Exported so the top-bar `NetworkSwitcher` can reuse the same logic when
+ * the user picks "Arkiv Braga" from the dropdown — keeping a single source
+ * of truth for the canonical 4902 → addEthereumChain fallback.
  */
-async function ensureBragaSelected(provider: Eip1193): Promise<void> {
+export async function ensureBragaSelected(provider: Eip1193): Promise<void> {
   try {
     await provider.request({
       method: 'wallet_switchEthereumChain',

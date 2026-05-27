@@ -53,14 +53,20 @@ export interface MemoryCard {
 
 export async function fetchMemoriesByAgent(agentId: Hex, limit = 20): Promise<MemoryCard[]> {
   const reader = getArkivPublicClient();
+  // We filter `$creator` via `eq()` (canonical Arkiv DSL — synthetic
+  // attributes per https://docs.arkiv.network/json-rpc/querying-data) rather
+  // than the SDK's `.createdBy()` helper, which is broken in 0.6.8: it emits
+  // `$creator=0x…` (unquoted), but the RPC requires `$creator = "0x…"`.
+  // `eq()` produces the latter — server-side filter, no over-fetch.
+  const creator = ARKIV_BACKEND_WALLET || agentId.toLowerCase();
   const result = await reader
     .buildQuery()
     .where([
       eq('project', ARKIV_PROJECT_ATTRIBUTE),
       eq('entityType', 'agent-memory'),
       eq('agentId', agentId.toLowerCase()),
+      eq('$creator', creator),
     ])
-    .createdBy((ARKIV_BACKEND_WALLET || agentId) as Hex)
     .orderBy(desc('createdAt', 'number'))
     .withPayload(true)
     .withAttributes(true)
@@ -76,10 +82,15 @@ export async function fetchMemoriesByAgent(agentId: Hex, limit = 20): Promise<Me
  *  signed createEntity, but allows future ownership transfers). */
 export async function fetchMyMemories(userAddress: Hex, limit = 50): Promise<MemoryCard[]> {
   const reader = getArkivPublicClient();
+  // Same DSL pattern as fetchMemoriesByAgent — eq('$owner', addr) is the
+  // canonical Arkiv synthetic-attribute filter.
   const result = await reader
     .buildQuery()
-    .where([eq('project', ARKIV_PROJECT_ATTRIBUTE), eq('entityType', 'agent-memory')])
-    .ownedBy(userAddress.toLowerCase() as Hex)
+    .where([
+      eq('project', ARKIV_PROJECT_ATTRIBUTE),
+      eq('entityType', 'agent-memory'),
+      eq('$owner', userAddress.toLowerCase()),
+    ])
     .orderBy(desc('createdAt', 'number'))
     .withPayload(true)
     .withAttributes(true)
@@ -100,14 +111,16 @@ export interface DecisionRow {
 
 export async function fetchDecisionsByAgent(agentId: Hex, limit = 10): Promise<DecisionRow[]> {
   const reader = getArkivPublicClient();
+  // Canonical DSL — see fetchMemoriesByAgent for context.
+  const creator = ARKIV_BACKEND_WALLET || agentId.toLowerCase();
   const result = await reader
     .buildQuery()
     .where([
       eq('project', ARKIV_PROJECT_ATTRIBUTE),
       eq('entityType', 'agent-decision'),
       eq('agentId', agentId.toLowerCase()),
+      eq('$creator', creator),
     ])
-    .createdBy((ARKIV_BACKEND_WALLET || agentId) as Hex)
     .orderBy(desc('createdAt', 'number'))
     .withAttributes(true)
     .withMetadata(true)

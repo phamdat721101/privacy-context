@@ -8,9 +8,11 @@
  * card by clicking the explorer link (no Fhedin server in the trust path).
  *
  * Data flow:
- *   1. mount  → REST GET /v4/memory/by-agent/:id (initial 20)
- *   2. mount  → subscribeMemoryEvents (poll 2s) for live updates
- *   3. extend → POST /v4/memory/:key/extend (402 → x402 receipt → 200)
+ *   1. mount   → fetch all three lanes via `arkiv_query`.
+ *   2. every REFRESH_MS → re-fetch (Arkiv RPC denies the filter-based
+ *                        subscription methods, so we poll the data plane
+ *                        directly — same UX, zero console noise).
+ *   3. extend  → POST /v4/memory/:key/extend (402 → x402 receipt → 200).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,7 +21,6 @@ import {
   fetchMemoriesByAgent,
   fetchMyMemories,
   fetchDecisionsByAgent,
-  subscribeMemoryEvents,
   ARKIV_BLOCK_EXPLORER,
   ARKIV_DATA_EXPLORER,
   ARKIV_PROJECT_ATTRIBUTE,
@@ -35,7 +36,7 @@ import { useArkivWallet } from '@/hooks/useArkivWallet';
 type Lane = 'platform' | 'mine';
 const LANES: Lane[] = ['platform', 'mine'];
 
-const POLL_MS = 2000;
+const REFRESH_MS = 15_000;
 
 export default function MemoryPage() {
   const arkiv = useArkivWallet();
@@ -70,16 +71,20 @@ export default function MemoryPage() {
     } catch { /* SSR */ }
   }, []);
 
-  // Initial fetch + 30s refresh for both lanes.
+  // Initial fetch + 30s refresh for both lanes. Each fetch is independently
+  // resilient — a transient `context cancelled` (React-StrictMode double
+  // mount aborts the in-flight TCP connection in dev) on one read must not
+  // take down the other. Errors are logged, never banner-promoted.
   useEffect(() => {
     if (!agentId) return;
     let cancelled = false;
-    Promise.all([
-      fetchMemoriesByAgent(agentId as `0x${string}`, 50),
-      fetchDecisionsByAgent(agentId as `0x${string}`, 10),
-    ])
-      .then(([memories, decs]) => { if (!cancelled) { setCards(memories); setDecisions(decs); } })
-      .catch((e) => { if (!cancelled) setError(e.message); });
+    const memoriesP = fetchMemoriesByAgent(agentId as `0x${string}`, 50)
+      .catch((e) => { console.warn('fetchMemoriesByAgent:', (e as Error).message); return [] as MemoryCard[]; });
+    const decisionsP = fetchDecisionsByAgent(agentId as `0x${string}`, 10)
+      .catch((e) => { console.warn('fetchDecisionsByAgent:', (e as Error).message); return [] as DecisionRow[]; });
+    Promise.all([memoriesP, decisionsP]).then(([memories, decs]) => {
+      if (!cancelled) { setCards(memories); setDecisions(decs); }
+    });
     return () => { cancelled = true; };
   }, [agentId]);
 
@@ -92,20 +97,17 @@ export default function MemoryPage() {
     return () => { cancelled = true; };
   }, [userAddress]);
 
-  // Live event subscription — refresh both feeds + decisions on any change.
+  // Periodic refresh — every REFRESH_MS we re-fetch all three lanes via
+  // `arkiv_query` (whitelisted, no block-range cap). This replaces
+  // `subscribeEntityEvents`, which polls `eth_getLogs` with wide block
+  // ranges that Arkiv's RPC rejects ("exceed max block range params") and
+  // probes `eth_newFilter` (-32601). Polling-based UX is simpler and doesn't
+  // pollute the DevTools console with red entries.
   useEffect(() => {
     if (!agentId) return;
-    let unsub: (() => void) | null = null;
-    subscribeMemoryEvents(
-      {
-        onCreated: () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | ''),
-        onExtended: () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | ''),
-        onExpired: () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | ''),
-        onError: (err) => setError(err.message),
-      },
-      POLL_MS,
-    ).then((u) => { unsub = u; }).catch((e) => setError((e as Error).message));
-    return () => { if (unsub) unsub(); };
+    const tick = () => void refreshSoon(setCards, setDecisions, setMyCards, agentId as `0x${string}`, userAddress as `0x${string}` | '');
+    const handle = setInterval(tick, REFRESH_MS);
+    return () => clearInterval(handle);
   }, [agentId, userAddress]);
 
   // 1-second TTL countdown ticker.

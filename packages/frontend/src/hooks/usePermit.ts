@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useWallets } from '@privy-io/react-auth';
 import { BrowserProvider, Contract } from 'ethers';
 import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
+import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
 import type { PermitState } from '@/types/context';
 
 const VAULT_ABI = [
@@ -83,7 +84,7 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
     setError(null);
     try {
       const pw = wallets[0];
-      await pw.switchChain(421614);
+      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
       const provider = await pw.getEthereumProvider();
       const ethersProvider = new BrowserProvider(provider);
       const signer = await ethersProvider.getSigner();

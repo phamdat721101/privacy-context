@@ -9,11 +9,11 @@ import { usePermit } from '@/hooks/usePermit';
 import { PermitManager } from '@/components/PermitManager';
 import { ChatBubble } from '@/components/ChatBubble';
 import { getAgent, type Agent } from '@/lib/agents';
+import { BASE_SEPOLIA_CHAIN_ID } from '@/lib/networks';
 
 // USDC ERC-20 transfer on Base Sepolia (network in x402 challenge).
 const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
 const ERC20_ABI = ['function transfer(address to, uint256 value) returns (bool)'];
-const BASE_SEPOLIA_CHAIN_ID = 84532;
 
 export default function ChatAgentPage() {
   const params = useParams<{ agentId: string }>();

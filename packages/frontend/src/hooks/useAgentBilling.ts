@@ -9,6 +9,7 @@ import {
   PAYMENT_TOKEN_ADDRESS, AGENT_BILLING_ADDRESS, AGENT_BACKEND_URL,
   PaymentTokenAbi, AgentBillingAbi,
 } from '@/lib/contracts';
+import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
 
 export function useBillingBalance(userAddress?: `0x${string}`, agentAddress?: `0x${string}`) {
   return useReadContract({
@@ -29,7 +30,7 @@ export function useTopUpBilling() {
   async function topUp(userAddress: `0x${string}`, agentAddress: `0x${string}`, amount: bigint) {
     setError(null);
     try {
-      const pw = wallets[0]; await pw.switchChain(421614);
+      const pw = wallets[0]; await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
       const provider = await pw.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
 

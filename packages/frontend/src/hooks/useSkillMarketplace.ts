@@ -11,6 +11,7 @@ import {
   SkillRegistryAbi, SkillVaultAbi, AGENT_BACKEND_URL,
   PAYMENT_TOKEN_ADDRESS, PaymentTokenAbi,
 } from '@/lib/contracts';
+import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
 
 export function useSkillCount() {
   return useReadContract({
@@ -50,7 +51,7 @@ export function useListSkill() {
     setError(null);
     try {
       const pw = wallets[0];
-      await pw.switchChain(421614);
+      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
       const provider = await pw.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
 
@@ -87,7 +88,7 @@ export function usePurchaseSkill() {
     setError(null);
     try {
       const pw = wallets[0];
-      await pw.switchChain(421614);
+      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
       const provider = await pw.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
 

@@ -9,6 +9,7 @@ import {
   PAYMENT_TOKEN_ADDRESS, PRIVPAY_GATEWAY_ADDRESS, AGENT_BACKEND_URL,
   PaymentTokenAbi, PrivPayGatewayAbi,
 } from '@/lib/contracts';
+import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
 
 export function useTokenBalance(address?: `0x${string}`) {
   return useReadContract({
@@ -24,7 +25,7 @@ function useWc(userAddress?: `0x${string}`) {
   const { wallets } = useWallets();
   return async () => {
     const pw = wallets[0];
-    await pw.switchChain(421614);
+    await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
     const provider = await pw.getEthereumProvider();
     return createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress! });
   };
@@ -57,7 +58,7 @@ export function useApproveToken() {
   async function approve(userAddress: `0x${string}`, spender: `0x${string}`, amount: bigint) {
     setError(null);
     try {
-      const pw = wallets[0]; await pw.switchChain(421614);
+      const pw = wallets[0]; await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
       const provider = await pw.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
       const enc = await encryptPayment({ amount }, arbitrumSepolia, wc);

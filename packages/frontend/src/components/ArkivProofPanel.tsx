@@ -43,9 +43,12 @@ import { eq } from '@arkiv-network/sdk/query';
 
 const c = createPublicClient({ chain: braga, transport: http('${ARKIV_RPC_URL}') });
 const r = await c.buildQuery()
-  .where([eq('project', '${ARKIV_PROJECT_ATTRIBUTE}'), eq('entityType', 'agent-memory')])
-  .createdBy('${ARKIV_BACKEND_WALLET || '0xYOUR_BACKEND_WALLET'}')
-  .withPayload(true).withAttributes(true).limit(20).fetch();
+  .where([
+    eq('project', '${ARKIV_PROJECT_ATTRIBUTE}'),
+    eq('entityType', 'agent-memory'),
+    eq('$creator', '${ARKIV_BACKEND_WALLET || '0xYOUR_BACKEND_WALLET'}'),
+  ])
+  .withPayload(true).withAttributes(true).withMetadata(true).limit(20).fetch();
 console.log(JSON.stringify(r.entities, null, 2));
 `;
 

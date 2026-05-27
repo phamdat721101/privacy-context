@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { WalletConnect } from './WalletConnect';
+import { NetworkSwitcher } from './NetworkSwitcher';
 import { ArkivProofPanel } from './ArkivProofPanel';
 import { useRole } from '@/hooks/useRole';
 
@@ -72,7 +73,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <WalletConnect />
+          <div className="flex items-center gap-2">
+            <NetworkSwitcher />
+            <WalletConnect />
+          </div>
         </div>
       </header>
 
