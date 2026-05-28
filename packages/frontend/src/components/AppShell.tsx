@@ -1,11 +1,9 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { usePrivy } from '@privy-io/react-auth';
 import { WalletConnect } from './WalletConnect';
 import { NetworkSwitcher } from './NetworkSwitcher';
 import { ArkivProofPanel } from './ArkivProofPanel';
-import { useRole } from '@/hooks/useRole';
 
 interface NavItem {
   href: string;
@@ -13,14 +11,18 @@ interface NavItem {
   label: string;
 }
 
-const BASE_NAV: NavItem[] = [
+// Single source of truth for global nav. /studio is always visible — the
+// page itself handles its own permit-onboarding gate, so role-based hiding
+// here was a chicken-and-egg loop for new users (no agents → not "producer"
+// → no /studio link → can't ever create a first agent).
+const NAV_ITEMS: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
   { href: '/brain', icon: 'psychology', label: 'Brain' },
   { href: '/memory', icon: 'memory', label: 'Memory' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
+  { href: '/studio', icon: 'science', label: 'Studio' },
+  { href: '/settings', icon: 'tune', label: 'Settings' },
 ];
-const PRODUCER_NAV: NavItem = { href: '/studio', icon: 'science', label: 'Studio' };
-const TAIL_NAV: NavItem[] = [{ href: '/settings', icon: 'tune', label: 'Settings' }];
 
 function isActive(pathname: string, href: string) {
   if (href === '/') return pathname === '/';
@@ -29,15 +31,7 @@ function isActive(pathname: string, href: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, authenticated } = usePrivy();
-  const addr = user?.wallet?.address;
-  const { role } = useRole(authenticated ? addr : undefined);
-
-  const items: NavItem[] = [
-    ...BASE_NAV,
-    ...(role === 'producer' ? [PRODUCER_NAV] : []),
-    ...TAIL_NAV,
-  ];
+  const items = NAV_ITEMS;
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
@@ -45,11 +39,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-40 border-b border-outline-variant/30 bg-background/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
           <Link href="/" className="flex items-center gap-2">
-            <span className="font-headline text-lg font-bold tracking-tight">
-              <span className="text-primary">O</span>penX
-            </span>
-            <span className="hidden font-mono text-[10px] uppercase tracking-widest text-on-surface-variant md:inline">
-              FHE-encrypted agents
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="shrink-0">
+              <path d="M12 3L4 7L12 11L20 7L12 3Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary"/>
+              <path d="M4 17L12 21L20 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary"/>
+              <path d="M4 12L12 16L20 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary"/>
+            </svg>
+            <span className="font-headline text-lg font-bold tracking-tight text-primary-text">
+              OpenX
             </span>
           </Link>
 

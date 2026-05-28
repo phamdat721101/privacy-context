@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap');
 
 @tailwind base;
@@ -11,12 +11,12 @@
 
 html,
 body {
-  background-color: #131317;
-  color: #e5e1e7;
+  background-color: #131314;
+  color: #e5e2e3;
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Geist', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
@@ -38,7 +38,7 @@ body {
 }
 
 /* Encryption glow — applied to interactive surfaces to suggest
-   "this is cryptographically secured". Indigo radial gradient + soft
+   "this is cryptographically secured". X-Blue radial gradient + soft
    box-shadow on hover. Use on AgentCard, hireable rows, etc. */
 .encryption-glow {
   position: relative;
@@ -50,15 +50,15 @@ body {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(circle at 50% 0%, rgba(192, 193, 255, 0.15), transparent 65%);
+  background: radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.15), transparent 65%);
   opacity: 0;
   transition: opacity 200ms ease;
   pointer-events: none;
 }
 
 .encryption-glow:hover {
-  border-color: rgba(192, 193, 255, 0.4);
-  box-shadow: 0 0 0 1px rgba(192, 193, 255, 0.25), 0 12px 32px rgba(192, 193, 255, 0.12);
+  border-color: rgba(0, 240, 255, 0.4);
+  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.25), 0 12px 32px rgba(0, 240, 255, 0.12);
 }
 
 .encryption-glow:hover::before {

@@ -100,6 +100,17 @@ router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
 });
 
 router.post('/create', auth, async (req: AuthRequest, res) => {
+  // Single permit gate for the creator funnel.
+  // Onboarding flow is `login → permit → create`. Once a wallet has a brain
+  // it has, by construction, held a permit at some point — so /upload and
+  // /brains/publish stay open and rely on ownership instead of re-checking.
+  if (!req.user?.hasPermit) {
+    return res.status(403).json({
+      error: 'Permit required',
+      reason: req.user?.permitReason ?? 'never_authorized',
+      message: 'Authorize the FHE permit before creating your first agent.',
+    });
+  }
   const { title = 'New Brain' } = req.body;
   const { rows } = await pool.query(
     `INSERT INTO brains (owner_address, title, chain) VALUES ($1, $2, 'arbitrum-sepolia') RETURNING *`,
@@ -115,10 +126,10 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/publish', auth, async (req: AuthRequest, res) => {
+  // Publish is a DB-flag flip plus a fire-and-forget on-chain call signed by
+  // the platform wallet. The user's FHE permit is irrelevant here — ownership
+  // is enforced by the WHERE owner_address = req.user.address clause below.
   const { brainId, title, description, tags } = req.body;
-  if (!req.user?.hasPermit) {
-    return res.status(403).json({ error: 'Permit required. Authorize your wallet first.' });
-  }
   let txHash: string | null = null;
   if (brainId) {
     const { rows } = await pool.query(

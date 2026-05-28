@@ -160,8 +160,11 @@ export default function ChatAgentPage() {
         )}
       </div>
 
-      {/* Inline permit gate — appears whenever the API rejects with 403 */}
-      {!isPermitted && userAddress && (
+      {/* Permit UI is owner-only. Non-owners chat freely; the API surfaces
+          402 (paywall) for unpublished brains and 403 (permit) only when the
+          owner-decrypt path is hit. forceUnauthorized flips this reactively
+          on a real 403. */}
+      {isOwner && !isPermitted && userAddress && (
         <PermitManager
           permitState={permitState}
           authorize={authorize}
@@ -200,7 +203,7 @@ export default function ChatAgentPage() {
             {error}
           </div>
         )}
-        {messages.length === 0 && isPermitted && !loading && (
+        {messages.length === 0 && !(isOwner && !isPermitted) && !loading && (
           <div className="py-12 text-center text-sm text-on-surface-variant">
             Start by asking the agent something.
           </div>
@@ -225,14 +228,16 @@ export default function ChatAgentPage() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder={
-              isPermitted ? `Ask ${agent?.title ?? 'this agent'}…` : 'Authorize FHE permit to chat'
+              isOwner && !isPermitted
+                ? 'Authorize FHE permit to chat your encrypted brain'
+                : `Ask ${agent?.title ?? 'this agent'}…`
             }
-            disabled={!isPermitted || loading}
+            disabled={(isOwner && !isPermitted) || loading}
             className="flex-1 rounded-full bg-surface-container-low px-4 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:outline-none disabled:opacity-50"
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || loading || !isPermitted}
+            disabled={!input.trim() || loading || (isOwner && !isPermitted)}
             className="rounded-full bg-primary p-2.5 text-on-primary transition-colors hover:bg-primary/90 disabled:opacity-50"
             aria-label="Send"
           >

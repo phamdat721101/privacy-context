@@ -4,12 +4,21 @@ import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import { listMyAgents, createAgent, type Agent } from '@/lib/agents';
 import { usePermit } from '@/hooks/usePermit';
+import { PermitManager } from '@/components/PermitManager';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
 export default function StudioPage() {
   const { authenticated, ready, user, login } = usePrivy();
   const userAddress = user?.wallet?.address as `0x${string}` | undefined;
-  const { permitState } = usePermit(userAddress);
+  const {
+    permitState,
+    reason,
+    authorize,
+    revoke,
+    loading: permitLoading,
+    error: permitError,
+  } = usePermit(userAddress);
+  const hasPermit = !!permitState.serializedPermit;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -89,17 +98,23 @@ export default function StudioPage() {
         </p>
       </div>
 
-      {!permitState.serializedPermit && (
-        <div className="rounded-xl border border-tertiary/30 bg-tertiary/10 p-4 text-sm text-tertiary">
-          You need to authorize the FHE permit before training agents.{' '}
-          <Link href="/settings" className="underline">
-            Go to Settings →
-          </Link>
-        </div>
-      )}
-
-      {/* Create new agent */}
-      <section className="space-y-4 rounded-xl border border-outline-variant/30 bg-surface p-6">
+      {!hasPermit ? (
+        // Onboarding gate: login → permit → create. The PermitManager is the
+        // only deliberate step between authenticated wallet and creator UI.
+        // After authorize() succeeds, usePermit refreshes and this branch flips
+        // to the creator UI on the next render.
+        <PermitManager
+          permitState={permitState}
+          authorize={authorize}
+          revoke={revoke}
+          loading={permitLoading}
+          error={permitError}
+          reason={reason}
+        />
+      ) : (
+        <>
+          {/* Create new agent */}
+          <section className="space-y-4 rounded-xl border border-outline-variant/30 bg-surface p-6">
         <h2 className="font-headline text-lg font-semibold">Create new agent</h2>
         <div className="flex flex-col gap-3 md:flex-row">
           <input
@@ -166,6 +181,8 @@ export default function StudioPage() {
           </div>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

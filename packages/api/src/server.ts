@@ -4,7 +4,6 @@ dotenv.config();
 import express from 'express';
 import cors from 'cors';
 import { auth } from './middleware/auth';
-import { permitGate, brainAccessGate } from './middleware/paywall';
 import { agentKya } from './middleware/agent-kya';
 import uploadRouter from './routes/upload';
 import brainsRouter from './routes/brains';
@@ -108,8 +107,11 @@ app.delete('/permit/revoke', async (req, res) => {
 // /subscribe removed — sellers don't subscribe; buyers pay per-call x402 on /v2/inference.
 app.all('/chat', (_req, res) => res.redirect(308, '/v2/inference'));
 
-// Permit-gated upload only (no subscription gate; buyers pay per-call on /v2/inference).
-app.use('/upload', auth, permitGate as any, uploadRouter);
+// Upload — wallet-auth only. The permit (FHE on-chain authorization) is a
+// feature gate for the encrypted-brain path, not a precondition for plaintext
+// ingestion. Ownership is enforced via `req.user.address` downstream in
+// KnowledgeIngestService and the brain-id lookup.
+app.use('/upload', auth, uploadRouter);
 
 // Lightweight server-authoritative permit status (used by frontend to
 // reconcile cached state with on-chain truth). Returns {authorized, reason}

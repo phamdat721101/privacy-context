@@ -1,11 +1,10 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * openx_core — design tokens for the encrypted-agent marketplace.
+ * openx_core — design tokens for the OpenX encrypted-agent marketplace.
  *
- * Single source of truth. Dark-mode only by design: privacy-first
- * products read better on a dark surface and the indigo "encrypted"
- * accent reads cleanly against #131317.
+ * Aligned with logo/openx_infrastructure_system/DESIGN.md.
+ * Dark-mode only. Primary = X-Blue cyan. Secondary = Matrix-Green.
  */
 const config: Config = {
   darkMode: 'class',
@@ -13,24 +12,25 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: '#131317',
-        surface: '#201f23',
-        'surface-container-low': '#1b1b1f',
-        'surface-container-high': '#2a292d',
-        primary: '#c0c1ff',
-        'primary-container': '#c0c1ff',
-        'on-primary': '#292b5e',
-        secondary: '#4edea3',
-        tertiary: '#ffb95f',
+        background: '#131314',
+        surface: '#201f20',
+        'surface-container-low': '#1c1b1c',
+        'surface-container-high': '#2a2a2b',
+        primary: '#00f0ff',
+        'primary-container': '#00f0ff',
+        'on-primary': '#00363a',
+        'primary-text': '#dbfcff',
+        secondary: '#13ff43',
+        tertiary: '#d1bcff',
         error: '#ffb4ab',
-        'on-surface': '#e5e1e7',
-        'on-surface-variant': '#c7c5d0',
-        outline: '#918f9a',
-        'outline-variant': '#46464f',
+        'on-surface': '#e5e2e3',
+        'on-surface-variant': '#b9cacb',
+        outline: '#849495',
+        'outline-variant': '#3b494b',
       },
       fontFamily: {
         headline: ['Geist', 'system-ui', 'sans-serif'],
-        body: ['Inter', 'system-ui', 'sans-serif'],
+        body: ['Geist', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       borderRadius: {
@@ -40,8 +40,8 @@ const config: Config = {
         xl: '12px',
       },
       boxShadow: {
-        'glow-indigo': '0 0 24px rgba(192, 193, 255, 0.18)',
-        'glow-emerald': '0 0 24px rgba(78, 222, 163, 0.18)',
+        'glow-cyan': '0 0 24px rgba(0, 240, 255, 0.18)',
+        'glow-green': '0 0 24px rgba(19, 255, 67, 0.18)',
       },
     },
   },
