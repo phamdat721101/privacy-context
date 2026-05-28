@@ -4,7 +4,7 @@
  * components/NetworkSwitcher.tsx — top-bar chain picker.
  *
  * Renders a compact pill next to the WalletConnect button. Click → dropdown
- * with the three networks Fhedin supports (Base Sepolia, Arbitrum Sepolia,
+ * with the three networks OpenX supports (Base Sepolia, Arbitrum Sepolia,
  * Arkiv Braga). Selecting a row asks the user's wallet to switch chains.
  *
  * Routing strategy (per design choice 1=a):
@@ -15,7 +15,7 @@
  *     by the /memory write path). Single source of truth for chain-add.
  *
  * Persistence:
- *   - localStorage key `fhedin:network` remembers the last picked NetworkKey.
+ *   - localStorage key `openx:network` remembers the last picked NetworkKey.
  *   - URL param `?network=<key>` overrides on mount.
  *   - On boot, if the wallet's actual chainId differs from the persisted
  *     choice, we *trust the wallet* (don't auto-switch); we only update the
@@ -39,7 +39,7 @@ import {
 } from '@/lib/networks';
 import { ensureBragaSelected } from '@/lib/arkivBrowserClient';
 
-const STORAGE_KEY = 'fhedin:network';
+const STORAGE_KEY = 'openx:network';
 const URL_PARAM = 'network';
 
 // ─── helpers ─────────────────────────────────────────────────────────────

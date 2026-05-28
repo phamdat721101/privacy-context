@@ -21,7 +21,7 @@ const config = {
     };
     return config;
   },
-  // Legacy → fhedin URL map. All temporary (308) so search engines don't
+  // Legacy → openx URL map. All temporary (308) so search engines don't
   // freeze a stale redirect once the rewrite settles.
   // NOTE: /memory is intentionally NOT in this list — it now hosts the Arkiv
   //       Memory Tier (Web3 Database Builder Challenge). Do not re-add it.

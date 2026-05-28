@@ -40,7 +40,7 @@ const v4 = Router();
 
 v4.get('/version', (_req: Request, res: Response) => {
   res.json({
-    api: 'fhedin-v4',
+    api: 'openx-v4',
     tier: 'arkiv-memory',
     config: arkivConfigSummary(),
     routes: [
@@ -173,7 +173,7 @@ v4.get('/onboard/unfurl', async (req: Request, res: Response) => {
     const t = setTimeout(() => ctrl.abort(), UNFURL_TIMEOUT_MS);
     let html = '';
     try {
-      const r = await fetch(url.toString(), { signal: ctrl.signal, redirect: 'follow', headers: { 'user-agent': 'Fhedin-Unfurl/1.0' } });
+      const r = await fetch(url.toString(), { signal: ctrl.signal, redirect: 'follow', headers: { 'user-agent': 'OpenX-Unfurl/1.0' } });
       if (!r.ok) return res.status(502).json({ error: `upstream ${r.status}` });
       // Read up to UNFURL_MAX_BYTES of the HTML head, then stop.
       const buf = new Uint8Array(UNFURL_MAX_BYTES);

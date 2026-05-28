@@ -21,7 +21,7 @@ import { BrainActivityFeed } from '@/components/BrainActivityFeed';
 
 type Lane = 'episodes' | 'facts' | 'skills';
 const LANES: Lane[] = ['episodes', 'facts', 'skills'];
-const HINT_KEY = 'fhedin:brain-explainer-dismissed';
+const HINT_KEY = 'openx:brain-explainer-dismissed';
 
 export default function BrainPage() {
   const { user, authenticated, login } = usePrivy();

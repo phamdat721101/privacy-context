@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start-dev.sh — full-stack dev runner for Fhedin (Arkiv tier included).
+# start-dev.sh — full-stack dev runner for OpenX (Arkiv tier included).
 #
 # What it does:
 #   1. Loads .env.local + .env so the api sees the Arkiv-tier vars.
@@ -115,7 +115,7 @@ sleep 1
 cat <<EOF
 
 ╔════════════════════════════════════════════════════════════════╗
-║  Fhedin · full-stack dev mode                                  ║
+║  OpenX · full-stack dev mode                                   ║
 ╠════════════════════════════════════════════════════════════════╣
 ║  Frontend          http://localhost:3000                       ║
 ║  Memory feed       http://localhost:3000/memory                ║

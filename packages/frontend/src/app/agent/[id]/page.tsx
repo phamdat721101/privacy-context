@@ -197,12 +197,12 @@ export default function AgentDetailPage() {
           </div>
           <p className="text-sm text-on-surface-variant">
             This brain&apos;s knowledge is AES-256-GCM encrypted at rest; per-(owner, layer) keys
-            are derived independently. No Fhedin server can read raw L1 episodes, L2 facts, or L3
+            are derived independently. No OpenX server can read raw L1 episodes, L2 facts, or L3
             skill manifests for any user other than the wallet that owns them.
           </p>
           <details className="text-xs">
             <summary className="cursor-pointer font-mono text-on-surface-variant hover:text-on-surface">
-              Verify counts via SQL (no Fhedin server in trust path)
+              Verify counts via SQL (no OpenX server in trust path)
             </summary>
             <pre className="mt-2 overflow-auto rounded bg-surface px-3 py-2 text-[10px]">
               {`SELECT

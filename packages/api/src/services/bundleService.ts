@@ -33,7 +33,7 @@ export interface BundleManifest extends BundleManifestBody {
 }
 
 const BUNDLE_SECRET = process.env.BUNDLE_SECRET ?? process.env.PAYMENT_SECRET ?? 'dev-only-bundle-secret';
-const ISSUER = process.env.BUNDLE_ISSUER ?? 'fhedin.market';
+const ISSUER = process.env.BUNDLE_ISSUER ?? 'openx.market';
 
 function canonical(body: BundleManifestBody): string {
   // Stable JSON: sort top-level keys, then steps already in array order.

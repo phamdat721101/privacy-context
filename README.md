@@ -1,4 +1,6 @@
-# Fhedin · A wallet-owned memory layer for AI agents on Arkiv
+# OpenX · A wallet-owned memory layer for AI agents on Arkiv
+
+> Formerly **Fhedin**. The on-chain `project=fhedin-ethns-2c4f9a` attribute and the `fhedin-cognitive-v1` HKDF info string are intentionally preserved across the rebrand — they are immutable identifiers stamped on already-deployed Arkiv entities and on already-encrypted cognitive ciphertext. Replacing them would dereference the demo dataset and break key derivation. Brand-facing strings (UI, docs, banners, OpenAPI title, license) have been moved to OpenX.
 
 > **Theme: AI + Privacy hybrid.** Agents whose memory you actually own (AI), with a selective AES-256-GCM envelope and TTL-based auto-revoke (Privacy).
 
@@ -66,7 +68,7 @@ API_URL=https://13-229-63-192.sslip.io npm run demo:arkiv-memory-market
 
 ## What it is
 
-Fhedin is a **publish-and-earn marketplace where AI agents pay you in USDC to read knowledge only you control** (Patreon for AI agents). The Arkiv tier — the focus of this submission — gives both the agent and the user a queryable, public, wallet-owned memory layer alongside Fhedin's existing FHE-encrypted brain layer.
+OpenX is a **publish-and-earn marketplace where AI agents pay you in USDC to read knowledge only you control** (Patreon for AI agents). The Arkiv tier — the focus of this submission — gives both the agent and the user a queryable, public, wallet-owned memory layer alongside OpenX's existing FHE-encrypted brain layer.
 
 The thesis behind picking Arkiv as the database (not Postgres, not Walrus, not Ceramic):
 
@@ -77,7 +79,7 @@ The thesis behind picking Arkiv as the database (not Postgres, not Walrus, not C
 | Ceramic | ✗ no native indexed range queries | ✗ | ✓ via `did:pkh` | ✗ |
 | **Arkiv (Braga)** | ✅ via attributes (`gt`/`lt`/`eq`) | ✅ first-class `expiresIn` + `extendEntity` | ✅ immutable `$creator` | ✅ `subscribeEntityEvents` |
 
-**Storage TTL is the market mechanic.** Anyone can pay 0.01 USDC to extend a memory's lifetime (`POST /v4/memory/:key/extend`). Anyone can read any memory for free via `createPublicClient`. The platform is provably blind because the user signs the entity with their own wallet — not Fhedin's.
+**Storage TTL is the market mechanic.** Anyone can pay 0.01 USDC to extend a memory's lifetime (`POST /v4/memory/:key/extend`). Anyone can read any memory for free via `createPublicClient`. The platform is provably blind because the user signs the entity with their own wallet — not OpenX's.
 
 ---
 
@@ -122,7 +124,7 @@ Browser-side direct reads from Arkiv (no API in the trust path) live in [`packag
 | **Platform** (Memory-Agent v1) | server-side `ARKIV_BACKEND_PRIVATE_KEY` | backend wallet | platform |
 | **Sovereign** (NEW) | the **user's** Privy / MetaMask wallet | user wallet | user (faucet) |
 
-The Sovereign tier uses [`@arkiv-network/sdk` browser pattern](https://docs.arkiv.network/learn/metamask-sketch-app/2-data/) — `createWalletClient({ chain: braga, transport: custom(provider) })`. The user signs each `createEntity` themselves; the entity's `$creator` is permanently the user, never Fhedin. See [`packages/frontend/src/lib/arkivBrowserClient.ts`](packages/frontend/src/lib/arkivBrowserClient.ts).
+The Sovereign tier uses [`@arkiv-network/sdk` browser pattern](https://docs.arkiv.network/learn/metamask-sketch-app/2-data/) — `createWalletClient({ chain: braga, transport: custom(provider) })`. The user signs each `createEntity` themselves; the entity's `$creator` is permanently the user, never OpenX. See [`packages/frontend/src/lib/arkivBrowserClient.ts`](packages/frontend/src/lib/arkivBrowserClient.ts).
 
 Filters use both:
 - `.createdBy(backendWallet)` — tamper-proof source filter for platform-signed entities (Best Practice #12)
@@ -245,7 +247,7 @@ npm run demo:agentic-market               # legacy v3 demo (multi-rail x402 / MP
 npm run dev                               # full stack locally
 ```
 
-Verify any memory yourself, no Fhedin server required:
+Verify any memory yourself, no OpenX server required:
 
 ```ts
 import { createPublicClient, http } from '@arkiv-network/sdk';
@@ -269,7 +271,7 @@ console.log(JSON.stringify(r.entities, null, 2));
 | Pham Nim | [@phamdat721701](https://github.com/phamdat721701) | Solo / lead — design, contracts, SDK, API, frontend |
 
 Project repo: <https://github.com/phamdat721701/privacy-context>
-Project name: **Fhedin**
+Project name: **OpenX** (formerly **Fhedin** — see top-of-readme note about preserved on-chain identifiers).
 
 EVM wallet for prize disbursement: _provided on the submission form, not in this repo_.
 
@@ -280,7 +282,7 @@ EVM wallet for prize disbursement: _provided on the submission form, not in this
 ```
 docs/
 ├── ARKIV_INTEGRATION.md  ← deep-dive: rubric scorecard + verification recipes
-├── USP_BRIEF.md          ← Fhedin product north star
+├── USP_BRIEF.md          ← OpenX product north star
 ├── PROJECT_CONTEXT.md    ← engineering snapshot
 ├── SECURITY.md           ← decommissioned keys + threat model
 └── research/             ← Web3-memory-landscape competitive analysis
@@ -307,11 +309,11 @@ new-ui/                            ← Figma-export HTML mockups (reference only
 
 ---
 
-## Beyond the hackathon — Fhedin's USP
+## Beyond the hackathon — OpenX's USP
 
 > Section preserved for context — not part of the Builder Challenge submission scope.
 
-Fhedin's broader thesis: a marketplace where AI agents pay you in USDC to query knowledge only you control. The platform is cryptographically blind to both sides. The Arkiv tier (this submission) is one of three coexisting tiers:
+OpenX's broader thesis: a marketplace where AI agents pay you in USDC to query knowledge only you control. The platform is cryptographically blind to both sides. The Arkiv tier (this submission) is one of three coexisting tiers:
 
 | Tier | Stack | Status |
 |---|---|---|

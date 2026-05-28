@@ -57,7 +57,7 @@ export default function LandingPage() {
             Get paid when AI agents query <span className="text-primary">your brain</span>.
           </h1>
           <p className="text-lg text-on-surface-variant md:text-xl">
-            Fhedin is the marketplace where AI agents pay you in USDC to read knowledge only you control.
+            OpenX is the marketplace where AI agents pay you in USDC to read knowledge only you control.
             We can&apos;t see what you publish. We can&apos;t see who asks.
           </p>
           <div className="flex flex-wrap gap-3">
@@ -81,7 +81,7 @@ export default function LandingPage() {
 
       {/* Value props — seller-first framing */}
       <section>
-        <h2 className="mb-8 font-headline text-2xl font-bold">Why publish on Fhedin</h2>
+        <h2 className="mb-8 font-headline text-2xl font-bold">Why publish on OpenX</h2>
         <div className="grid gap-4 md:grid-cols-3">
           {VALUE_PROPS.map((v) => (
             <div

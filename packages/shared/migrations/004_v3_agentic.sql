@@ -1,5 +1,5 @@
 -- 004_v3_agentic.sql
--- Fhedin v3 — agentic marketplace tables. Additive only; v2 schemas untouched.
+-- OpenX v3 — agentic marketplace tables. Additive only; v2 schemas untouched.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 

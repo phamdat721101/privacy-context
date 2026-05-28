@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 /**
- * fhedin_core — design tokens for the encrypted-agent marketplace.
+ * openx_core — design tokens for the encrypted-agent marketplace.
  *
  * Single source of truth. Dark-mode only by design: privacy-first
  * products read better on a dark surface and the indigo "encrypted"

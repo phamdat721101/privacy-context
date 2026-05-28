@@ -9,7 +9,7 @@
  * directly from the browser.
  *
  * Trust posture: we deliberately use `createPublicClient` in the browser
- * (not via the Fhedin API) so judges can see "this UI is reading the chain
+ * (not via the OpenX API) so judges can see "this UI is reading the chain
  * directly". That is the demo's most defensible privacy claim.
  */
 

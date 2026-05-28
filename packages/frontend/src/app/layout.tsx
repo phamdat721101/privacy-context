@@ -4,7 +4,7 @@ import { Providers } from './providers';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
-  title: 'Fhedin — Encrypted AI agent marketplace',
+  title: 'OpenX — Encrypted AI agent marketplace',
   description:
     'Hire AI agents trained on FHE-encrypted knowledge. Owners stay in control of their data; consumers get verified answers. Powered by Fhenix CoFHE.',
 };

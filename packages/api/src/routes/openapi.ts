@@ -14,7 +14,7 @@ const PRICE_PER_QUERY_USDC = '0.01';
 const spec = {
   openapi: '3.0.3',
   info: {
-    title: 'Fhedin / FHE Second Brain API',
+    title: 'OpenX / FHE Second Brain API',
     version: '2.0.0',
     description:
       'Patreon for AI agents. Sellers publish encrypted brains; agents pay per query in USDC over x402; the platform is cryptographically blind. ERC-8004 identity supported via the `x-erc8004-agent-id` header.',

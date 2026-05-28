@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 /**
- * seed-curated-brain.ts — Fhedin launch-experiment honey pot.
+ * seed-curated-brain.ts — OpenX launch-experiment honey pot.
  *
  * Per docs/USP_BRIEF.md §"30-day kill criteria" and PHASE1-REPORT §4.6:
  * we ship one curated public brain that any AI agent can query. This brain
@@ -26,14 +26,14 @@ if (!PLATFORM_WALLET || !process.env.DATABASE_URL) {
 const TITLE = 'FHE / ERC-8004 / Phala — curated reference brain';
 const DESCRIPTION =
   'Curated public brain about FHE on Arbitrum (Fhenix CoFHE), ERC-8004 agent identity, ' +
-  'and Phala Confidential AI. Free reference for AI agents discovering Fhedin.';
+  'and Phala Confidential AI. Free reference for AI agents discovering OpenX.';
 const TAGS = ['fhe', 'fhenix', 'erc-8004', 'phala', 'tee', 'agents'];
 
 const CHUNKS = [
   // Fhenix CoFHE
   'Fhenix CoFHE is an FHE coprocessor live on Ethereum Sepolia, Arbitrum Sepolia, and Base Sepolia. ' +
     'It exposes euint{8,16,32,64,128,256} types via @fhenixprotocol/cofhe-contracts/FHE.sol and a TypeScript client at @cofhe/sdk.',
-  'BrainKeyVaultV2 (Fhedin) on Arbitrum Sepolia stores per-brain AES-256-GCM key halves as two euint128 values. ' +
+  'BrainKeyVaultV2 (OpenX) on Arbitrum Sepolia stores per-brain AES-256-GCM key halves as two euint128 values. ' +
     'storeKey(brainId, eHigh, eLow) is the one-time gas operation; reads happen gaslessly via the threshold network.',
   'Fhenix permit pattern: getOrCreateSelfPermit (own data) and createSharing+importShared (share with platform). ' +
     'Permits are short-lived; revoking deletes the platform DB row and on-chain hasAccess flag.',
@@ -48,10 +48,10 @@ const CHUNKS = [
     'Every response carries a hardware attestation; verifiers check GPU + container + model + runtime before trusting.',
   'Phala Cloud + Venice AI partnership (Nov 2026) shipped E2EE+TEE inference modes to a real consumer product. ' +
     'API endpoint pattern: <PHALA_ENDPOINT>/v1/chat/completions, attestation in x-attestation-quote header.',
-  // Fhedin USP
-  'Fhedin is the marketplace where AI agents pay in USDC to query FHE-encrypted second brains. ' +
+  // OpenX USP
+  'OpenX is the marketplace where AI agents pay in USDC to query FHE-encrypted second brains. ' +
     'Sellers publish a sentence; agents discover via /openapi.json with x-price-usdc and x-kya-required extensions.',
-  'Fhedin economic model: sellers earn $0.01 per query; the platform takes a fee from the buyer side; ' +
+  'OpenX economic model: sellers earn $0.01 per query; the platform takes a fee from the buyer side; ' +
     'human sellers do NOT subscribe. Per-query x402 settlement, not seat-based SaaS.',
 ];
 

@@ -5,7 +5,7 @@
  *
  * Why this page exists: showcases the moonshot narrative — agents accumulate
  * a queryable, tamper-proof public profile on Arkiv. Judges can verify any
- * card by clicking the explorer link (no Fhedin server in the trust path).
+ * card by clicking the explorer link (no OpenX server in the trust path).
  *
  * Data flow:
  *   1. mount   → fetch all three lanes via `arkiv_query`.
@@ -163,7 +163,7 @@ export default function MemoryPage() {
         <p className="text-sm text-on-surface-variant">
           {lane === 'mine' ? (
             <>
-              Save anything below. Your wallet signs every entity — Fhedin never holds the key.
+              Save anything below. Your wallet signs every entity — OpenX never holds the key.
               Each save is a real on-chain transaction on Arkiv-Braga, queryable by any tool that
               filters{' '}
               <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">
@@ -176,7 +176,7 @@ export default function MemoryPage() {
               <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">project={ARKIV_PROJECT_ATTRIBUTE}</code>.
               Read them yourself with a{' '}
               <code className="rounded bg-surface-container px-1.5 py-0.5 font-mono text-xs">createPublicClient</code> —
-              no Fhedin server in the trust path.
+              no OpenX server in the trust path.
             </>
           )}
         </p>

@@ -4,7 +4,7 @@ import { listMyAgents } from '@/lib/agents';
 
 export type Role = 'producer' | 'consumer' | 'unknown';
 
-const cacheKey = (addr: string) => `fhedin_role_${addr}`;
+const cacheKey = (addr: string) => `openx_role_${addr}`;
 
 /**
  * Determines the user's role based on whether they own any agents.

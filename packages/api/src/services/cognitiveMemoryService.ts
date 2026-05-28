@@ -12,7 +12,7 @@
  * Phase 1 trust posture:
  *   - L1 episode payload: AES-256-GCM with key = HKDF(KEK, owner+layer).
  *   - L2 fact: same; signed by the platform Memory-Agent (ARKIV_BACKEND_PRIVATE_KEY)
- *     on the owner's behalf — semantics: "Fhedin attests this fact was
+ *     on the owner's behalf — semantics: "OpenX attests this fact was
  *     derived from owner X's L1 episodes". Phase 2 can upgrade to owner-signed.
  *   - L3 bundle: same encryption + same signing posture.
  *   - All decrypt paths run inside this process; plaintext never leaves the

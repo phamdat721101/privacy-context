@@ -46,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
           <Link href="/" className="flex items-center gap-2">
             <span className="font-headline text-lg font-bold tracking-tight">
-              <span className="text-primary">F</span>hedin
+              <span className="text-primary">O</span>penX
             </span>
             <span className="hidden font-mono text-[10px] uppercase tracking-widest text-on-surface-variant md:inline">
               FHE-encrypted agents

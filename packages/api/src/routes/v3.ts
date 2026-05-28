@@ -32,7 +32,7 @@ const v3 = Router();
 // ---------------------------------------------------------------------------
 v3.get('/version', (_req: Request, res: Response) => {
   res.json({
-    api: 'fhedin-v3',
+    api: 'openx-v3',
     build: process.env.GIT_SHA ?? 'dev',
     started_at: process.env.PROC_START ?? null,
     routes: ['/links', '/agents', '/bundles', '/discover', '/runner', '/earnings'],

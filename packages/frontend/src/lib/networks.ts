@@ -1,5 +1,5 @@
 /**
- * lib/networks.ts — single source of truth for the three networks Fhedin
+ * lib/networks.ts — single source of truth for the three networks OpenX
  * supports today: Base Sepolia (USDC payments), Arbitrum Sepolia (FHE brain
  * tier on Fhenix CoFHE), and Arkiv Braga (Memory tier).
  *
@@ -35,7 +35,7 @@ export const ARKIV_BRAGA_CHAIN_ID = braga.id;
 
 export type NetworkKey = 'base-sepolia' | 'arbitrum-sepolia' | 'arkiv-braga';
 
-/** Which Fhedin feature primarily uses a given chain. Surfaced in the UI
+/** Which OpenX feature primarily uses a given chain. Surfaced in the UI
  *  so the user understands *why* they'd switch. */
 export type NetworkFeature = 'payment' | 'fhe-brain' | 'memory';
 

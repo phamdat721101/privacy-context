@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * ArkivProofPanel — the demo's "verify-without-trusting-Fhedin" moment.
+ * ArkivProofPanel — the demo's "verify-without-trusting-OpenX" moment.
  *
  * Behavior:
  *   - Floating button (fixed bottom-right). Click → slide-up overlay.
@@ -36,7 +36,7 @@ const DSL_QUERY = `project = "${ARKIV_PROJECT_ATTRIBUTE}" && entityType = "agent
 
 const DSL_DECISIONS_QUERY = `project = "${ARKIV_PROJECT_ATTRIBUTE}" && entityType = "agent-decision"`;
 
-const NODE_SNIPPET = `// Verify any Fhedin memory yourself — no Fhedin server required.
+const NODE_SNIPPET = `// Verify any OpenX memory yourself — no OpenX server required.
 import { createPublicClient, http } from '@arkiv-network/sdk';
 import { braga } from '@arkiv-network/sdk/chains';
 import { eq } from '@arkiv-network/sdk/query';
@@ -89,7 +89,7 @@ export function ArkivProofPanel() {
           <div className="flex h-12 items-center justify-between gap-3 border-b border-outline-variant/30 px-4">
             <div className="flex min-w-0 items-center gap-2 font-mono text-xs">
               <span className="material-symbols-outlined text-[16px] text-secondary">shield_lock</span>
-              <span className="truncate">independent verification — both explorers below are NOT Fhedin&apos;s</span>
+              <span className="truncate">independent verification — both explorers below are NOT OpenX&apos;s</span>
               <span className="rounded border border-secondary/30 bg-secondary/10 px-1.5 py-0.5 text-[10px] uppercase tracking-widest text-secondary">arkiv-braga</span>
             </div>
             <div className="flex items-center gap-2">

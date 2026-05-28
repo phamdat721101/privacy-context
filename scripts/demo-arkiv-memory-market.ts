@@ -8,7 +8,7 @@
  *   3. Re-queries one topic to demonstrate cache-hit (POST /v4/memory/find).
  *   4. Lists everything for the agent (GET /v4/memory/by-agent/:id).
  *   5. Pays-to-extend the 2 highest-confidence entities (x402 mock receipts).
- *   6. Reads free via createPublicClient (no Fhedin server in the trust path).
+ *   6. Reads free via createPublicClient (no OpenX server in the trust path).
  *   7. Prints a colored scoreboard.
  *
  * Exit code 0 on success. Replayable: each run is idempotent in isolation
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   const score = { memories: 0, decisions: 0, topics: TOPICS.length, freeReads: 0, paidExtends: 0, settledUsdc: 0, hits: 0, errors: [] as string[] };
   const writtenKeys: string[] = [];
 
-  console.log(`${BOLD}=== fhedin × arkiv — memory market demo ===${RESET}`);
+  console.log(`${BOLD}=== openx × arkiv — memory market demo ===${RESET}`);
   console.log(`${DIM}api      :${RESET} ${API}`);
   console.log(`${DIM}arkiv-rpc:${RESET} ${RPC}`);
   console.log(`${DIM}project  :${RESET} ${PROJECT}`);
@@ -165,11 +165,11 @@ async function main(): Promise<void> {
       .limit(50)
       .fetch();
     score.freeReads += result.entities.length;
-    console.log(`${CYAN}[verify]${RESET} createPublicClient saw ${result.entities.length} entities (no Fhedin server in path)`);
+    console.log(`${CYAN}[verify]${RESET} createPublicClient saw ${result.entities.length} entities (no OpenX server in path)`);
   } catch (err) { score.errors.push(`verify: ${(err as Error).message}`); }
 
   // 6. SCOREBOARD
-  console.log(`\n${BOLD}┌── fhedin × arkiv memory market ──┐${RESET}`);
+  console.log(`\n${BOLD}┌── openx × arkiv memory market ──┐${RESET}`);
   printRow('memories written',   String(score.memories));
   printRow('decisions written',  String(score.decisions));
   printRow('topics covered',     String(score.topics));

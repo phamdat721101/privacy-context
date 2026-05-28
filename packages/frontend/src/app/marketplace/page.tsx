@@ -9,7 +9,7 @@ import { createLogger } from '@/lib/clientLogger';
 
 const log = createLogger('marketplace');
 
-const HINT_KEY = 'fhedin:marketplace-cross-store-hint';
+const HINT_KEY = 'openx:marketplace-cross-store-hint';
 
 interface DiscoverBundle {
   id: string;

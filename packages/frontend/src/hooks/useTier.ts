@@ -9,7 +9,7 @@ import { useEffect, useState, useCallback } from 'react';
  */
 export type Tier = 'standard' | 'trustless' | 'arkiv';
 
-const KEY = 'fhedin:tier';
+const KEY = 'openx:tier';
 const VALID: Tier[] = ['standard', 'trustless', 'arkiv'];
 
 function isTier(v: unknown): v is Tier {

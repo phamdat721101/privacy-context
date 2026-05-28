@@ -45,7 +45,7 @@ async function get<T>(path: string, wallet?: string): Promise<T> {
 }
 
 async function main() {
-  console.log('=== fhedin v3 demo:agentic-market ===\n');
+  console.log('=== openx v3 demo:agentic-market ===\n');
 
   // 1. Register links (ETH-only mock; Sui sig path tested elsewhere).
   for (const p of PROVIDERS) {

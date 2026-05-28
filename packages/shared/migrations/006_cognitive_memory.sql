@@ -1,5 +1,5 @@
 -- 006_cognitive_memory.sql
--- Fhedin Cognitive Memory v1 — L1/L2/L3 layers in Postgres.
+-- OpenX Cognitive Memory v1 — L1/L2/L3 layers in Postgres.
 -- Additive only. v2/v3/v4 schemas (brains, agents, agent_links, mpp_sessions,
 -- bundles, agent_receipts, permits) are completely untouched.
 --
