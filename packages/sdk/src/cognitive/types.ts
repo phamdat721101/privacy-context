@@ -5,13 +5,29 @@
  * shapes + the lightweight sign/verify glue; keyWrap.ts owns key derivation;
  * consolidator.ts owns the L1→L2→L3 promotion logic.
  *
- * Re-uses `buildSigningMessage` from memory/serialize so we never duplicate the
- * canonical-JSON convention across modules. One signing pattern across the
- * whole codebase.
+ * Includes a self-contained canonical-JSON signer so this module has zero
+ * cross-module dependencies inside the SDK.
  */
 
 import { recoverMessageAddress, type Hex } from 'viem';
-import { buildSigningMessage } from '../memory/serialize';
+
+// ─── Canonical-JSON signing primitives (self-contained, no cross-imports) ────
+
+/** Recursive deterministic stringifier with sorted keys. */
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  return `{${keys
+    .map((k) => `${JSON.stringify(k)}:${canonicalize((value as Record<string, unknown>)[k])}`)
+    .join(',')}}`;
+}
+
+/** The exact bytes a signer commits to (signature field is stripped). */
+function buildSigningMessage<T extends { signer: Hex }>(unsigned: T): string {
+  const { signature: _drop, ...body } = unsigned as { signature?: unknown } & T;
+  return canonicalize({ ...body, signer: (body.signer as string).toLowerCase() });
+}
 
 // ─── TTLs (single source of truth) ──────────────────────────────────────────
 
@@ -30,7 +46,7 @@ export type CognitiveLayer = typeof COGNITIVE_LAYERS[number];
 export interface Episode {
   /** Free-text body — chat turn, tool call, or decision summary. */
   body: string;
-  /** Topic hash (16-hex), matches the format used by Arkiv-side memories. */
+  /** Topic hash (16-hex), used to group facts/decisions by topic. */
   topic: string;
   /** Address of the agent that triggered this episode. */
   agentId: Hex;

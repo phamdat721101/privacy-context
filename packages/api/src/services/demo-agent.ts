@@ -18,14 +18,6 @@
 
 import { pool } from '../db';
 import { logger } from '../lib';
-import { keccak256, toBytes, type Hex } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import {
-  buildSigningMessage,
-  type LearnedFact,
-  type AgentDecision,
-} from '@fhe-ai-context/sdk';
-import { findRelevant, writeLearned, writeDecision } from './arkivMemoryService';
 
 /** Pseudo-address for the seeded agent. Real ERC-8004 agents will use real addresses. */
 const DEFAULT_DEMO_AGENT = '0xA1F2DEM00000000000000000000000000000A6E7';
@@ -115,102 +107,15 @@ async function tick(cfg: DemoAgentConfig) {
   try {
     const brains = await findUnvisitedBrains(cfg.agentAddress, cfg.perTickLimit);
     for (const b of brains) {
-      const memo = await runMemoryCycle(b);
       await recordAgentQuery(b, cfg.agentAddress);
       lastSeenBrainId = Math.max(lastSeenBrainId, b.id);
       logger.info(
-        { brainId: b.id, owner: b.owner_address, agent: cfg.agentAddress, ...memo },
+        { brainId: b.id, owner: b.owner_address, agent: cfg.agentAddress },
         'demo-agent:queried',
       );
     }
   } catch (e: any) {
     logger.warn({ err: e.message }, 'demo-agent:tick:error');
-  }
-}
-
-// ─── Memory-Agent v1 cycle (opt-in via MEMORY_AGENT_ENABLED) ────────────────
-
-/** Deterministic 16-hex-char topic hash from a brain's tag set. */
-function topicHashFromTags(tags: string[] | null | undefined, fallback: string): string {
-  const seed = tags?.length ? tags.map((t) => t.toLowerCase().trim()).sort().join(',') : fallback;
-  return keccak256(toBytes(seed)).slice(2, 18); // 16 hex chars (matches MemoryAttributes.topic)
-}
-
-interface MemoryCycleSummary {
-  memoryEnabled: boolean;
-  cacheHit?: boolean;
-  priorFacts?: number;
-  topic?: string;
-  memoryEntityKey?: string;
-  decisionEntityKey?: string;
-  memoryError?: string;
-}
-
-/**
- * Read prior memory on this brain's topic, then write a new LearnedFact.
- * Failure modes are *swallowed and logged* — the seeded earnings path must
- * never be blocked by an Arkiv outage.
- */
-async function runMemoryCycle(brain: { id: number; title: string; tags: string[] | null }): Promise<MemoryCycleSummary> {
-  const enabled = (process.env.MEMORY_AGENT_ENABLED ?? 'false').toLowerCase() === 'true';
-  if (!enabled) return { memoryEnabled: false };
-
-  const pk = process.env.MEMORY_AGENT_PRIVATE_KEY as `0x${string}` | undefined;
-  if (!pk) return { memoryEnabled: false, memoryError: 'MEMORY_AGENT_PRIVATE_KEY missing' };
-  const agent = privateKeyToAccount(pk);
-  const topic = topicHashFromTags(brain.tags, brain.title);
-
-  // 1. READ prior memory for this (agent, topic).
-  let priorFacts = 0;
-  let cacheHit = false;
-  try {
-    const prior = await findRelevant({ agentId: agent.address as Hex, topic, minConfidence: 80, limit: 5 });
-    priorFacts = prior.facts.length;
-    cacheHit = priorFacts > 0;
-  } catch (err) {
-    return { memoryEnabled: true, topic, memoryError: `findRelevant: ${(err as Error).message}` };
-  }
-
-  // 2. WRITE the AgentDecision (2nd entity type — reputation log). Best-effort:
-  //    failure does not block the memory write below.
-  let decisionEntityKey: string | undefined;
-  try {
-    const unsignedDecision: Omit<AgentDecision, 'signature'> = {
-      decision: cacheHit ? 'use-prior' : 'query-brain',
-      topic,
-      priorFactCount: priorFacts,
-      chosenAt: Date.now(),
-      signer: agent.address as Hex,
-    };
-    const decisionSig = await agent.signMessage({ message: buildSigningMessage(unsignedDecision) });
-    const dr = await writeDecision({ ...unsignedDecision, signature: decisionSig as Hex }, topic);
-    decisionEntityKey = dr.entityKey;
-  } catch (err) {
-    logger.warn({ topic, err: (err as Error).message }, 'memory-agent:decision:failed');
-  }
-
-  // 3. WRITE the new LearnedFact (signed by MEMORY_AGENT wallet).
-  const question = pickQuestion(brain.tags);
-  const queryHash = keccak256(toBytes(question)).slice(2, 18);
-  const factText = cacheHit
-    ? `Refined understanding of "${brain.title}" (built on ${priorFacts} prior fact${priorFacts === 1 ? '' : 's'}).`
-    : `First exposure to "${brain.title}". Topic ${topic} — confidence is initial.`;
-
-  const unsigned: Omit<LearnedFact, 'signature'> = {
-    fact: factText,
-    source: { brainId: brain.id, queryHash },
-    confidence: cacheHit ? 95 : 85,
-    derivedAt: Date.now(),
-    signer: agent.address as Hex,
-  };
-  const signature = await agent.signMessage({ message: buildSigningMessage(unsigned) });
-  const fact: LearnedFact = { ...unsigned, signature };
-
-  try {
-    const r = await writeLearned(fact, topic);
-    return { memoryEnabled: true, cacheHit, priorFacts, topic, memoryEntityKey: r.entityKey, decisionEntityKey };
-  } catch (err) {
-    return { memoryEnabled: true, cacheHit, priorFacts, topic, memoryError: `writeLearned: ${(err as Error).message}`, decisionEntityKey };
   }
 }
 

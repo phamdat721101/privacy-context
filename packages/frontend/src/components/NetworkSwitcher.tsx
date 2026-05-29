@@ -4,15 +4,9 @@
  * components/NetworkSwitcher.tsx — top-bar chain picker.
  *
  * Renders a compact pill next to the WalletConnect button. Click → dropdown
- * with the three networks OpenX supports (Base Sepolia, Arbitrum Sepolia,
- * Arkiv Braga). Selecting a row asks the user's wallet to switch chains.
- *
- * Routing strategy (per design choice 1=a):
- *   - Base / Arbitrum Sepolia: well-known to most wallets → use Privy's
- *     `wallet.switchChain(id)` directly.
- *   - Arkiv Braga: rarely pre-known → delegate to `ensureBragaSelected`
- *     (the canonical 4902 → wallet_addEthereumChain fallback already used
- *     by the /memory write path). Single source of truth for chain-add.
+ * with the networks OpenX supports (Base Sepolia, Arbitrum Sepolia).
+ * Selecting a row asks the user's wallet to switch chains via Privy's
+ * `wallet.switchChain(id)` — both chains are pre-known to common wallets.
  *
  * Persistence:
  *   - localStorage key `openx:network` remembers the last picked NetworkKey.
@@ -24,7 +18,7 @@
  * SOLID:
  *   - SRP: this component owns the pill UI, the dropdown, and the persistence
  *     for the user's *intent*. Actual chain switching delegates to the
- *     wallet's own RPC method (Privy or arkivBrowserClient).
+ *     wallet's own RPC method.
  *   - DIP: no chain literals. Everything comes from `lib/networks.ts`.
  */
 
@@ -33,11 +27,9 @@ import { usePrivy, useWallets, type ConnectedWallet } from '@privy-io/react-auth
 import {
   SUPPORTED_NETWORKS,
   getNetworkById,
-  getNetworkByKey,
   type Network,
   type NetworkKey,
 } from '@/lib/networks';
-import { ensureBragaSelected } from '@/lib/arkivBrowserClient';
 
 const STORAGE_KEY = 'openx:network';
 const URL_PARAM = 'network';
@@ -86,22 +78,12 @@ function isNetworkKey(v: unknown): v is NetworkKey {
 type SwitchError = 'rejected' | 'no-wallet' | string;
 
 async function switchTo(wallet: ConnectedWallet, network: Network): Promise<void> {
-  if (network.key === 'arkiv-braga') {
-    const provider = (await wallet.getEthereumProvider()) as unknown as {
-      request: (a: { method: string; params?: unknown }) => Promise<unknown>;
-    } | null;
-    if (!provider) throw new Error('no-wallet');
-    await ensureBragaSelected(provider);
-    return;
-  }
   await wallet.switchChain(network.id);
 }
 
 function classifyError(err: unknown): SwitchError {
   const e = err as { code?: number; message?: string };
-  if (e.message === 'user-rejected-chain-add' || e.message === 'user-rejected-chain-switch') return 'rejected';
   if (e.code === 4001 || /user rejected|denied/i.test(e.message ?? '')) return 'rejected';
-  if (e.message === 'no-wallet') return 'no-wallet';
   return e.message ?? 'unknown';
 }
 

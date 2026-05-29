@@ -8,7 +8,7 @@ import { listAgents, type Agent } from '@/lib/agents';
  * Landing — the new USP-first home page.
  *
  * Per docs/USP_BRIEF.md: lead with the magic verb "earn", not "store" or "hire".
- * Primary CTA goes to /memory (the live Sovereign + Platform lanes). Secondary
+ * Primary CTA goes to /brain (publish + manage encrypted brain). Secondary
  * goes to /marketplace (buyer / demo side). The existing AgentCard is reused
  * for the featured brains row — no new component file.
  */
@@ -62,11 +62,11 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-wrap gap-3">
             <Link
-              href="/memory"
+              href="/brain"
               className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-medium text-on-primary transition-colors hover:opacity-90"
             >
               <span className="material-symbols-outlined text-[20px]">edit_note</span>
-              Save your first memory
+              Publish your first brain
             </Link>
             <Link
               href="/marketplace"
@@ -110,7 +110,7 @@ export default function LandingPage() {
           <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center">
             <p className="text-on-surface-variant">No brains published yet.</p>
             <Link
-              href="/memory"
+              href="/brain"
               className="mt-3 inline-block text-sm text-primary hover:underline"
             >
               Be the first to save one →

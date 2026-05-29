@@ -14,7 +14,7 @@
  *
  * Threat model parity:
  *   - Phase 1 key safety = KEK env-var safety (same posture as DATABASE_URL,
- *     PAYMENT_SECRET, ARKIV_BACKEND_PRIVATE_KEY). KEK loss = unrecoverable
+ *     PAYMENT_SECRET, PLATFORM_SIGNER_PRIVATE_KEY). KEK loss = unrecoverable
  *     ciphertext, identical to Fhenix key loss.
  *   - Phase 2 upgrades to Fhenix's CoFHE wrap, which adds independent
  *     key-server verification — strictly stronger.

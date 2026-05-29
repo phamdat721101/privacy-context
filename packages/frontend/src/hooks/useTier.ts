@@ -3,14 +3,14 @@
 import { useEffect, useState, useCallback } from 'react';
 
 /**
- * Tier picker state. Three tiers (Standard = Fhenix, Trustless = Sui, Memory = Arkiv).
- * The 'arkiv' tier is additive — selecting it does NOT change v2/v3 routes; it just
- * surfaces the /memory page as the primary destination.
+ * Tier picker state. Two tiers (Standard = Fhenix on Arbitrum, Trustless = Sui).
+ * Selecting a tier does not change v2/v3 routes — it just records the user's
+ * preferred storage backend so onboarding flows can branch.
  */
-export type Tier = 'standard' | 'trustless' | 'arkiv';
+export type Tier = 'standard' | 'trustless';
 
 const KEY = 'openx:tier';
-const VALID: Tier[] = ['standard', 'trustless', 'arkiv'];
+const VALID: Tier[] = ['standard', 'trustless'];
 
 function isTier(v: unknown): v is Tier {
   return typeof v === 'string' && (VALID as string[]).includes(v);

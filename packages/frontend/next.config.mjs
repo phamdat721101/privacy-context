@@ -23,8 +23,6 @@ const config = {
   },
   // Legacy → openx URL map. All temporary (308) so search engines don't
   // freeze a stale redirect once the rewrite settles.
-  // NOTE: /memory is intentionally NOT in this list — it now hosts the Arkiv
-  //       Memory Tier (Web3 Database Builder Challenge). Do not re-add it.
   // NOTE: /brain is intentionally NOT in this list — it now hosts the
   //       Cognitive Memory v1 surface (L1/L2/L3, Fhenix-encrypted, Postgres-
   //       backed). The old "/brain → /studio" alias was a different feature
@@ -37,6 +35,8 @@ const config = {
       { source: '/zama-demo', destination: '/', permanent: false },
       { source: '/catalog', destination: '/marketplace', permanent: false },
       { source: '/settings-v2', destination: '/settings', permanent: false },
+      // /memory was the old Arkiv Memory Tier — now retired; route bookmarks to /brain.
+      { source: '/memory', destination: '/brain', permanent: false },
       // Bare /chat with no agent goes back to discovery.
       { source: '/chat', destination: '/marketplace', permanent: false },
     ];

@@ -9,7 +9,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@arkiv-network/sdk": "0.6.8",
     "@fhe-ai-context/sdk": "*",
     "@fhe-ai-context/ui": "*",
     "@privy-io/react-auth": "^2.0.0",

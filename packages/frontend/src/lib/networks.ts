@@ -1,7 +1,7 @@
 /**
- * lib/networks.ts — single source of truth for the three networks OpenX
- * supports today: Base Sepolia (USDC payments), Arbitrum Sepolia (FHE brain
- * tier on Fhenix CoFHE), and Arkiv Braga (Memory tier).
+ * lib/networks.ts — single source of truth for the networks OpenX supports:
+ * Base Sepolia (USDC payments) and Arbitrum Sepolia (FHE brain tier on
+ * Fhenix CoFHE).
  *
  * Why this file exists
  * --------------------
@@ -15,29 +15,26 @@
  * SOLID
  * -----
  *  - SRP: metadata + lookups only. No React, no wallet calls, no fetches.
- *  - DRY: chain primitives come from `wagmi/chains` (Base / Arbitrum) and
- *    `@arkiv-network/sdk/chains` (Braga). RPC URLs, native currency, and
- *    explorer URLs are *never* duplicated here.
- *  - OCP: adding a fourth network = appending one entry to `SUPPORTED_NETWORKS`
+ *  - DRY: chain primitives come from `wagmi/chains`. RPC URLs, native
+ *    currency, and explorer URLs are *never* duplicated here.
+ *  - OCP: adding a new network = appending one entry to `SUPPORTED_NETWORKS`
  *    plus, if the wallet doesn't auto-recognise it, an `addChainPayload`.
  */
 
 import { arbitrumSepolia, baseSepolia } from 'wagmi/chains';
-import { braga } from '@arkiv-network/sdk/chains';
 
 // ─── Public chain-id constants — imported by hooks/pages ─────────────────
 
 export const BASE_SEPOLIA_CHAIN_ID = baseSepolia.id;
 export const ARBITRUM_SEPOLIA_CHAIN_ID = arbitrumSepolia.id;
-export const ARKIV_BRAGA_CHAIN_ID = braga.id;
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
-export type NetworkKey = 'base-sepolia' | 'arbitrum-sepolia' | 'arkiv-braga';
+export type NetworkKey = 'base-sepolia' | 'arbitrum-sepolia';
 
 /** Which OpenX feature primarily uses a given chain. Surfaced in the UI
  *  so the user understands *why* they'd switch. */
-export type NetworkFeature = 'payment' | 'fhe-brain' | 'memory';
+export type NetworkFeature = 'payment' | 'fhe-brain';
 
 export interface Network {
   readonly key: NetworkKey;
@@ -54,10 +51,10 @@ export interface Network {
   readonly blockExplorer: string;
   readonly nativeCurrency: { name: string; symbol: string; decimals: number };
   /**
-   * EIP-3085 `wallet_addEthereumChain` payload. Only present when the chain
-   * is unlikely to be pre-known by user wallets — Arkiv-Braga today.
-   * Base/Arbitrum Sepolia are bundled in MetaMask & most embedded wallets,
-   * so a plain `wallet_switchEthereumChain` is enough for them.
+   * EIP-3085 `wallet_addEthereumChain` payload. Only set for chains unlikely
+   * to be pre-known by user wallets. Both chains here are bundled into
+   * MetaMask & most embedded wallets, so a plain `wallet_switchEthereumChain`
+   * is enough — no payload is needed today.
    */
   readonly addChainPayload?: {
     chainId: `0x${string}`;
@@ -94,25 +91,6 @@ export const SUPPORTED_NETWORKS: readonly Network[] = [
     rpcUrl: arbitrumSepolia.rpcUrls.default.http[0],
     blockExplorer: arbitrumSepolia.blockExplorers.default.url,
     nativeCurrency: arbitrumSepolia.nativeCurrency,
-  },
-  {
-    key: 'arkiv-braga',
-    id: ARKIV_BRAGA_CHAIN_ID,
-    name: 'Arkiv Braga (Golem)',
-    shortName: 'Arkiv',
-    icon: '🟢',
-    feature: 'memory',
-    featureHint: 'Wallet-owned memory',
-    rpcUrl: braga.rpcUrls.default.http[0],
-    blockExplorer: braga.blockExplorers.default.url,
-    nativeCurrency: braga.nativeCurrency,
-    addChainPayload: {
-      chainId: `0x${braga.id.toString(16)}` as `0x${string}`,
-      chainName: braga.name,
-      rpcUrls: [...braga.rpcUrls.default.http],
-      nativeCurrency: braga.nativeCurrency,
-      blockExplorerUrls: [braga.blockExplorers.default.url],
-    },
   },
 ] as const;
 

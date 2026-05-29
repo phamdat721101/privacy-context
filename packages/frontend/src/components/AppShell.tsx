@@ -3,7 +3,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletConnect } from './WalletConnect';
 import { NetworkSwitcher } from './NetworkSwitcher';
-import { ArkivProofPanel } from './ArkivProofPanel';
 
 interface NavItem {
   href: string;
@@ -18,7 +17,6 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
   { href: '/brain', icon: 'psychology', label: 'Brain' },
-  { href: '/memory', icon: 'memory', label: 'Memory' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
   { href: '/studio', icon: 'science', label: 'Studio' },
   { href: '/settings', icon: 'tune', label: 'Settings' },
@@ -105,8 +103,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </ul>
       </nav>
-
-      <ArkivProofPanel />
     </div>
   );
 }

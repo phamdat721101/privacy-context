@@ -1,15 +1,12 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { AgentCard } from '@/components/AgentCard';
 import { listAgents, type Agent } from '@/lib/agents';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
 
 const log = createLogger('marketplace');
-
-const HINT_KEY = 'openx:marketplace-cross-store-hint';
 
 interface DiscoverBundle {
   id: string;
@@ -28,10 +25,6 @@ export default function MarketplacePage() {
   const [search, setSearch] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [hintDismissed, setHintDismissed] = useState(true);
-  useEffect(() => {
-    try { setHintDismissed(window.localStorage.getItem(HINT_KEY) === '1'); } catch { /* ignore */ }
-  }, []);
 
   // Discovery concierge state.
   const [discoverMsg, setDiscoverMsg] = useState('');
@@ -71,27 +64,6 @@ export default function MarketplacePage() {
 
   return (
     <div className="space-y-6">
-      {!hintDismissed && (
-        <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
-          <span className="material-symbols-outlined text-[18px] text-primary">info</span>
-          <div className="flex-1">
-            Looking for your <strong>on-chain memories</strong> instead of paid brains?
-            They live at <Link href="/memory" className="underline hover:text-primary">/memory</Link>.
-            Brains and memories are separate stores by design.
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              try { window.localStorage.setItem(HINT_KEY, '1'); } catch { /* ignore */ }
-              setHintDismissed(true);
-            }}
-            className="rounded p-1 text-on-surface-variant hover:bg-surface-container"
-            aria-label="Dismiss"
-          >
-            <span className="material-symbols-outlined text-[16px]">close</span>
-          </button>
-        </div>
-      )}
       <div className="space-y-2">
         <h1 className="font-headline text-3xl font-bold">Marketplace</h1>
         <p className="text-on-surface-variant">

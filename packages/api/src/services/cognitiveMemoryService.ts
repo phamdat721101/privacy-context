@@ -11,7 +11,7 @@
  *
  * Phase 1 trust posture:
  *   - L1 episode payload: AES-256-GCM with key = HKDF(KEK, owner+layer).
- *   - L2 fact: same; signed by the platform Memory-Agent (ARKIV_BACKEND_PRIVATE_KEY)
+ *   - L2 fact: same; signed by the platform Memory-Agent (PLATFORM_SIGNER_PRIVATE_KEY)
  *     on the owner's behalf — semantics: "OpenX attests this fact was
  *     derived from owner X's L1 episodes". Phase 2 can upgrade to owner-signed.
  *   - L3 bundle: same encryption + same signing posture.
@@ -44,14 +44,18 @@ import {
   type PromotionCandidate,
 } from '@fhe-ai-context/sdk';
 
-// ─── Lazy signer — reuses existing ARKIV_BACKEND_PRIVATE_KEY (no new env var) ─
+// ─── Lazy signer — PLATFORM_SIGNER_PRIVATE_KEY (backward-compat: ARKIV_BACKEND_PRIVATE_KEY) ─
 
 let _signerAccount: ReturnType<typeof privateKeyToAccount> | null = null;
 function getSigner() {
   if (_signerAccount) return _signerAccount;
-  const pk = process.env.ARKIV_BACKEND_PRIVATE_KEY as Hex | undefined;
+  const pk = (process.env.PLATFORM_SIGNER_PRIVATE_KEY ??
+    process.env.ARKIV_BACKEND_PRIVATE_KEY) as Hex | undefined;
   if (!pk) {
-    throw Object.assign(new Error('ARKIV_BACKEND_PRIVATE_KEY missing — cognitive service cannot sign'), { status: 503 });
+    throw Object.assign(
+      new Error('PLATFORM_SIGNER_PRIVATE_KEY missing — cognitive service cannot sign'),
+      { status: 503 },
+    );
   }
   _signerAccount = privateKeyToAccount(pk);
   return _signerAccount;

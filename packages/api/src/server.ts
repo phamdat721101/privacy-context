@@ -10,7 +10,6 @@ import brainsRouter from './routes/brains';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
 import v3Router from './routes/v3';
-import v4Router from './routes/v4';
 import {
   logger,
   correlationId,
@@ -39,11 +38,6 @@ app.use('/v2', auth, agentKya, v2Router);
 // v3 API — dual-chain agentic marketplace. Additive; v2 untouched.
 // Per-route ownership/KYA gating happens inside the sub-router.
 app.use('/v3', auth, agentKya, v3Router);
-
-// v4 API — Arkiv Memory tier (Web3 Database Builder Challenge).
-// Mounted WITHOUT parent auth: writes opt-in to auth, reads are public,
-// pay-to-extend uses an inline x402 HMAC paywall sharing PAYMENT_SECRET.
-app.use('/v4', v4Router);
 
 app.get('/platform', (_, res) => res.json({
   platformWallet: process.env.PLATFORM_WALLET || '',

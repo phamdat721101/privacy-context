@@ -3,11 +3,6 @@ export * from './client/cofheClient';
 export * from './context/contextTypes';
 export * from './context/encryptContext';
 export * from './context/decryptContext';
-export * from './memory/encryptMemory';
-export * from './memory/decryptMemory';
-// Arkiv memory schema (NEW — Web3 Database Builder Challenge)
-export * from './memory/types';
-export * from './memory/serialize';
 // Cognitive Memory v1 (L1/L2/L3 — Fhenix-encrypted, Postgres-backed)
 // keyWrap.ts is intentionally NOT re-exported here — it imports node:crypto
 // and is server-only. Server code imports it via the deep path

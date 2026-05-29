@@ -9,7 +9,6 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@arkiv-network/sdk": "0.6.8",
     "@cofhe/sdk": "^0.5.1",
     "viem": "^2.0.0"
   },

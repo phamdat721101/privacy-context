@@ -16,7 +16,7 @@ import { useBrainChunks } from './useBrainChunks';
  *
  * For mode='store' (owner-only, legacy plaintext add) we still POST /chat. The
  * v2 surface for adding encrypted knowledge has been removed; the active
- * surface for user-owned memory is /memory (sovereign Arkiv writes).
+ * surface for user-owned memory is the FHE-encrypted /brain page.
  *
  * SOLID: single responsibility (chat round-trip); composes useBrainChunks;
  * caller-owned auth-error callback so the hook stays decoupled from <Permit/>.

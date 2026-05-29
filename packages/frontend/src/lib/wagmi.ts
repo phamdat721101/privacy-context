@@ -2,9 +2,7 @@
  * lib/wagmi.ts — wagmi client config.
  *
  * Source of truth for chains is `lib/networks.ts`. This module only adapts
- * that registry into the shape wagmi/viem expect. Arkiv-Braga is *not*
- * registered here: its writes go through `@arkiv-network/sdk` directly
- * (see `lib/arkivBrowserClient.ts`), not through wagmi's transport layer.
+ * that registry into the shape wagmi/viem expect.
  */
 
 import { createConfig } from '@privy-io/wagmi';
