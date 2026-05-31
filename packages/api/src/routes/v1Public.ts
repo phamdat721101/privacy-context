@@ -62,11 +62,26 @@ async function loadAgent(slug: string): Promise<AgentRow | null> {
 
 /** Build the n-payment provider on demand. Called at most once per slug per process. */
 async function buildProvider(agent: AgentRow): Promise<CachedProvider> {
-  // n-payment is loaded via Function('require') to bypass tsc's module
-  // resolution entirely — n-payment's transitive types (viem 2.x → ox)
-  // currently fail under our compiler settings, but the runtime works fine.
-  const requireFn = Function('m', 'return require(m)') as (m: string) => any;
-  const np: any = requireFn('n-payment');
+  // n-payment 0.8.0 ships an ESM-only build: the `exports.require` entry
+  // points to `./dist/index.cjs`, but that file is missing from the
+  // published tarball — only `dist/index.js` (ESM) is shipped. A plain
+  // `require('n-payment')` therefore fails with MODULE_NOT_FOUND, and
+  // `await import('n-payment')` is silently rewritten by tsc (under
+  // `module: commonjs`) into the same failing `require(...)` call.
+  //
+  // The fix below preserves a *native* dynamic import past tsc's rewriter
+  // by hiding it inside a Function body. This is safe — and a deliberate
+  // contrast to the previous `Function('m', 'return require(m)')` hack
+  // that crashed at runtime: `require` is a CJS module-local binding so
+  // it isn't visible inside a Function body (which executes in global
+  // scope), but `import()` is engine-level JS syntax and resolves in any
+  // scope. Same `: any` assertion sidesteps the viem 2.x → ox transitive
+  // type graph that broke the build originally.
+  const dynamicImport: (m: string) => Promise<any> = Function(
+    'm',
+    'return import(m)',
+  ) as any;
+  const np: any = await dynamicImport('n-payment');
   const { createAgentProvider, paidTool } = np;
 
   const priceUsdc = Number(agent.pricing?.x402 ?? '0');
