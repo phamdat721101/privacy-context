@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { createHash, randomUUID } from 'node:crypto';
 import { registerLink, getLinkByEth, getLinkBySui } from '../services/agentLinkOracle';
 import { paymentGate, PriceableRequest } from '../middleware/paymentGate';
 import { issueBundle, getBundle, verifyManifest } from '../services/bundleService';
@@ -150,10 +151,56 @@ v3.post('/agents/:id/publish', async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * PATCH /v3/agents/:id — owner partial update of `persona` and/or `pricing`.
+ * Used by the studio Settings tab to edit the agent prompt without re-publishing.
+ * Invalidates the v1Public provider cache so the next `/api/v1/<slug>` call
+ * picks up the new prompt within ~1s of save.
+ */
+v3.patch('/agents/:id', async (req: AuthRequest, res: Response) => {
+  const ctx = { wallet: req.user?.address, agentId: req.params.id };
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const { persona, pricing } = req.body ?? {};
+  if (!persona && !pricing) return res.status(400).json({ error: 'persona or pricing required' });
+  if (persona?.system_prompt && typeof persona.system_prompt === 'string' && persona.system_prompt.length > 4000) {
+    return res.status(400).json({ error: 'system_prompt too long (max 4000 chars)' });
+  }
+  try {
+    const r = await pool.query(
+      `UPDATE agents
+          SET persona = COALESCE($3::jsonb, persona),
+              pricing = COALESCE($4::jsonb, pricing)
+        WHERE id = $1 AND owner_address = $2
+        RETURNING id, slug, persona, pricing`,
+      [
+        req.params.id,
+        req.user.address,
+        persona ? JSON.stringify(persona) : null,
+        pricing ? JSON.stringify(pricing) : null,
+      ],
+    );
+    if (r.rowCount === 0) {
+      logger.warn(ctx, 'v3:agents:patch:not-owner');
+      return res.status(403).json({ error: 'not owner or not found' });
+    }
+    // Evict v1Public provider cache so the new prompt/price ships on next call.
+    if (r.rows[0].slug) {
+      const { invalidateProvider } = await import('./v1Public');
+      invalidateProvider(r.rows[0].slug);
+    }
+    logger.info(ctx, 'v3:agents:patch:ok');
+    res.json(r.rows[0]);
+  } catch (err) {
+    const e = err as Error & { code?: string };
+    logger.error({ ...ctx, err: e.message, code: e.code }, 'v3:agents:patch:failed');
+    res.status(500).json({ error: e.message, code: e.code ?? null });
+  }
+});
+
 v3.get('/agents', async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit ?? 50), 100);
   const r = await pool.query(
-    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at
+    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
      FROM agents WHERE published = true ORDER BY created_at DESC LIMIT $1`,
     [limit],
   );
@@ -162,7 +209,7 @@ v3.get('/agents', async (req: Request, res: Response) => {
 
 v3.get('/agents/:id', async (req: Request, res: Response) => {
   const r = await pool.query(
-    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at
+    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
      FROM agents WHERE id = $1`,
     [req.params.id],
   );
@@ -172,11 +219,86 @@ v3.get('/agents/:id', async (req: Request, res: Response) => {
 
 v3.get('/agents/by-owner/:owner', async (req: Request, res: Response) => {
   const r = await pool.query(
-    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at
+    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
      FROM agents WHERE owner_address = $1 ORDER BY created_at DESC`,
     [req.params.owner.toLowerCase()],
   );
   res.json(r.rows);
+});
+
+// ─── PRD-2: free, rate-limited try-it endpoint ─────────────────────────────
+//
+// Lets buyers test a published agent without a wallet/USDC. The same
+// `runInference` path the paid surface uses; we just bypass the paywall
+// and log to `paid_calls` with `method='demo'` so seller earnings can
+// filter cleanly. Rate-limited per (IP, agent) and per agent, in-memory,
+// no Redis. Bounded memory: O(active keys × calls/day).
+
+const tryLimiter = new Map<string, number[]>();
+const TRY_DAY_MS = 24 * 60 * 60 * 1000;
+function tryAllow(key: string, capPerDay: number): { ok: boolean; retryAfterSec?: number } {
+  const now = Date.now();
+  const cutoff = now - TRY_DAY_MS;
+  const hits = (tryLimiter.get(key) ?? []).filter((t) => t > cutoff);
+  if (hits.length >= capPerDay) {
+    const retryAfterSec = Math.ceil((hits[0] + TRY_DAY_MS - now) / 1000);
+    tryLimiter.set(key, hits);
+    return { ok: false, retryAfterSec };
+  }
+  hits.push(now);
+  tryLimiter.set(key, hits);
+  return { ok: true };
+}
+
+v3.post('/agents/:id/try', async (req: Request, res: Response) => {
+  const id = req.params.id;
+  const q = String(req.body?.q ?? '').trim();
+  if (!q || q.length > 2000) return res.status(400).json({ error: 'q required, ≤2000 chars' });
+
+  // Privacy: hash the IP rather than store it. 12 hex chars = 48 bits, plenty
+  // for keying without re-identification.
+  const ipHash = createHash('sha256').update(req.ip ?? 'unknown').digest('hex').slice(0, 12);
+  const perIp = tryAllow(`ip:${ipHash}:agent:${id}`, 10);
+  if (!perIp.ok) {
+    res.set('Retry-After', String(perIp.retryAfterSec));
+    return res.status(429).json({ error: 'try limit reached for this agent today', retryAfterSec: perIp.retryAfterSec });
+  }
+  const perAgent = tryAllow(`agent:${id}`, 100);
+  if (!perAgent.ok) {
+    res.set('Retry-After', String(perAgent.retryAfterSec));
+    return res.status(429).json({ error: 'agent demo cap reached today', retryAfterSec: perAgent.retryAfterSec });
+  }
+
+  const r = await pool.query(
+    `SELECT id, slug, brain_id, owner_address, persona, pricing FROM agents WHERE id = $1 AND published = true`,
+    [id],
+  );
+  if (r.rowCount === 0) return res.status(404).json({ error: 'agent not found' });
+  const agent = r.rows[0];
+
+  try {
+    const { runInference } = await import('./v1Public');
+    const { record } = await import('../services/paidCallLedger');
+    const result = await runInference(
+      { brain_id: agent.brain_id, persona: agent.persona },
+      q,
+    );
+    const txHash = `demo-${randomUUID()}`;
+    await record({
+      agentId: agent.id,
+      slug: agent.slug ?? `agent-${agent.id}`,
+      buyer: 'demo',
+      amountUsdc: '0',
+      txHash,
+      network: process.env.X402_NETWORK ?? 'arbitrum-sepolia',
+      method: 'demo',
+    });
+    logger.info({ agentId: agent.id, ipHash }, 'service:try:end');
+    res.json({ ...result, settled: { method: 'demo', txHash, demo: true } });
+  } catch (err) {
+    logger.error({ agentId: agent.id, err: (err as Error).message }, 'service:try:failed');
+    res.status(500).json({ error: 'inference failed' });
+  }
 });
 
 /**
@@ -195,10 +317,16 @@ v3.post('/agents/:id/chat', paymentGate as any, async (req: PriceableRequest, re
   // server-side (mock-first).
   try {
     const { ChatService } = await import('../services/chat');
+    const { buildSystemPrompt } = await import('./v1Public');
     const buyer = req.user?.address ?? 'agent-anonymous';
+    // Use the canonical prompt-merger so v3 chat and v1 paid-API path emit
+    // byte-identical system prompts for the same (persona, message) input.
+    // Fixes a latent bug where this site rendered "undefined\n\nUser:…" when
+    // the seller never set persona.system_prompt (the wizard's prior payload).
+    const sellerPrompt = buildSystemPrompt(agent.persona, '');
     const result = await ChatService.chat(
       buyer,
-      `${agent.persona.system_prompt}\n\nUser: ${message}`,
+      `${sellerPrompt}\n\nUser: ${message}`,
       String(agent.brain_id),
       'learn',
       agent.chain,
@@ -245,7 +373,6 @@ v3.post('/agents/:id/chat', paymentGate as any, async (req: PriceableRequest, re
 
 // 16-hex deterministic short hash for the topic attribute. Kept inline (one
 // helper, used only here) per "essential files only".
-import { createHash } from 'node:crypto';
 function shortTopicHash(s: string): string {
   return createHash('sha256').update(s.toLowerCase().slice(0, 200), 'utf8').digest('hex').slice(0, 16);
 }

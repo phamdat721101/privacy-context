@@ -19,6 +19,11 @@ export interface Agent {
   slug?: string;
   /** True if seller opted into confidential-amount payments. */
   acceptsPrivate?: boolean;
+  /** UUID of the `agents` row (distinct from `id`, which is the brain id).
+   *  Required for PATCH /v3/agents/:id from studio Settings (PRD-1). */
+  v3AgentId?: string;
+  /** Seller-authored persona (system prompt, etc.). PRD-1. */
+  persona?: { system_prompt?: string | null; description?: string };
 }
 
 interface BrainDto {
@@ -55,19 +60,24 @@ export async function listAgents(query?: string): Promise<Agent[]> {
   const brainData = (await brainsRes.json()) as BrainDto[];
   const agents = brainData.map(brainToAgent);
 
-  // Merge in slug + pricing from /v3/agents (paid API records, keyed by brain_id).
+  // Merge in slug + pricing + persona + v3 agent UUID from /v3/agents
+  // (paid API records, keyed by brain_id).
   if (paidRes && paidRes.ok) {
     try {
       const paid = await paidRes.json() as Array<{
+        id: string;
         brain_id: number;
         slug?: string;
         pricing?: { x402?: string | null; fherc20?: string | null };
+        persona?: { system_prompt?: string | null; description?: string };
       }>;
       const byBrain = new Map(paid.map((p) => [p.brain_id, p]));
       for (const a of agents) {
         const p = byBrain.get(a.id);
         if (!p) continue;
         a.slug = p.slug;
+        a.v3AgentId = p.id;
+        a.persona = p.persona;
         if (p.pricing?.x402) a.price = { amount: p.pricing.x402, currency: 'USDC' };
         if (p.pricing?.fherc20) a.acceptsPrivate = true;
       }
@@ -77,10 +87,35 @@ export async function listAgents(query?: string): Promise<Agent[]> {
 }
 
 export async function getAgent(id: string | number): Promise<Agent | null> {
-  const r = await fetch(`${AGENT_BACKEND_URL}/brains/${id}`);
-  if (!r.ok) return null;
-  const data = (await r.json()) as BrainDto;
-  return brainToAgent(data);
+  const [brainRes, paidRes] = await Promise.all([
+    fetch(`${AGENT_BACKEND_URL}/brains/${id}`),
+    fetch(`${AGENT_BACKEND_URL}/v3/agents`).catch(() => null),
+  ]);
+  if (!brainRes.ok) return null;
+  const data = (await brainRes.json()) as BrainDto;
+  const agent = brainToAgent(data);
+
+  // Same merge as listAgents — keeps the two paths byte-equivalent.
+  if (paidRes && paidRes.ok) {
+    try {
+      const paid = (await paidRes.json()) as Array<{
+        id: string;
+        brain_id: number;
+        slug?: string;
+        pricing?: { x402?: string | null; fherc20?: string | null };
+        persona?: { system_prompt?: string | null; description?: string };
+      }>;
+      const p = paid.find((x) => x.brain_id === agent.id);
+      if (p) {
+        agent.slug = p.slug;
+        agent.v3AgentId = p.id;
+        agent.persona = p.persona;
+        if (p.pricing?.x402) agent.price = { amount: p.pricing.x402, currency: 'USDC' };
+        if (p.pricing?.fherc20) agent.acceptsPrivate = true;
+      }
+    } catch {/* leave unenriched */}
+  }
+  return agent;
 }
 
 export async function listMyAgents(walletAddress: string): Promise<Agent[]> {

@@ -15,8 +15,23 @@ export interface AuthRequest extends Request {
  * Per docs/USP_BRIEF.md: sellers don't subscribe. Buyers pay per-call x402 on
  * /v2/inference (enforced inside the route, not here). This middleware only
  * proves wallet identity + caches the FHE permit status.
+ *
+ * Public-by-design routes mounted under an authed router declare themselves
+ * here. Adding a route to PUBLIC_PATHS is the canonical way to opt out — keeps
+ * the public surface visible at one place rather than scattered across the
+ * routers it lives inside.
  */
+const PUBLIC_PATHS: RegExp[] = [
+  // /v3/agents/slug-available — slug presence is public information.
+  /^\/agents\/slug-available$/,
+  // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
+  // rate limiter (in v3.ts) is the abuse defense here.
+  /^\/agents\/[^/]+\/try$/,
+];
+
 export const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (PUBLIC_PATHS.some((re) => re.test(req.path))) return next();
+
   const address = req.headers['x-wallet-address'] as string;
   if (!address) return res.status(401).json({ error: 'Missing wallet address' });
 

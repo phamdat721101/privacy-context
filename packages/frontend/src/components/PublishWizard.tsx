@@ -43,6 +43,9 @@ interface WizardConfig {
   method: 'exact' | 'fherc20';
   acceptPrivate: boolean;
   payTo: `0x${string}`;
+  /** Seller-authored system prompt for the brain's API consumers (PRD-1).
+   *  Empty = use the auto-generated default on the public detail page. */
+  agentPrompt: string;
 }
 
 interface WizardProps {
@@ -114,6 +117,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
   const [priceUsdc, setPriceUsdc] = useState('0.01');
   const [acceptPrivate, setAcceptPrivate] = useState(false);
   const [payTo, setPayTo] = useState<string>(defaultPayTo);
+  const [agentPrompt, setAgentPrompt] = useState('');
   const [slugStatus, setSlugStatus] = useState<{ available: boolean; reason?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [shipped, setShipped] = useState<{ agentId: string; slug: string } | null>(null);
@@ -154,6 +158,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
       method: 'exact',
       acceptPrivate,
       payTo: payTo as `0x${string}`,
+      agentPrompt,
     };
     const r = await onPublish(cfg);
     setBusy(false);
@@ -191,10 +196,12 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
           priceUsdc={priceUsdc}
           payTo={payTo}
           acceptPrivate={acceptPrivate}
+          agentPrompt={agentPrompt}
           onSlug={setSlug}
           onPrice={setPriceUsdc}
           onPayTo={setPayTo}
           onAcceptPrivate={setAcceptPrivate}
+          onAgentPrompt={setAgentPrompt}
           onBack={() => go(1)}
           onNext={() => go(3)}
           ownerAddress={defaultPayTo}
@@ -212,6 +219,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
             method: 'exact',
             acceptPrivate,
             payTo: payTo as `0x${string}`,
+            agentPrompt,
           }}
           canShip={!!canShip}
           busy={busy}
@@ -316,11 +324,13 @@ function Step2(props: {
   priceUsdc: string;
   payTo: string;
   acceptPrivate: boolean;
+  agentPrompt: string;
   ownerAddress: `0x${string}`;
   onSlug: (s: string) => void;
   onPrice: (s: string) => void;
   onPayTo: (s: string) => void;
   onAcceptPrivate: (b: boolean) => void;
+  onAgentPrompt: (s: string) => void;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -395,6 +405,20 @@ function Step2(props: {
           />
           <span className="text-sm">Accept confidential-amount payments</span>
         </label>
+      </Field>
+
+      <Field
+        label="Agent prompt (optional)"
+        hint="What should AI buyers know about how to use this brain? Empty = use a derived default on the public page."
+      >
+        <textarea
+          value={props.agentPrompt}
+          onChange={(e) => props.onAgentPrompt(e.target.value)}
+          rows={5}
+          maxLength={4000}
+          placeholder={`You answer questions about "${props.brain.title}". Reply concisely; cite the brain when its knowledge is used.`}
+          className="w-full rounded-2xl border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 font-mono text-xs leading-relaxed focus:border-primary/60 focus:outline-none"
+        />
       </Field>
 
       <div className="flex justify-between">

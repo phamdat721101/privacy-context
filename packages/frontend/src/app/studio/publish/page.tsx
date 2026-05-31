@@ -29,6 +29,7 @@ interface PublishConfig {
   method: 'exact' | 'fherc20';
   acceptPrivate: boolean;
   payTo: `0x${string}`;
+  agentPrompt: string;
 }
 
 export default function PublishPage() {
@@ -51,6 +52,11 @@ export default function PublishPage() {
     if (cfg.acceptPrivate) pricing.fherc20 = cfg.priceUsdc;
 
     // 1. Create the agent record (DB, draft state).
+    const persona: { description: string; system_prompt?: string } = {
+      description: 'OpenX paid API for brain ' + cfg.brainId,
+    };
+    const trimmedPrompt = cfg.agentPrompt?.trim();
+    if (trimmedPrompt) persona.system_prompt = trimmedPrompt;
     const create = await fetch(`${AGENT_BACKEND_URL}/v3/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-wallet-address': userAddress },
@@ -58,7 +64,7 @@ export default function PublishPage() {
         brain_id: cfg.brainId,
         chain: cfg.network,
         slug: cfg.slug,
-        persona: { description: 'OpenX paid API for brain ' + cfg.brainId },
+        persona,
         pricing,
         kya_required: false,
         min_reputation: 0,

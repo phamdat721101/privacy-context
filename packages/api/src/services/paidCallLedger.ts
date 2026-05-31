@@ -18,7 +18,7 @@ export interface PaidCallRecord {
   amountUsdc: string;          // decimal string, e.g. "0.01"
   txHash: string;
   network: string;             // 'arbitrum-sepolia' | 'base-sepolia' | …
-  method: 'exact' | 'fherc20'; // matches the WWW-Authenticate `method` token
+  method: 'exact' | 'fherc20' | 'demo'; // x402 / FHERC20 confidential / free try-it (PRD-2)
 }
 
 /** Returns true if a fresh row was inserted, false if it was a duplicate. */

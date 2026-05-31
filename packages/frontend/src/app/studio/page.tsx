@@ -106,7 +106,7 @@ export default function StudioPage() {
           + New paid API
         </Link>
       </div>
-      <EarningsTile userAddress={userAddress} />
+      <EarningsTile userAddress={userAddress} agents={agents} />
 
       {!hasPermit ? (
         // Onboarding gate: login → permit → create. The PermitManager is the
@@ -177,6 +177,17 @@ export default function StudioPage() {
                     </div>
                   </div>
                 </Link>
+                {a.slug && (
+                  <Link
+                    href={`/agent/${a.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open public bundle page (what AI buyers see)"
+                    className="rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-secondary transition-colors hover:bg-secondary/20"
+                  >
+                    public ↗
+                  </Link>
+                )}
                 <label className="cursor-pointer rounded-full border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary">
                   Upload
                   <input
@@ -216,7 +227,7 @@ interface EarningsData {
   }>;
 }
 
-function EarningsTile({ userAddress }: { userAddress: `0x${string}` | undefined }) {
+function EarningsTile({ userAddress, agents }: { userAddress: `0x${string}` | undefined; agents: Agent[] }) {
   const [data, setData] = useState<EarningsData | null>(null);
   useEffect(() => {
     if (!userAddress) return;
@@ -235,6 +246,11 @@ function EarningsTile({ userAddress }: { userAddress: `0x${string}` | undefined 
 
   if (!data || (data.settledCallCount ?? 0) === 0) return null;
 
+  // Map slug → brainId so receipt rows can deep-link into /agent/[id] (the
+  // canonical bundle page). Falls back to a non-link span when no match.
+  const slugToBrainId = new Map<string, number>();
+  for (const a of agents) if (a.slug) slugToBrainId.set(a.slug, a.id);
+
   return (
     <section className="grid gap-3 md:grid-cols-2">
       <div className="rounded-xl border border-secondary/30 bg-secondary/5 p-5">
@@ -248,15 +264,24 @@ function EarningsTile({ userAddress }: { userAddress: `0x${string}` | undefined 
       <div className="rounded-xl border border-outline-variant/30 bg-surface p-5">
         <div className="text-xs uppercase tracking-wider text-on-surface-variant">Latest receipts</div>
         <ul className="mt-2 space-y-1.5">
-          {(data.paidCalls ?? []).slice(0, 3).map((p) => (
-            <li key={p.txHash} className="flex items-center justify-between text-xs">
-              <span className="font-mono">/{p.slug}</span>
-              <span className="font-mono">${p.amountUsdc}</span>
-              <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                tx ↗
-              </a>
-            </li>
-          ))}
+          {(data.paidCalls ?? []).slice(0, 3).map((p) => {
+            const brainId = slugToBrainId.get(p.slug);
+            return (
+              <li key={p.txHash} className="flex items-center justify-between text-xs">
+                {brainId !== undefined ? (
+                  <Link href={`/agent/${brainId}`} className="font-mono hover:text-primary">
+                    /{p.slug}
+                  </Link>
+                ) : (
+                  <span className="font-mono">/{p.slug}</span>
+                )}
+                <span className="font-mono">${p.amountUsdc}</span>
+                <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                  tx ↗
+                </a>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </section>

@@ -25,6 +25,27 @@ import { verifyFherc20Receipt } from '../services/fherc20Verifier';
 
 const router = express.Router();
 
+// ─── canonical system-prompt merger ────────────────────────────────────────
+//
+// Both `/api/v1/<slug>` (this file) and `/v3/agents/:id/chat` (routes/v3.ts)
+// build the LLM system prompt the same way: optional seller-authored prompt
+// from `persona.system_prompt`, followed by the RAG-derived grounding block.
+// Centralizing here removes a latent drift bug where v3 chat templated
+// `${persona.system_prompt}\n\nUser:…` (rendering "undefined" when unset)
+// while v1Public used RAG-only and ignored the seller prompt entirely.
+//
+// Pure: no I/O, no side effects.
+export function buildSystemPrompt(
+  persona: { system_prompt?: string | null } | null | undefined,
+  ragContext: string,
+): string {
+  const sellerPrompt = (persona?.system_prompt ?? '').trim();
+  const grounding = ragContext
+    ? `Answer using ONLY this knowledge:\n${ragContext}`
+    : `No knowledge available; respond honestly that the brain is empty.`;
+  return sellerPrompt ? `${sellerPrompt}\n\n---\n\n${grounding}` : grounding;
+}
+
 // ─── n-payment provider cache (one per slug, lazy) ─────────────────────────
 
 interface AgentRow {
@@ -32,6 +53,7 @@ interface AgentRow {
   slug: string;
   brain_id: number;
   owner_address: string;
+  persona: { system_prompt?: string | null; description?: string } | null;
   pricing: { x402?: string | null; fherc20?: string | null };
   daily_request_cap: number;
   published: boolean;
@@ -53,7 +75,7 @@ function isReserved(slug: string): boolean {
 async function loadAgent(slug: string): Promise<AgentRow | null> {
   if (isReserved(slug)) return null;
   const r = await pool.query(
-    `SELECT id, slug, brain_id, owner_address, pricing, daily_request_cap, published
+    `SELECT id, slug, brain_id, owner_address, persona, pricing, daily_request_cap, published
        FROM agents WHERE slug = $1 AND published = true`,
     [slug],
   );
@@ -107,13 +129,15 @@ async function buildProvider(agent: AgentRow): Promise<CachedProvider> {
         name: 'ask',
         description: 'Ask this brain a question.',
         price: priceMicroUsdc,
-        handler: async (input: { question: string }) => runInference(agent.brain_id, input.question),
+        handler: async (input: { question: string }) => runInference(agent, input.question),
       }),
     ],
   });
 
   // AgentCard JSON — built from the same config we passed to the provider.
   // This keeps the surface stable across n-payment minor versions.
+  // `system_prompt` is exposed so AI buyers discover the seller's prompt
+  // during the standard agent-card fetch (PRD-1 T3). Null when unset.
   const agentCardJson = {
     name: agent.slug,
     description: `OpenX brain "${agent.slug}" — pay-per-call USDC on ${network}`,
@@ -122,6 +146,7 @@ async function buildProvider(agent: AgentRow): Promise<CachedProvider> {
     chain: network,
     asset,
     tools: [{ name: 'ask', price: priceMicroUsdc, currency: 'USDC' }],
+    system_prompt: agent.persona?.system_prompt ?? null,
   };
 
   return { agent, middleware: provider.middleware(), agentCardJson };
@@ -144,13 +169,18 @@ export function invalidateProvider(slug: string): void {
 
 // ─── inference helper (kept small — delegates to existing services) ────────
 
-async function runInference(brainId: number, question: string): Promise<{ answer: string; citations: number[] }> {
-  const chunks = await KnowledgeIngestService.loadChunks(brainId);
+/**
+ * Run RAG + LLM for one paid call. Exported so PRD-2's `/v3/agents/:id/try`
+ * can reuse the same path without duplicating the chunk-rank-LLM dance.
+ */
+export async function runInference(
+  agent: { brain_id: number; persona: AgentRow['persona'] },
+  question: string,
+): Promise<{ answer: string; citations: number[] }> {
+  const chunks = await KnowledgeIngestService.loadChunks(agent.brain_id);
   const ranked = rankChunks(question, chunks).slice(0, 5);
   const context = ranked.map((c) => c.content).filter(Boolean).join('\n---\n');
-  const system = context
-    ? `Answer using ONLY this knowledge:\n${context}`
-    : `No knowledge available; respond honestly that the brain is empty.`;
+  const system = buildSystemPrompt(agent.persona, context);
   const answer = await llmChat(system, [{ role: 'user', content: question }]);
   // Citations are positional indices into the ranked chunk list; the agent.json
   // surface declares this so callers can map [n] → ranked[n].
@@ -214,7 +244,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
   const question = (req.query.q as string | undefined) ?? '';
   if (!question) return res.status(400).json({ error: 'q (question) required' });
 
-  const result = await runInference(provider.agent.brain_id, question);
+  const result = await runInference(provider.agent, question);
 
   // fherc20 path needs explicit ledger write (n-payment handler runs only on x402).
   const receipt = (req as any).receipt as { method: string; txHash: string } | undefined;
