@@ -10,6 +10,7 @@ import brainsRouter from './routes/brains';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
 import v3Router from './routes/v3';
+import v1PublicRouter from './routes/v1Public';
 import {
   logger,
   correlationId,
@@ -38,6 +39,10 @@ app.use('/v2', auth, agentKya, v2Router);
 // v3 API — dual-chain agentic marketplace. Additive; v2 untouched.
 // Per-route ownership/KYA gating happens inside the sub-router.
 app.use('/v3', auth, agentKya, v3Router);
+
+// /api/v1 — PUBLIC, x402-paywalled brain endpoints. NO parent auth — the
+// paywall (n-payment middleware) is the auth. Per PRD-1.
+app.use('/api/v1', v1PublicRouter);
 
 app.get('/platform', (_, res) => res.json({
   platformWallet: process.env.PLATFORM_WALLET || '',

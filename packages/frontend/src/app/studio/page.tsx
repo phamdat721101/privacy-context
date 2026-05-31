@@ -91,12 +91,22 @@ export default function StudioPage() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-2">
-        <h1 className="font-headline text-3xl font-bold">Studio</h1>
-        <p className="text-on-surface-variant">
-          Train, manage, and publish your encrypted AI agents.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-2">
+          <h1 className="font-headline text-3xl font-bold">Studio</h1>
+          <p className="text-on-surface-variant">
+            Train, manage, and publish your encrypted AI agents.
+          </p>
+        </div>
+        <Link
+          href="/studio/publish"
+          className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-on-primary hover:opacity-90"
+        >
+          <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
+          + New paid API
+        </Link>
       </div>
+      <EarningsTile userAddress={userAddress} />
 
       {!hasPermit ? (
         // Onboarding gate: login → permit → create. The PermitManager is the
@@ -184,5 +194,71 @@ export default function StudioPage() {
         </>
       )}
     </div>
+  );
+}
+
+// ─── EarningsTile ──────────────────────────────────────────────────────────
+//
+// SRP: surfaces real settled USDC + paid_calls totals from /brains/earnings/.
+// Co-located here because it's the only page that uses it; promote to its
+// own file if a second consumer appears.
+
+interface EarningsData {
+  settledTotalUsdc?: number;
+  settledCallCount?: number;
+  paidCalls?: Array<{
+    slug: string;
+    amountUsdc: string;
+    txHash: string;
+    explorerUrl: string;
+    method: string;
+    at: string;
+  }>;
+}
+
+function EarningsTile({ userAddress }: { userAddress: `0x${string}` | undefined }) {
+  const [data, setData] = useState<EarningsData | null>(null);
+  useEffect(() => {
+    if (!userAddress) return;
+    let cancelled = false;
+    const load = () =>
+      fetch(`${AGENT_BACKEND_URL}/brains/earnings/${userAddress}`, {
+        headers: { 'x-wallet-address': userAddress },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => !cancelled && setData(d))
+        .catch(() => {/* silent */});
+    load();
+    const t = setInterval(load, 10_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [userAddress]);
+
+  if (!data || (data.settledCallCount ?? 0) === 0) return null;
+
+  return (
+    <section className="grid gap-3 md:grid-cols-2">
+      <div className="rounded-xl border border-secondary/30 bg-secondary/5 p-5">
+        <div className="text-xs uppercase tracking-wider text-on-surface-variant">Settled (24 h)</div>
+        <div className="mt-1 font-headline text-3xl font-bold">
+          ${(data.settledTotalUsdc ?? 0).toFixed(4)}
+          <span className="ml-2 font-mono text-xs text-on-surface-variant">USDC</span>
+        </div>
+        <div className="mt-1 text-xs text-on-surface-variant">{data.settledCallCount} paid calls</div>
+      </div>
+      <div className="rounded-xl border border-outline-variant/30 bg-surface p-5">
+        <div className="text-xs uppercase tracking-wider text-on-surface-variant">Latest receipts</div>
+        <ul className="mt-2 space-y-1.5">
+          {(data.paidCalls ?? []).slice(0, 3).map((p) => (
+            <li key={p.txHash} className="flex items-center justify-between text-xs">
+              <span className="font-mono">/{p.slug}</span>
+              <span className="font-mono">${p.amountUsdc}</span>
+              <a href={p.explorerUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                tx ↗
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
   );
 }

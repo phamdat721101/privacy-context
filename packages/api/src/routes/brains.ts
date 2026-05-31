@@ -70,6 +70,19 @@ router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
       [wallet],
     );
 
+    // /api/v1 paid calls — the real on-chain settled receipts.
+    const { rows: paidCallRows } = await pool.query(
+      `SELECT pc.slug, pc.buyer, pc.amount_usdc, pc.tx_hash, pc.network, pc.method, pc.created_at,
+              a.brain_id
+         FROM paid_calls pc
+         JOIN agents a ON a.id = pc.agent_id
+        WHERE LOWER(a.owner_address) = $1
+        ORDER BY pc.created_at DESC
+        LIMIT 50`,
+      [wallet],
+    );
+    const settledTotalUsdc = paidCallRows.reduce((s, r) => s + Number(r.amount_usdc || 0), 0);
+
     const totalQueries = brains.reduce((s, r) => s + Number(r.query_count || 0), 0);
     const totalUsdc = +(totalQueries * PRICE_PER_QUERY_USDC).toFixed(2);
     res.json({
@@ -77,6 +90,9 @@ router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
       pricePerQueryUsdc: PRICE_PER_QUERY_USDC,
       totalQueries,
       totalUsdc,
+      // New: real settled revenue (on-chain). Frontend can display both.
+      settledTotalUsdc: +settledTotalUsdc.toFixed(6),
+      settledCallCount: paidCallRows.length,
       brains: brains.map((b) => ({
         id: b.id,
         title: b.title,
@@ -91,6 +107,16 @@ router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
         agentAddress: r.agent_address,
         amount: PRICE_PER_QUERY_USDC.toFixed(2),
         currency: 'USDC',
+        at: r.created_at,
+      })),
+      paidCalls: paidCallRows.map((r) => ({
+        slug: r.slug,
+        buyer: r.buyer,
+        amountUsdc: r.amount_usdc,
+        txHash: r.tx_hash,
+        network: r.network,
+        method: r.method,
+        explorerUrl: `https://sepolia.arbiscan.io/tx/${r.tx_hash}`,
         at: r.created_at,
       })),
     });

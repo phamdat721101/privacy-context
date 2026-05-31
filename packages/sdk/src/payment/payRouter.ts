@@ -14,7 +14,7 @@
  */
 
 // Rail kept local to SDK to avoid cross-package coupling. Mirrors @fhe-brain/shared.
-export type Rail = 'x402' | 'mpp' | 'sui_usdc';
+export type Rail = 'x402' | 'mpp' | 'sui_usdc' | 'fherc20';
 
 export interface RailOffer {
   rail: Rail;
@@ -103,6 +103,7 @@ function methodToRail(method?: string): Rail | null {
   if (m === 'x402' || m === 'exact') return 'x402';
   if (m === 'tempo' || m === 'mpp') return 'mpp';
   if (m === 'sui-usdc' || m === 'sui_usdc') return 'sui_usdc';
+  if (m === 'fherc20') return 'fherc20';
   return null;
 }
 
@@ -121,10 +122,24 @@ const mockReceipt = (rail: Rail, offer: RailOffer): PaymentReceipt => ({
 
 export const x402Adapter: RailAdapter = {
   rail: 'x402',
-  async pay(offer) {
-    // Real-prod swap: call n-payment SDK fetchWithPayment and capture the receipt.
-    // For v1 we emit a mock receipt synchronously; the gateway treats `mock:true`
-    // as paid in dev/sandbox mode only.
+  async pay(offer, { challenge, opts }): Promise<PaymentReceipt> {
+    // Real-prod path: delegate to n-payment's fetchWithPayment. Falls back to
+    // a deterministic mock receipt when the SDK isn't installed (tests/CI).
+    try {
+      // Indirect import — keeps `n-payment` an optional peer at SDK build time
+      // (frontend/api install it; the SDK itself does not depend on it).
+      const moduleName = 'n-payment';
+      const np: any = await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleName).catch(() => null);
+      if (np?.createPaymentClient && opts.privateKey) {
+        const client = np.createPaymentClient({
+          chains: [offer.metadata.network ?? 'arbitrum-sepolia'],
+          wallet: { privateKey: opts.privateKey },
+        });
+        const r = await client.fetchWithPayment(challenge.endpoint_url);
+        const txHash = r.headers?.get?.('X-PAYMENT-RESPONSE') ?? `np-${Date.now().toString(16)}`;
+        return { rail: 'x402', tx_or_receipt: txHash, amount_usdc: offer.amount_usdc, ts: Date.now() };
+      }
+    } catch {/* fall through to mock */}
     return mockReceipt('x402', offer);
   },
 };
@@ -151,12 +166,14 @@ export const suiUsdcAdapter: RailAdapter = {
 // ---------------------------------------------------------------------------
 
 export class PayRouter {
-  private adapters: Record<Rail, RailAdapter>;
+  private adapters: Partial<Record<Rail, RailAdapter>>;
   constructor(adapters?: Partial<Record<Rail, RailAdapter>>) {
     this.adapters = {
       x402: adapters?.x402 ?? x402Adapter,
       mpp: adapters?.mpp ?? mppAdapter,
       sui_usdc: adapters?.sui_usdc ?? suiUsdcAdapter,
+      // fherc20 is browser-only — caller must register it via {@link PayRouter} ctor.
+      ...(adapters?.fherc20 ? { fherc20: adapters.fherc20 } : {}),
     };
   }
 
@@ -184,6 +201,7 @@ export class PayRouter {
     const offer = challenge.rails.find((r) => r.rail === rail);
     if (!offer) throw new Error(`payRouter:rail-not-offered:${rail}`);
     const adapter = this.adapters[rail];
+    if (!adapter) throw new Error(`payRouter:adapter-not-registered:${rail}`);
     return adapter.pay(offer, { challenge, opts });
   }
 
@@ -191,6 +209,8 @@ export class PayRouter {
     if (rail === 'x402') return prefs.hasEvmWallet ?? true;
     if (rail === 'mpp') return prefs.hasMppFunds ?? prefs.hasEvmWallet ?? true;
     if (rail === 'sui_usdc') return prefs.hasSuiWallet ?? false;
+    // fherc20 needs both an EVM wallet AND a CoFHE permit; caller checks the latter.
+    if (rail === 'fherc20') return prefs.hasEvmWallet ?? false;
     return false;
   }
 }

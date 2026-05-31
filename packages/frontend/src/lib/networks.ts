@@ -28,6 +28,23 @@ import { arbitrumSepolia, baseSepolia } from 'wagmi/chains';
 export const BASE_SEPOLIA_CHAIN_ID = baseSepolia.id;
 export const ARBITRUM_SEPOLIA_CHAIN_ID = arbitrumSepolia.id;
 
+// ─── Stablecoin addresses ────────────────────────────────────────────────
+
+/** Circle's official USDC on Arbitrum Sepolia (https://developers.circle.com/stablecoins/docs/usdc-on-test-networks) */
+export const CIRCLE_USDC_ADDRESS_ARB_SEP =
+  (process.env.NEXT_PUBLIC_CIRCLE_USDC_ADDRESS ?? '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d') as `0x${string}`;
+
+/** WrappedStablecoin (FHE-encrypted balance over Circle USDC). Set after deploy. */
+export const WRAPPED_USDC_ADDRESS =
+  (process.env.NEXT_PUBLIC_WRAPPED_USDC_ADDRESS ?? '') as `0x${string}`;
+
+/** PrivPayGateway — used for confidential-amount escrow flows. */
+export const PRIV_PAY_GATEWAY_ADDRESS =
+  (process.env.NEXT_PUBLIC_PRIV_PAY_GATEWAY_ADDRESS ?? '') as `0x${string}`;
+
+/** Circle faucet URL for Arbitrum-Sepolia testnet USDC. */
+export const CIRCLE_FAUCET_URL = 'https://faucet.circle.com/';
+
 // ─── Types ───────────────────────────────────────────────────────────────
 
 export type NetworkKey = 'base-sepolia' | 'arbitrum-sepolia';

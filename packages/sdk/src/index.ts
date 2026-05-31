@@ -22,6 +22,7 @@ export * from './payment/paymentTypes';
 export * from './payment/encryptPayment';
 export * from './payment/decryptPayment';
 export * from './payment/payRouter';
+export * from './payment/fherc20Adapter';
 export * from './bundle/BundleRunner';
 export * from './billing/billingTypes';
 export * from './billing/encryptBilling';

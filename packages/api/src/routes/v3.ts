@@ -40,6 +40,23 @@ v3.get('/version', (_req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// /v3/agents/slug-available — preflight check used by the publish wizard.
+// Public (no auth) — slug presence is public information.
+// ---------------------------------------------------------------------------
+
+const SLUG_RE = /^[a-z0-9-]{3,30}$/;
+const RESERVED_SLUGS = new Set(['api', 'admin', 'health', 'metrics', 'well-known', 'platform']);
+
+v3.get('/agents/slug-available', async (req: Request, res: Response) => {
+  const slug = String(req.query.slug ?? '').trim().toLowerCase();
+  if (!SLUG_RE.test(slug)) return res.json({ available: false, reason: 'invalid' });
+  if (RESERVED_SLUGS.has(slug)) return res.json({ available: false, reason: 'reserved' });
+  const r = await pool.query(`SELECT 1 FROM agents WHERE slug = $1`, [slug]);
+  if ((r.rowCount ?? 0) > 0) return res.json({ available: false, reason: 'taken' });
+  res.json({ available: true });
+});
+
+// ---------------------------------------------------------------------------
 // /v3/links — AgentLink registration + lookup
 // ---------------------------------------------------------------------------
 
@@ -73,7 +90,7 @@ v3.get('/links/by-sui/:address', async (req: Request, res: Response) => {
 v3.post('/agents', async (req: AuthRequest, res: Response) => {
   const ctx = { wallet: req.user?.address, body: req.body };
   try {
-    const { brain_id, persona, pricing, kya_required, min_reputation, chain } = req.body ?? {};
+    const { brain_id, persona, pricing, kya_required, min_reputation, chain, slug } = req.body ?? {};
     if (!brain_id || !persona || !pricing || !chain) {
       logger.warn(ctx, 'v3:agents:create:bad-request');
       return res.status(400).json({ error: 'brain_id, persona, pricing, chain required' });
@@ -82,22 +99,30 @@ v3.post('/agents', async (req: AuthRequest, res: Response) => {
       logger.warn(ctx, 'v3:agents:create:unauthenticated');
       return res.status(401).json({ error: 'auth required' });
     }
+    if (slug !== undefined && !SLUG_RE.test(String(slug))) {
+      return res.status(400).json({ error: 'invalid slug' });
+    }
+    if (slug && RESERVED_SLUGS.has(String(slug).toLowerCase())) {
+      return res.status(400).json({ error: 'reserved slug' });
+    }
     const r = await pool.query(
-      `INSERT INTO agents (brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published)
-       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, false)
-       RETURNING id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at`,
-      [brain_id, req.user.address, chain, JSON.stringify(persona), JSON.stringify(pricing), !!kya_required, min_reputation ?? 0],
+      `INSERT INTO agents (brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, false, $8)
+       RETURNING id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at`,
+      [brain_id, req.user.address, chain, JSON.stringify(persona), JSON.stringify(pricing), !!kya_required, min_reputation ?? 0, slug ?? null],
     );
-    logger.info({ ...ctx, agentId: r.rows[0].id }, 'v3:agents:create:ok');
+    logger.info({ ...ctx, agentId: r.rows[0].id, slug }, 'v3:agents:create:ok');
     res.json(r.rows[0]);
   } catch (err) {
     const e = err as Error & { code?: string };
-    // 42P01 = relation does not exist (= migration 004_v3_agentic.sql not applied)
     const isMissingTable = e.code === '42P01';
+    const isDuplicateSlug = e.code === '23505' && e.message.includes('agents_slug_key');
     logger.error({ ...ctx, err: e.message, code: e.code, stack: e.stack }, 'v3:agents:create:failed');
-    res.status(500).json({
+    res.status(isDuplicateSlug ? 409 : 500).json({
       error: isMissingTable
         ? 'agents table missing — run migration 004_v3_agentic.sql'
+        : isDuplicateSlug
+        ? 'slug already taken'
         : e.message,
       code: e.code ?? null,
     });

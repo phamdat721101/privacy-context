@@ -15,6 +15,10 @@ export interface Agent {
   /** Optional pricing surface — derived in UI for now since the API
    * doesn't yet store per-agent pricing. */
   price?: { amount: string; currency: string };
+  /** Public slug of the published x402 API, if any. */
+  slug?: string;
+  /** True if seller opted into confidential-amount payments. */
+  acceptsPrivate?: boolean;
 }
 
 interface BrainDto {
@@ -43,10 +47,33 @@ export async function listAgents(query?: string): Promise<Agent[]> {
   const url = query
     ? `${AGENT_BACKEND_URL}/brains/search?q=${encodeURIComponent(query)}`
     : `${AGENT_BACKEND_URL}/brains`;
-  const r = await fetch(url);
-  if (!r.ok) return [];
-  const data = (await r.json()) as BrainDto[];
-  return data.map(brainToAgent);
+  const [brainsRes, paidRes] = await Promise.all([
+    fetch(url),
+    fetch(`${AGENT_BACKEND_URL}/v3/agents`).catch(() => null),
+  ]);
+  if (!brainsRes.ok) return [];
+  const brainData = (await brainsRes.json()) as BrainDto[];
+  const agents = brainData.map(brainToAgent);
+
+  // Merge in slug + pricing from /v3/agents (paid API records, keyed by brain_id).
+  if (paidRes && paidRes.ok) {
+    try {
+      const paid = await paidRes.json() as Array<{
+        brain_id: number;
+        slug?: string;
+        pricing?: { x402?: string | null; fherc20?: string | null };
+      }>;
+      const byBrain = new Map(paid.map((p) => [p.brain_id, p]));
+      for (const a of agents) {
+        const p = byBrain.get(a.id);
+        if (!p) continue;
+        a.slug = p.slug;
+        if (p.pricing?.x402) a.price = { amount: p.pricing.x402, currency: 'USDC' };
+        if (p.pricing?.fherc20) a.acceptsPrivate = true;
+      }
+    } catch {/* leave unenriched */}
+  }
+  return agents;
 }
 
 export async function getAgent(id: string | number): Promise<Agent | null> {

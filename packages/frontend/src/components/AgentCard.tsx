@@ -9,6 +9,10 @@ export interface AgentCardProps {
   price?: { amount: string; currency: string };
   /** Override default `/agent/[id]` link target. */
   href?: string;
+  /** When set, the card surfaces "Pay-per-call · /api/v1/<slug>". */
+  slug?: string;
+  /** When true, marks the card with a "Confidential mode" pill. */
+  acceptsPrivate?: boolean;
 }
 
 export function AgentCard({
@@ -19,6 +23,8 @@ export function AgentCard({
   ownerAddress,
   price,
   href,
+  slug,
+  acceptsPrivate,
 }: AgentCardProps) {
   const target = href ?? `/agent/${id}`;
   return (
@@ -70,6 +76,7 @@ export function AgentCard({
             <span className="ml-1 font-mono text-[10px] uppercase text-on-surface-variant">
               {price.currency}
             </span>
+            <span className="ml-1 font-mono text-[10px] text-on-surface-variant">/call</span>
           </span>
         ) : (
           <span className="font-mono text-[10px] uppercase text-on-surface-variant">
@@ -77,6 +84,19 @@ export function AgentCard({
           </span>
         )}
       </div>
+
+      {(slug || acceptsPrivate) && (
+        <div className="flex flex-wrap items-center gap-1 border-t border-outline-variant/20 pt-2">
+          {slug && (
+            <span className="font-mono text-[10px] text-on-surface-variant">/api/v1/{slug}</span>
+          )}
+          {acceptsPrivate && (
+            <span className="ml-auto rounded-full border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 font-mono text-[9px] text-tertiary">
+              CONFIDENTIAL OK
+            </span>
+          )}
+        </div>
+      )}
     </Link>
   );
 }

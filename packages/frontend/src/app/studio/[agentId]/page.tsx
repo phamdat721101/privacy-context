@@ -6,11 +6,12 @@ import { usePrivy } from '@privy-io/react-auth';
 import { getAgent, publishAgent, type Agent } from '@/lib/agents';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
-type Tab = 'overview' | 'knowledge' | 'settings';
+type Tab = 'overview' | 'knowledge' | 'public-api' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'overview', label: 'Overview', icon: 'dashboard' },
   { id: 'knowledge', label: 'Knowledge', icon: 'book_2' },
+  { id: 'public-api', label: 'Public API', icon: 'public' },
   { id: 'settings', label: 'Settings', icon: 'tune' },
 ];
 
@@ -155,6 +156,8 @@ export default function StudioAgentPage() {
         </div>
       )}
 
+      {tab === 'public-api' && <PublicApiPanel agent={agent} />}
+
       {tab === 'settings' && (
         <div className="space-y-4 rounded-xl border border-outline-variant/30 bg-surface p-6">
           <div>
@@ -166,6 +169,68 @@ export default function StudioAgentPage() {
             <p className="mt-1 text-sm text-on-surface-variant">
               Archiving is not yet supported. Contact platform support to delete an agent.
             </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PublicApiPanel ────────────────────────────────────────────────────────
+//
+// Surfaces the agent's `/api/v1/<slug>` URL, the agent.json doc, and a cURL
+// snippet. Co-located here because it's only used on this page.
+
+interface AgentLite {
+  id: string | number;
+  slug?: string;
+  pricing?: { x402?: string | null; fherc20?: string | null };
+  ownerAddress: string;
+}
+
+function PublicApiPanel({ agent }: { agent: AgentLite }) {
+  const apiBase = AGENT_BACKEND_URL;
+  const slug = agent.slug ?? '';
+  if (!slug) {
+    return (
+      <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-8 text-center">
+        <p className="text-on-surface-variant">This agent has no public slug yet.</p>
+        <Link href="/studio/publish" className="mt-3 inline-block text-sm text-primary hover:underline">
+          Run the publish wizard →
+        </Link>
+      </div>
+    );
+  }
+  const url = `${apiBase}/api/v1/${slug}`;
+  const agentJsonUrl = `${url}/.well-known/agent.json`;
+  const curl = `curl -i ${url}?q=hello`;
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-outline-variant/30 bg-surface p-4">
+        <div className="text-xs uppercase tracking-wider text-on-surface-variant">Public URL</div>
+        <code className="mt-1 block break-all font-mono text-sm">{url}</code>
+      </div>
+      <div className="rounded-xl border border-outline-variant/30 bg-surface p-4">
+        <div className="text-xs uppercase tracking-wider text-on-surface-variant">Agent card (auto-discovery)</div>
+        <a href={agentJsonUrl} target="_blank" rel="noreferrer" className="mt-1 block break-all font-mono text-sm text-primary hover:underline">
+          {agentJsonUrl} ↗
+        </a>
+      </div>
+      <div className="rounded-xl border border-outline-variant/30 bg-surface p-4">
+        <div className="text-xs uppercase tracking-wider text-on-surface-variant">Test (returns 402)</div>
+        <code className="mt-1 block font-mono text-sm">{curl}</code>
+      </div>
+      {agent.pricing && (
+        <div className="rounded-xl border border-secondary/30 bg-secondary/5 p-4 text-sm">
+          <div className="font-mono text-xs uppercase tracking-wider text-on-surface-variant">Price</div>
+          <div className="mt-1">
+            <span className="font-headline text-lg font-bold">${agent.pricing.x402 ?? '0'}</span>
+            <span className="ml-1 font-mono text-xs text-on-surface-variant">USDC / call · Arbitrum Sepolia</span>
+            {agent.pricing.fherc20 && (
+              <span className="ml-2 rounded-full border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 font-mono text-[10px] text-tertiary">
+                + confidential mode
+              </span>
+            )}
           </div>
         </div>
       )}
