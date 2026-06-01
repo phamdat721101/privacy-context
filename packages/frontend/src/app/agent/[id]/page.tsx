@@ -90,7 +90,7 @@ export default function AgentDetailPage() {
   return (
     <div className="grid gap-6 md:grid-cols-3">
       {/* Main column */}
-      <div className="space-y-6 md:col-span-2">
+      <div className="min-w-0 space-y-6 md:col-span-2">
         {/* Slim header — kept for both states; published gets the "Live API" badge */}
         <div className="rounded-xl border border-outline-variant/30 bg-surface p-6">
           <div className="flex items-start gap-4">
@@ -277,7 +277,7 @@ export default function AgentDetailPage() {
       </div>
 
       {/* Sidebar — Quickstart when published, original pricing card when draft */}
-      <aside>
+      <aside className="min-w-0">
         <div className="sticky top-24 space-y-4">
           {isPublished ? (
             <Quickstart agent={agent} agentJson={agentJson} />
