@@ -44,3 +44,32 @@ export const BrainKeyVaultABI = [
   'function setPlatform(address _platform)',
   'event KeyStored(uint256 indexed brainId, address indexed brainOwnerAddr)',
 ] as const;
+
+// ── FHE-Pay (T4): private-payment contracts ──────────────────────────────────
+// Deployed by scripts/deploy-fhe-pay.ts; addresses live in deployments JSON
+// and are read at runtime via env vars (see .env.example).
+
+export const WrappedStablecoinABI = [
+  'function deposit(uint256 amount) external',
+  'function withdraw(uint256 amount) external',
+  'function encryptedTransfer(address to, bytes inAmount) external',
+  'function encryptedApprove(address spender, bytes inAmount) external',
+  'function encryptedTransferFrom(address from, address to, bytes inAmount) external',
+  'function getBalanceHandle(address user) view returns (bytes32)',
+  'function getAllowanceHandle(address owner_, address spender) view returns (bytes32)',
+  'event Transfer(address indexed from, address indexed to)',
+] as const;
+
+export const AgentBillingABI = [
+  'function topUp(address agent, bytes inAmount) external',
+  'function chargeFee(address user, bytes inFee) external returns (bool)',
+  'function getBalanceHandle(address user, address agent) view returns (bytes32)',
+] as const;
+
+export const SettlementLedgerABI = [
+  'function recordSettlement(address payer, address payee, bytes inAmount, bytes inReasonHash) external returns (bytes32)',
+  'function getSettlementHandles(bytes32 id) view returns (tuple(bytes32 amount, bytes32 reasonHash, address payer, address payee, uint256 timestamp))',
+  'function getUserSettlementCount(address user) view returns (uint256)',
+  'function getUserSettlementId(address user, uint256 index) view returns (bytes32)',
+  'event SettlementRecorded(bytes32 indexed id, uint256 timestamp)',
+] as const;

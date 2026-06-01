@@ -216,6 +216,22 @@ router.use('/:slug', async (req: Request, res: Response, next: NextFunction) => 
     return res.status(503).set('Retry-After', '3600').json({ error: 'daily_request_cap reached' });
   }
 
+  // Freemium gate (T5/PRD-B): shared with paymentGate.ts. The buyer
+  // identifies themselves via X-BUYER (not wallet auth — /api/v1 is public).
+  if (process.env.FEATURE_FHE_PAY === 'true') {
+    const buyer = (req.headers['x-buyer'] as string | undefined)?.toLowerCase();
+    if (buyer) {
+      const freeLeft = await ledger.checkFreePreview(buyer, provider.agent.id);
+      if (freeLeft > 0) {
+        await ledger.recordFree(buyer, provider.agent.id, provider.agent.slug);
+        res.setHeader('X-Free-Preview-Remaining', String(freeLeft - 1));
+        (req as any).receipt = { method: 'free', txHash: 'free-preview' };
+        logger.info({ slug: provider.agent.slug, buyer, freeLeft: freeLeft - 1 }, 'v1Public:freemium-pass');
+        return next();
+      }
+    }
+  }
+
   // Buyer claims fherc20 path → verify on-chain log + advance.
   const xPay = (req.headers['x-payment'] as string | undefined) ?? '';
   if (xPay.startsWith('fherc20')) {

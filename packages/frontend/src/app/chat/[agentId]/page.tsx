@@ -6,6 +6,8 @@ import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { BrowserProvider, Contract, parseUnits } from 'ethers';
 import { useChat } from '@/hooks/useChat';
 import { usePermit } from '@/hooks/usePermit';
+import { useEncryptedBalance } from '@/hooks/useEncryptedBalance';
+import { useFherc20Pay } from '@/hooks/useFherc20Pay';
 import { PermitManager } from '@/components/PermitManager';
 import { ChatBubble } from '@/components/ChatBubble';
 import { getAgent, type Agent } from '@/lib/agents';
@@ -36,10 +38,23 @@ export default function ChatAgentPage() {
     loading: permitLoading,
     error: permitError,
   } = usePermit(userAddress);
-  const { messages, sendMessage, loading, error, needsPayment, clearPayment } = useChat(
+  const { messages, sendMessage, loading, error, needsPayment, clearPayment, freeRemaining } = useChat(
     userAddress,
     forceUnauthorized,
   );
+
+  // T6/PRD-C: 3-state private-payment UX (preview → activate → debit).
+  // Hook returns 'unknown' when FEATURE_FHE_PAY=false on the server (404),
+  // which leaves the page rendering today's UX byte-identical.
+  const balance = useEncryptedBalance(
+    userAddress,
+    agentId,
+    agent?.ownerAddress as `0x${string}` | undefined,
+  );
+  const fherc20 = useFherc20Pay();
+  // Optimistic update: when the inference response carries a new value, use it
+  // for the badge until the next refresh().
+  const liveFreeLeft = freeRemaining ?? balance.freeLeft;
 
   const isPermitted = !!permitState.serializedPermit;
   const isOwner =
@@ -139,7 +154,17 @@ export default function ChatAgentPage() {
               {agent?.title ?? `Agent #${agentId}`}
             </div>
             <div className="font-mono text-[11px] text-on-surface-variant">
-              🔒 Encrypted via Fhenix CoFHE
+              {/* T6/PRD-C: 3-state badge. Falls back to today's label when
+                  FEATURE_FHE_PAY=off (mode === 'unknown'). */}
+              {balance.mode === 'preview' && (
+                <span>🎁 {liveFreeLeft} free question{liveFreeLeft === 1 ? '' : 's'} left</span>
+              )}
+              {balance.mode === 'needs-activation' && '🔒 Activate to keep asking'}
+              {balance.mode === 'active' && balance.balanceUsdc !== null && (
+                <span>🔒 ${balance.balanceUsdc.toFixed(2)} left</span>
+              )}
+              {balance.mode === 'active' && balance.balanceUsdc === null && '🔒 Encrypted balance'}
+              {balance.mode === 'unknown' && '🔒 Encrypted via Fhenix CoFHE'}
             </div>
           </div>
         </div>
@@ -244,6 +269,42 @@ export default function ChatAgentPage() {
             <span className="material-symbols-outlined text-[18px]">send</span>
           </button>
         </div>
+        {/* T6/PRD-C: one-tap Activate when free quota is exhausted.
+            Reuses useFherc20Pay → silent sign with Privy embedded wallet. */}
+        {balance.mode === 'needs-activation' && agent?.ownerAddress && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await fherc20.pay('5', agent.ownerAddress as `0x${string}`);
+                await balance.refresh();
+              } catch { /* error surfaced via fherc20.error */ }
+            }}
+            disabled={fherc20.pending}
+            className="mt-3 w-full rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary/90 disabled:opacity-50"
+          >
+            {fherc20.pending ? 'Encrypting…' : '🔒 Activate ($5 → encrypted balance)'}
+          </button>
+        )}
+        {fherc20.error && balance.mode === 'needs-activation' && (
+          <div className="mt-2 text-xs text-error">{fherc20.error}</div>
+        )}
+        {/* Top-up nudge: appears when balance drops below $0.50. */}
+        {balance.mode === 'active' && balance.balanceUsdc !== null && balance.balanceUsdc < 0.5 && agent?.ownerAddress && (
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await fherc20.pay('5', agent.ownerAddress as `0x${string}`);
+                await balance.refresh();
+              } catch { /* no-op */ }
+            }}
+            disabled={fherc20.pending}
+            className="mt-3 w-full rounded-full border border-tertiary/40 bg-tertiary/10 px-4 py-2 text-xs text-tertiary hover:bg-tertiary/20 disabled:opacity-50"
+          >
+            {fherc20.pending ? 'Encrypting…' : 'Top up another $5?'}
+          </button>
+        )}
       </div>
     </div>
   );

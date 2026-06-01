@@ -10,6 +10,7 @@ import brainsRouter from './routes/brains';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
 import v3Router from './routes/v3';
+import v4Router from './routes/v4';
 import v1PublicRouter from './routes/v1Public';
 import {
   logger,
@@ -39,6 +40,13 @@ app.use('/v2', auth, agentKya, v2Router);
 // v3 API — dual-chain agentic marketplace. Additive; v2 untouched.
 // Per-route ownership/KYA gating happens inside the sub-router.
 app.use('/v3', auth, agentKya, v3Router);
+
+// v4 API — private-payment surface (T5/PRD-B). Flag-gated for byte-identical
+// rollback. Off → 404; on → /v4/billing/* + /v4/settlement/* + /v4/admin/stats.
+if (process.env.FEATURE_FHE_PAY === 'true') {
+  app.use('/v4', auth, v4Router);
+  logger.info({ flag: 'FEATURE_FHE_PAY' }, 'v4:mounted');
+}
 
 // /api/v1 — PUBLIC, x402-paywalled brain endpoints. NO parent auth — the
 // paywall (n-payment middleware) is the auth. Per PRD-1.

@@ -101,6 +101,58 @@ const spec = {
     },
     '/health': { get: { summary: 'Health check', 'x-price-usdc': '0', responses: { '200': { description: 'OK' } } } },
     '/metrics': { get: { summary: 'Prometheus metrics', 'x-price-usdc': '0', responses: { '200': { description: 'metrics' } } } },
+    '/v4/billing/balance/{user}': {
+      get: {
+        summary: 'Encrypted balance handle + freemium remaining',
+        description: 'Returns the FHE-encrypted prepaid balance handle for (user × agent) plus per-brain free-preview state. Frontend decrypts the handle client-side via permit. Available when FEATURE_FHE_PAY=true.',
+        'x-actor': 'buyer-or-agent',
+        'x-encrypted-amount': true,
+        'x-price-usdc': '0',
+        'x-free-preview-limit': 5,
+        parameters: [
+          { name: 'user', in: 'path', required: true, schema: { type: 'string' } },
+          { name: 'agent', in: 'query', schema: { type: 'string' } },
+          { name: 'brain_id', in: 'query', schema: { type: 'string' } },
+        ],
+        responses: { '200': { description: '{ user, agent, balanceHandle, freeCallsRemaining, freePreviewLimit }' } },
+      },
+    },
+    '/v4/billing/top-up-info': {
+      get: {
+        summary: 'Contract metadata for client-side top-up',
+        'x-actor': 'buyer',
+        'x-price-usdc': '0',
+        responses: { '200': { description: '{ wrappedUsdc, agentBilling, settlementLedger, network, decimals }' } },
+      },
+    },
+    '/v4/billing/top-up': {
+      post: {
+        summary: 'Build calldata for an encrypted top-up (Privy auto-sign)',
+        description: 'Server-side calldata assembly. The encrypted amount is produced client-side via cofhejs; server never sees the plaintext. Returns { to, calldata, chainId }.',
+        'x-actor': 'buyer',
+        'x-encrypted-amount': true,
+        'x-attestation-providers': ['phala-tee'],
+        responses: { '200': { description: '{ to, calldata, chainId }' } },
+      },
+    },
+    '/v4/settlement/{id}': {
+      get: {
+        summary: 'Encrypted settlement handles by id',
+        description: 'Returns FHE-encrypted amount + reasonHash handles, plaintext payer/payee/timestamp. Only payer + payee can decrypt the handles via permit.',
+        'x-actor': 'payer-or-payee',
+        'x-encrypted-amount': true,
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: '{ id, amount, reasonHash, payer, payee, timestamp }' } },
+      },
+    },
+    '/v4/settlement/user/{address}': {
+      get: {
+        summary: 'List settlement ids for a user',
+        'x-actor': 'payer-or-payee',
+        parameters: [{ name: 'address', in: 'path', required: true, schema: { type: 'string' } }],
+        responses: { '200': { description: '{ address, count, ids[] }' } },
+      },
+    },
   },
   components: {
     securitySchemes: {

@@ -143,8 +143,11 @@ export default function AgentDetailPage() {
           )}
         </div>
 
-        {/* PRD-0 hero: visible only for published agents */}
-        {isPublished && <PaidApiHero agent={agent} agentJson={agentJson} />}
+        {/* PRD-0 hero: visible for both published and draft agents.
+            For drafts the slug is a placeholder, the curl-copy CTA swaps to
+            "Run the publish wizard", and the agent.json viewer is hidden.
+            See PaidApiHero({isDraft}) for the draft-aware rendering. */}
+        <PaidApiHero agent={agent} agentJson={agentJson} isDraft={!isPublished} />
 
         {/* PRD-2: free, rate-limited try-it — only when the API is live */}
         {isPublished && <TryIt agent={agent} />}
@@ -289,14 +292,29 @@ export default function AgentDetailPage() {
 
 // ─── PRD-0: PaidApiHero ────────────────────────────────────────────────────
 //
-// Three stacked cards that resolve "how do I use this API" in one screen:
-//   1. Make a Call — copy-pasteable curl + sample response
+// Four stacked cards that resolve "how do I use this API" in one screen:
+//   1. Make a Call — copy-pasteable curl + sample response (publish CTA in draft)
 //   2. Agent Prompt — pasteable system prompt for the buyer's LLM (PRD-1 T7)
-//   3. agent.json viewer — full discovery JSON (collapsible)
+//   3. Bundle snippet — JSON another agent can drop into its bundle manifest
+//   4. agent.json viewer — full discovery JSON (collapsible; published only)
+//
+// `isDraft` adapts every block: slug becomes a placeholder, the curl-copy
+// button swaps for a "Run the publish wizard" link, the live agent.json
+// viewer is hidden (it would 404 without a real slug). Same component for
+// both states — no duplicate "DraftPreview" sibling (I1 + I3).
 
-function PaidApiHero({ agent, agentJson }: { agent: Agent; agentJson: AgentJson | null }) {
+function PaidApiHero({
+  agent,
+  agentJson,
+  isDraft = false,
+}: {
+  agent: Agent;
+  agentJson: AgentJson | null;
+  isDraft?: boolean;
+}) {
   const apiBase = AGENT_BACKEND_URL;
-  const url = `${apiBase}/api/v1/${agent.slug}`;
+  const slug = agent.slug ?? 'your-slug';
+  const url = `${apiBase}/api/v1/${slug}`;
   const curl = `curl '${url}?q=YOUR_QUESTION_HERE'`;
   const sampleResp = JSON.stringify(
     { answer: 'string', citations: [0, 1, 2], settled: { method: 'exact' } },
@@ -305,30 +323,73 @@ function PaidApiHero({ agent, agentJson }: { agent: Agent; agentJson: AgentJson 
   );
 
   // PRD-1 T7: prefer the seller's saved prompt; fall back to an auto-generated
-  // default derived from the agent's metadata.
+  // default derived from the agent's metadata. Works without a slug.
   const promptBody =
     agent.persona?.system_prompt?.trim() ||
     autoGeneratePrompt(agent, url);
 
+  // Bundle-manifest snippet — copy-paste-able JSON another agent can drop into
+  // its own bundle to invoke this agent as one step. Shape mirrors
+  // packages/api/src/services/bundleService.ts manifest.steps[i].
+  const bundleSnippet = JSON.stringify(
+    {
+      tool: 'ask',
+      agent_url: url,
+      price_usdc: agent.price?.amount ?? '0.01',
+      args: { question: '{{user_input}}' },
+      ...(agent.acceptsPrivate ? { confidential: true } : {}),
+    },
+    null,
+    2,
+  );
+
   return (
     <div className="space-y-4">
+      {/* 1. Make a call — curl + 402 explainer + sample response */}
       <div className="space-y-3 rounded-xl border border-primary/30 bg-surface p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="font-headline text-base font-semibold">Make a call</h2>
-          <CopyButton value={curl} label="Copy curl" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h2 className="font-headline text-base font-semibold">Make a call</h2>
+            {isDraft && (
+              <span className="rounded-full border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 font-mono text-[9px] uppercase text-tertiary">
+                draft — publish to activate
+              </span>
+            )}
+          </div>
+          {isDraft ? (
+            <Link
+              href="/studio/publish"
+              className="rounded-full bg-primary px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-on-primary hover:opacity-90"
+            >
+              Run publish wizard
+            </Link>
+          ) : (
+            <CopyButton value={curl} label="Copy curl" />
+          )}
         </div>
         <pre className="overflow-x-auto rounded-lg bg-surface-container-low p-3 font-mono text-[12px] leading-relaxed">
           <code>{curl}</code>
         </pre>
         <div className="text-xs text-on-surface-variant">
-          Returns <code>402 Payment Required</code> on the first call — the n-payment SDK settles
-          via x402 and retries with the receipt. After 200, response shape:
+          {isDraft ? (
+            <>
+              Once published, this URL serves <code>402 Payment Required</code> on the first call —
+              the n-payment SDK settles via x402 and retries with the receipt. After 200, response
+              shape:
+            </>
+          ) : (
+            <>
+              Returns <code>402 Payment Required</code> on the first call — the n-payment SDK settles
+              via x402 and retries with the receipt. After 200, response shape:
+            </>
+          )}
         </div>
         <pre className="overflow-x-auto rounded-lg bg-surface-container-low p-3 font-mono text-[11px] text-on-surface-variant">
           <code>{sampleResp}</code>
         </pre>
       </div>
 
+      {/* 2. Agent prompt — works for both states */}
       <div className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-5">
         <div className="flex items-center justify-between">
           <h2 className="font-headline text-base font-semibold">Agent prompt</h2>
@@ -342,27 +403,50 @@ function PaidApiHero({ agent, agentJson }: { agent: Agent; agentJson: AgentJson 
         </pre>
       </div>
 
-      <details className="group rounded-xl border border-outline-variant/30 bg-surface p-5">
-        <summary className="flex cursor-pointer items-center justify-between font-headline text-base font-semibold">
-          <span>agent.json (auto-discovery)</span>
-          <span className="font-mono text-[10px] text-on-surface-variant group-open:hidden">expand →</span>
-          <span className="hidden font-mono text-[10px] text-on-surface-variant group-open:inline">collapse ↓</span>
-        </summary>
-        <p className="mt-2 text-xs text-on-surface-variant">
-          AI agents auto-fetch this URL to learn what the API does, how to pay, and where to send funds.
+      {/* 3. Bundle snippet — for use inside another agent's bundle manifest */}
+      <div className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h2 className="font-headline text-base font-semibold">Bundle snippet</h2>
+            <span className="rounded-full border border-secondary/30 bg-secondary/10 px-2 py-0.5 font-mono text-[9px] uppercase text-secondary">
+              for your agent
+            </span>
+          </div>
+          <CopyButton value={bundleSnippet} label="Copy JSON" />
+        </div>
+        <p className="text-xs text-on-surface-variant">
+          Drop this step into your own bundle manifest to invoke this agent as part of an
+          autonomous workflow. The buyer&apos;s runner pays per call automatically.
         </p>
-        <a
-          href={`${url}/.well-known/agent.json`}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 block break-all font-mono text-[11px] text-primary hover:underline"
-        >
-          {url}/.well-known/agent.json ↗
-        </a>
-        <pre className="mt-3 overflow-auto rounded-lg bg-surface-container-low p-3 font-mono text-[11px]">
-          <code>{agentJson ? JSON.stringify(agentJson, null, 2) : 'Loading…'}</code>
+        <pre className="overflow-x-auto rounded-lg bg-surface-container-low p-3 font-mono text-[12px] leading-relaxed">
+          <code>{bundleSnippet}</code>
         </pre>
-      </details>
+      </div>
+
+      {/* 4. agent.json viewer — published only (draft would 404) */}
+      {!isDraft && (
+        <details className="group rounded-xl border border-outline-variant/30 bg-surface p-5">
+          <summary className="flex cursor-pointer items-center justify-between font-headline text-base font-semibold">
+            <span>agent.json (auto-discovery)</span>
+            <span className="font-mono text-[10px] text-on-surface-variant group-open:hidden">expand →</span>
+            <span className="hidden font-mono text-[10px] text-on-surface-variant group-open:inline">collapse ↓</span>
+          </summary>
+          <p className="mt-2 text-xs text-on-surface-variant">
+            AI agents auto-fetch this URL to learn what the API does, how to pay, and where to send funds.
+          </p>
+          <a
+            href={`${url}/.well-known/agent.json`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block break-all font-mono text-[11px] text-primary hover:underline"
+          >
+            {url}/.well-known/agent.json ↗
+          </a>
+          <pre className="mt-3 overflow-auto rounded-lg bg-surface-container-low p-3 font-mono text-[11px]">
+            <code>{agentJson ? JSON.stringify(agentJson, null, 2) : 'Loading…'}</code>
+          </pre>
+        </details>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { pool } from '../db';
+import * as ledger from '../services/paidCallLedger';
 import type { AuthRequest } from './auth';
 import { logger } from '../lib';
 
@@ -123,6 +124,22 @@ export async function paymentGate(req: PriceableRequest, res: Response, next: Ne
   if (r.rowCount === 0) return res.status(404).json({ error: 'agent not found' });
   const agent: AgentRecord = r.rows[0];
   req.pricedAgent = agent;
+
+  // Freemium gate (T5/PRD-B): 5 free per (buyer × agent) before paywall.
+  // Flag-gated so /v3 behavior is byte-identical with FEATURE_FHE_PAY=false.
+  if (process.env.FEATURE_FHE_PAY === 'true') {
+    const buyer = req.user?.address;
+    if (buyer) {
+      const freeLeft = await ledger.checkFreePreview(buyer, agent.id);
+      if (freeLeft > 0) {
+        await ledger.recordFree(buyer, agent.id, (agent as any).slug ?? '');
+        res.setHeader('X-Free-Preview-Remaining', String(freeLeft - 1));
+        req.receipt = { rail: 'x402', tx_or_receipt: 'free-preview', amount_usdc: '0' };
+        logger.info({ agentId: agent.id, buyer, freeLeft: freeLeft - 1 }, 'paymentGate:freemium-pass');
+        return next();
+      }
+    }
+  }
 
   const authHeader = req.headers.authorization ?? '';
   if (!authHeader.startsWith('Payment ')) {

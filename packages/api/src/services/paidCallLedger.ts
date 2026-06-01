@@ -8,8 +8,12 @@
  * Idempotent on (network, tx_hash) — re-submitting the same proof is a no-op.
  */
 
+import { randomUUID } from 'node:crypto';
 import { pool } from '../db';
 import { logger } from '../lib';
+
+/** Per (wallet × brain) freemium quota. 0 disables freemium entirely. */
+export const FREE_PREVIEW_LIMIT = Number(process.env.FREE_PREVIEW_LIMIT ?? 5);
 
 export interface PaidCallRecord {
   agentId: string;
@@ -18,7 +22,7 @@ export interface PaidCallRecord {
   amountUsdc: string;          // decimal string, e.g. "0.01"
   txHash: string;
   network: string;             // 'arbitrum-sepolia' | 'base-sepolia' | …
-  method: 'exact' | 'fherc20' | 'demo'; // x402 / FHERC20 confidential / free try-it (PRD-2)
+  method: 'exact' | 'fherc20' | 'demo' | 'free'; // x402 / FHERC20 confidential / free try-it / freemium
 }
 
 /** Returns true if a fresh row was inserted, false if it was a duplicate. */
@@ -47,4 +51,47 @@ export async function countToday(slug: string): Promise<number> {
     [slug],
   );
   return r.rows[0]?.c ?? 0;
+}
+
+// ── Freemium gate (T5 / PRD-B) ───────────────────────────────────────────────
+//
+// The freemium counter is *implicit*: rows in paid_calls with method='free' and
+// amount_usdc=0. Migration 010 adds a covering index so the count query is <5ms.
+//
+// SOLID:
+//   - SRP: same module, same table — no new "freemium service" abstraction.
+//   - I3: BOTH buyer paywalls (paymentGate.ts /v3, v1Public.ts /api/v1) call
+//     these two functions. Single source of truth for the freemium rule.
+
+const NETWORK = process.env.X402_NETWORK ?? 'arbitrum-sepolia';
+
+/**
+ * Returns the number of free queries remaining for (buyer, agentId).
+ * Returns 0 when freemium is disabled (FREE_PREVIEW_LIMIT=0). Cheap (<5ms
+ * with the freemium index from migration 010).
+ */
+export async function checkFreePreview(buyer: string, agentId: string): Promise<number> {
+  if (FREE_PREVIEW_LIMIT === 0) return 0;
+  const r = await pool.query(
+    `SELECT COUNT(*)::int AS used FROM paid_calls
+      WHERE buyer = $1 AND agent_id = $2 AND method = 'free'`,
+    [buyer.toLowerCase(), agentId],
+  );
+  return Math.max(0, FREE_PREVIEW_LIMIT - (r.rows[0]?.used ?? 0));
+}
+
+/**
+ * Records a free query as a paid_calls row. Synthetic tx_hash keeps the
+ * (network, tx_hash) UNIQUE invariant. Idempotent.
+ */
+export async function recordFree(buyer: string, agentId: string, slug: string): Promise<void> {
+  await record({
+    agentId,
+    slug,
+    buyer,
+    amountUsdc: '0',
+    txHash: `free-${randomUUID()}`,
+    network: NETWORK,
+    method: 'free',
+  });
 }

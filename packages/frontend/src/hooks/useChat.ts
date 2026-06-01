@@ -34,6 +34,10 @@ export function useChat(
     amountUsdc?: string;
     network?: string;
   } | null>(null);
+  // T6/PRD-C: the API returns X-Free-Preview-Remaining on every freemium-pass
+  // response. The chat page reads this to tick the 🎁 badge without a second
+  // round-trip to /v4/billing/balance.
+  const [freeRemaining, setFreeRemaining] = useState<number | null>(null);
 
   async function sendMessage(
     content: string,
@@ -121,6 +125,10 @@ export function useChat(
         throw new Error(body?.error ?? `Inference failed (${r.status})`);
       }
 
+      // T6/PRD-C: surface freemium-remaining for the badge.
+      const remaining = r.headers.get('x-free-preview-remaining');
+      if (remaining !== null) setFreeRemaining(Number(remaining));
+
       const data = await r.json();
       const att = data.attestation
         ? ` ·  ${data.attestation.provider}${data.attestation.verified ? ' ✓' : ''}`
@@ -136,7 +144,7 @@ export function useChat(
     }
   }
 
-  return { messages, sendMessage, loading, error, needsPayment, clearPayment: () => setNeedsPayment(null) };
+  return { messages, sendMessage, loading, error, needsPayment, clearPayment: () => setNeedsPayment(null), freeRemaining };
 }
 
 function parseChallenge(header: string | null) {

@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePermit } from '@/hooks/usePermit';
+import { usePrivacyDisclosure } from '@/hooks/useEncryptedBalance';
 import { PermitManager } from '@/components/PermitManager';
 import {
   BRAIN_KEY_VAULT_ADDRESS,
@@ -24,6 +25,7 @@ export default function SettingsPage() {
   const { authenticated, ready, user, login, logout } = usePrivy();
   const userAddress = user?.wallet?.address as `0x${string}` | undefined;
   const { permitState, reason, authorize, revoke, loading, error } = usePermit(userAddress);
+  const disclosure = usePrivacyDisclosure();
 
   if (!ready) return null;
   if (!authenticated) {
@@ -70,6 +72,27 @@ export default function SettingsPage() {
           error={error}
           reason={reason}
         />
+      </section>
+
+      {/* T6/PRD-C: progressive-disclosure toggle. Off (default) → chat is
+          byte-identical to today. On → settlement IDs + FHE handles render
+          next to each assistant message. */}
+      <section className="space-y-3">
+        <h2 className="font-headline text-lg font-semibold">Privacy disclosure</h2>
+        <label className="flex items-center justify-between gap-4 rounded-xl border border-outline-variant/30 bg-surface p-4">
+          <div className="min-w-0">
+            <div className="font-medium">Show encrypted receipts (advanced)</div>
+            <div className="text-xs text-on-surface-variant">
+              Reveals settlement IDs and FHE handles next to each chat message. Off by default.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={disclosure.enabled}
+            onChange={(e) => disclosure.toggle(e.target.checked)}
+            className="h-5 w-5 cursor-pointer accent-primary"
+          />
+        </label>
       </section>
 
       <section className="space-y-3">
