@@ -1,15 +1,38 @@
-# OpenX — Patreon for AI agents
+# OpenX — Cognitive Memory Marketplace on Sui
 
-> Get paid when AI agents query your brain. The platform cannot read your knowledge.
+> **OpenX is the only cognitive memory marketplace on Sui** — a place where agents publish their brains, sell their skills, and license their workflows for USDC, with Phala-TEE-attested execution, multi-rail buyer payments, and KYA-credentialed Move-policy access. **Walrus Memory remembers. OpenX monetizes the remembering.**
 
 | | |
 |---|---|
 | **Repo** | https://github.com/phamdat721701/privacy-context (MIT) |
-| **Live API** | https://13-229-63-192.sslip.io · [`/health`](https://13-229-63-192.sslip.io/health) · [`/openapi.json`](https://13-229-63-192.sslip.io/openapi.json) |
-| **Stack** | Next.js 14 + Express + Postgres + Fhenix CoFHE on Arbitrum + Phala TEE |
+| **Live API** | https://13-229-63-192.sslip.io · [`/health`](https://13-229-63-192.sslip.io/health) · [`/openapi.json`](https://13-229-63-192.sslip.io/openapi.json) · [`/v3/dashboard/stats`](https://13-229-63-192.sslip.io/v3/dashboard/stats) |
+| **Stack** | Next.js 14 + Express + Postgres + Sui Testnet (Walrus + Seal + Move) + Fhenix CoFHE on Arbitrum + Phala TEE |
 | **License** | MIT |
 
-OpenX is a **publish-and-earn** marketplace where AI agents pay users in USDC to query knowledge only the user controls. Users encrypt their knowledge in the browser (AES-256-GCM); the symmetric key is FHE-wrapped on Arbitrum (`BrainKeyVaultV2`); inference runs in a Phala TEE. The platform is cryptographically blind to both the seller's text and the buyer's query. Sellers do **not** subscribe — buyers pay per-query via x402 USDC.
+OpenX is the commercial overlay Walrus Memory architecturally cannot ship without rewriting itself: a tri-marketplace for **skills + brains + workflows**, with deterministic L1→L5 cognitive promotion, Phala TEE encryption-during-compute, multi-rail USDC payments, KYA-gated Move policy, and a sovereignty-proof endpoint. Sellers don't subscribe; buyers pay per-call / per-query / per-execution / per-license.
+
+## 6-anchor pitch matrix
+
+| # | Anchor | Concrete proof |
+|---|---|---|
+| 1 | **Tri-marketplace** (skills + brains + workflows + reflective traces, one Move-object pattern) | `openx.so/marketplace?type=skill\|brain\|workflow\|reflective` filterable; ≥1 of each type live testnet |
+| 2 | **Cognitive memory L1→L5** (episodic→semantic→procedural→workflow→reflective) | `cognitiveMemoryService.ts` with `promoteToWorkflow` + `promoteToReflective` deterministic + signed |
+| 3 | **Encryption-during-compute** (Phala TEE + Seal threshold) | Phala attestation hash returned per step; `seal_approve_*` Move targets per product |
+| 4 | **Multi-rail PayRouter** | x402 + MPP + Sui-USDC + Stellar + XRPL + FHERC20 — one `Pay()` abstraction |
+| 5 | **KYA-gated Move policy** (ERC-8004 reputation reads in Move) | `seal_approve_pay_per_call/workflow_run/skill_call/license_unlock` + 60-sec freshness window |
+| 6 | **Sovereignty proof** | `/v3/workflows/:id/sovereignty-proof` rebuilds from Walrus alone — the OpenX DB is not in the trust path |
+
+## Network isolation guarantees
+
+The Sui pivot does **not** affect Standard tier (Fhenix on Arbitrum) or any of the multi-rail payment paths:
+
+| Guarantee | How enforced |
+|---|---|
+| G1 — UX clarity | Sui-only product cards in marketplace surface a `SwitchToSuiPrompt` for Standard-tier wallets |
+| G2 — server-side guard | `requireSuiWallet` middleware on POST publish + execute; `WorkflowRunner` asserts `sui_object_id` non-empty |
+| G3 — promotion guard | `promoteToWorkflow` filters bundles by `tier === 'trustless'` before emitting candidates |
+| G4 — install isolation | `@mysten-incubation/memwal` is an **optional** peer-dependency; Standard-tier installs don't pull it; `WalrusMemoryBridge` constructor throws clear actionable errors when missing |
+| G5 — regression suite | `scripts/run-all-smokes.sh` + `.github/workflows/regression.yml` runs 36 Move tests + 55 SDK smokes on every PR |
 
 ---
 
@@ -24,6 +47,39 @@ npm run dev                      # → http://localhost:3000
 ```
 
 `npm run dev` is one command — it loads `.env`, builds the SDK, boots the api on `:3001`, then the frontend on `:3000`, and prints a banner. `Ctrl+C` tears both processes down.
+
+## Verify the build (offline regression)
+
+```bash
+bash scripts/run-all-smokes.sh
+# → builds 5 packages tsc green
+# → runs Move tests (sui move test) — 36 cases
+# → runs cognitive smoke           — 22 cases
+# → runs workflow runner smoke     — 13 cases (G2 guard verified)
+# → runs marketing-workflow smoke  — 18 cases (lighthouse 7-step DAG runs in <90s)
+# → runs WalrusMemoryBridge smoke  — 2 cases (G4 guards verified)
+# → seed-tri-marketplace DRY validation
+```
+
+## Live demo path (Sui testnet)
+
+```bash
+# 1. Seed the marketplace with bootstrap content (3 brains + 3 skills + 1 workflow)
+API_URL=https://13-229-63-192.sslip.io \
+PHAM_WALLET_ADDRESS=0x… \
+PHAM_PRIVATE_KEY=0x… \
+SEED_SUI_OBJECT_ID=0x…  SEED_WALRUS_BLOB_ID=walrus:… \
+  npm run seed:tri-marketplace
+
+# 2. Browse the marketplace
+open https://your-frontend/marketplace?type=workflow
+
+# 3. Run the lighthouse marketing-7-step workflow (90 seconds, $1.50 testnet-USDC)
+#    Watch step-by-step receipts stream live + Phala attestations + Walrus blob ids.
+
+# 4. Cash-flow proof — public, no auth required:
+open https://your-frontend/dashboard
+```
 
 ---
 
@@ -95,9 +151,27 @@ Deploy is one command:
 ```bash
 npm run smoke:auth                        # wallet auth + permit roundtrip
 npm run smoke:chunks-auth                 # encrypted chunk auth
+npm run smoke:sui-flow                    # Sui identity-binding roundtrip (NEW)
 npm run demo:agentic-market               # multi-rail x402 / MPP / Sui-USDC
 npm run dev                               # full stack locally
 ```
+
+## Try Sui mode (trustless tier)
+
+```bash
+npm run dev                               # starts API + frontend
+# 1. Open http://localhost:3000
+# 2. Sign in with Privy (any email / EVM wallet works)
+# 3. Click the network pill in the top bar → pick "Sui Testnet"
+# 4. Click "Connect Sui" — Slush, Suiet, OKX, or Phantom-Sui all work
+# 5. The pill turns purple; visit /brain-sui/new to publish a trustless brain
+```
+
+The active tier auto-derives from the network choice — selecting Sui flips the
+publish flow to Walrus + Sui + Tatum visualization (`TrustlessProgressTimeline`
+during publish, `TrustlessStatusPanel` on the brain detail page). The
+backend EVM↔Sui binding (`POST /v3/identity/link`) runs once on the first Sui
+wallet connect and is idempotent thereafter.
 
 ---
 

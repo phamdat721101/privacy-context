@@ -1,4 +1,14 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { hmac } from '@noble/hashes/hmac';
+import { sha256 } from '@noble/hashes/sha256';
+import { utf8ToBytes } from '@noble/hashes/utils';
+
+/** Constant-time byte-array equality — replaces Node's `timingSafeEqual`. */
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
 
 /**
  * Resume tokens — opaque, HMAC-signed payloads that let a client retry a
@@ -49,7 +59,8 @@ function fromB64url(s: string): Buffer {
 export function signResumeToken<T>(data: T, opts: ResumeTokenOptions = {}): string {
   const env: InternalEnvelope<T> = { v: 1, iat: new Date().toISOString(), data };
   const body = b64url(Buffer.from(JSON.stringify(env)));
-  const sig = b64url(createHmac('sha256', resolveSecret(opts.secret)).update(body).digest());
+  const sigBytes = hmac(sha256, utf8ToBytes(resolveSecret(opts.secret)), utf8ToBytes(body));
+  const sig = b64url(Buffer.from(sigBytes));
   return `${body}.${sig}`;
 }
 
@@ -67,9 +78,9 @@ export function verifyResumeToken<T>(token: string, opts: ResumeTokenOptions = {
   if (parts.length !== 2) throw new InvalidResumeToken('shape');
 
   const [body, sig] = parts;
-  const expected = createHmac('sha256', resolveSecret(opts.secret)).update(body).digest();
-  const got = fromB64url(sig);
-  if (got.length !== expected.length || !timingSafeEqual(got, expected)) {
+  const expected = hmac(sha256, utf8ToBytes(resolveSecret(opts.secret)), utf8ToBytes(body));
+  const got = new Uint8Array(fromB64url(sig));
+  if (!constantTimeEqual(got, expected)) {
     throw new InvalidResumeToken('signature');
   }
 

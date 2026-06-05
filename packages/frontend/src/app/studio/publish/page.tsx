@@ -13,6 +13,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import { listMyAgents, type Agent } from '@/lib/agents';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { PublishWizard } from '@/components/PublishWizard';
+import { useActiveWallet } from '@/hooks/useActiveWallet';
 
 interface BrainRow {
   id: number;
@@ -25,7 +26,7 @@ interface PublishConfig {
   brainId: number;
   slug: string;
   priceUsdc: string;
-  network: 'arbitrum-sepolia';
+  network: 'arbitrum-sepolia' | 'sui-testnet' | 'sui-mainnet';
   method: 'exact' | 'fherc20';
   acceptPrivate: boolean;
   payTo: `0x${string}`;
@@ -33,8 +34,12 @@ interface PublishConfig {
 }
 
 export default function PublishPage() {
-  const { ready, authenticated, user, login } = usePrivy();
-  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+  const { ready, authenticated, login } = usePrivy();
+  // Active wallet — Sui address on Sui networks, EVM address otherwise.
+  // Uses the same hook as /studio so the brain list here matches the
+  // ownership shown in the Studio detail page (no cross-chain leakage).
+  const { address } = useActiveWallet();
+  const userAddress = address as `0x${string}` | undefined;
   const [brains, setBrains] = useState<BrainRow[]>([]);
   const [loading, setLoading] = useState(true);
 

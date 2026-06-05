@@ -57,6 +57,9 @@ interface AgentRow {
   pricing: { x402?: string | null; fherc20?: string | null };
   daily_request_cap: number;
   published: boolean;
+  /** Chain stamped at create time. Used to render the correct chain id in
+   *  agent.json so AI buyers know which network's USDC to settle in. */
+  chain: string | null;
 }
 
 interface CachedProvider {
@@ -75,7 +78,7 @@ function isReserved(slug: string): boolean {
 async function loadAgent(slug: string): Promise<AgentRow | null> {
   if (isReserved(slug)) return null;
   const r = await pool.query(
-    `SELECT id, slug, brain_id, owner_address, persona, pricing, daily_request_cap, published
+    `SELECT id, slug, brain_id, owner_address, persona, pricing, daily_request_cap, published, chain
        FROM agents WHERE slug = $1 AND published = true`,
     [slug],
   );
@@ -110,7 +113,12 @@ async function buildProvider(agent: AgentRow): Promise<CachedProvider> {
   const priceMicroUsdc = Math.round(priceUsdc * 1_000_000);
   const facilitator =
     process.env.X402_FACILITATOR_URL ?? 'https://facilitator.x402.rs';
-  const network = process.env.X402_NETWORK ?? 'arbitrum-sepolia';
+  // Chain priority: agent.chain (stamped at create time) → env override
+  // → arbitrum-sepolia default. This way the same X402_NETWORK env can
+  // serve as a global default while per-agent rows determine their own
+  // settlement chain (Sui-published agents now report 'sui-testnet'
+  // instead of incorrectly inheriting Arbitrum).
+  const network = agent.chain ?? process.env.X402_NETWORK ?? 'arbitrum-sepolia';
   // Circle USDC on Arbitrum Sepolia (https://developers.circle.com/stablecoins/docs/usdc-on-test-networks)
   const asset =
     process.env.X402_USDC_ADDRESS ?? '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';

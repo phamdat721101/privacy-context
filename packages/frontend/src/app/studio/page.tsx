@@ -6,10 +6,20 @@ import { listMyAgents, createAgent, type Agent } from '@/lib/agents';
 import { usePermit } from '@/hooks/usePermit';
 import { PermitManager } from '@/components/PermitManager';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import { useActiveWallet } from '@/hooks/useActiveWallet';
+import { useNetwork } from '@/hooks/useNetwork';
+import { isSuiNetwork } from '@/lib/networks';
 
 export default function StudioPage() {
-  const { authenticated, ready, user, login } = usePrivy();
-  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+  const { authenticated, ready, login } = usePrivy();
+  // Active wallet — Sui address on Sui networks, EVM address otherwise.
+  // Stamping the agent with the ACTIVE wallet (rather than Privy's EVM
+  // wallet) is what makes /studio identity-coherent across networks: the
+  // ownership chip on the agent detail page matches the connected wallet
+  // pill in the header. agents.owner_address is TEXT (no length cap),
+  // so a 66-char Sui address stores cleanly without a schema change.
+  const { address } = useActiveWallet();
+  const userAddress = address as `0x${string}` | undefined;
   const {
     permitState,
     reason,
@@ -18,7 +28,14 @@ export default function StudioPage() {
     loading: permitLoading,
     error: permitError,
   } = usePermit(userAddress);
-  const hasPermit = !!permitState.serializedPermit;
+  // Permit gate is EVM-only — it authorizes Fhenix CoFHE to decrypt the
+  // brain's AES key. The Sui trustless tier uses Seal IBE-wrapping at the
+  // brain level instead, so there's no platform-wide permit. Treat Sui as
+  // permit-equivalent: the creator UI renders directly, PermitManager
+  // never mounts, and EVM-tier behavior is byte-identical (G5).
+  const { network } = useNetwork();
+  const onSui = isSuiNetwork(network);
+  const hasPermit = onSui || !!permitState.serializedPermit;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -38,7 +55,7 @@ export default function StudioPage() {
     setCreating(true);
     setStatus(null);
     try {
-      const agent = await createAgent(userAddress, newTitle.trim());
+      const agent = await createAgent(userAddress, newTitle.trim(), onSui ? 'sui' : 'evm');
       if (agent) {
         setAgents((prev) => [agent, ...prev]);
         setNewTitle('');

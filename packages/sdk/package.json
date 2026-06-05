@@ -10,7 +10,15 @@
   },
   "dependencies": {
     "@cofhe/sdk": "^0.5.1",
+    "@fhe-ai-context/runtime-utils": "*",
+    "@noble/hashes": "^1.4.0",
     "viem": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@mysten-incubation/memwal": ">=0.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@mysten-incubation/memwal": { "optional": true }
   },
   "devDependencies": {
     "typescript": "^5.4.0"

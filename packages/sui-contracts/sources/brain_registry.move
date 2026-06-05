@@ -122,6 +122,47 @@ module fhe_brain::brain_registry {
         authorize_read(brain, policy, sub, clock, kya_claim);
     }
 
+    // ------------------------------------------------------------------
+    // Pay-per-call (per-query) variant.
+    //
+    // OpenX flagship paid-query flow: buyer constructs a single tx that
+    // (a) calls subscription_policy::subscribe<USDC> with duration_ms ≤ 60_000
+    // (≈ one-query window), then (b) calls `seal_approve_pay_per_call`.
+    // Reuses the existing `Subscription` storage type — no parallel
+    // `PaymentReceipt` struct needed (keeps the model surface minimal).
+    //
+    // The 60-second freshness check is enforced here (not in `subscribe`)
+    // because subscription-tier brains legitimately use longer durations.
+    // Both flows share one storage type; only the SEAL approver differs.
+    // ------------------------------------------------------------------
+
+    const EPaymentExpired: u64 = 6;
+    /// Max window between payment and key release for per-call flow.
+    const PAY_PER_CALL_MAX_AGE_MS: u64 = 60_000;
+
+    /// Per-call SEAL entrypoint. Same invariants as `seal_approve`, plus a
+    /// max-age check that rejects subscriptions older than 60 seconds.
+    public fun seal_approve_pay_per_call(
+        id: vector<u8>,
+        brain: &Brain,
+        policy: &SubscriptionPolicy,
+        sub: &Subscription,
+        clock: &Clock,
+        kya_claim: Option<KYAClaim>,
+    ) {
+        let brain_id_bytes = object::id(brain).to_bytes();
+        assert!(id == brain_id_bytes, EBadSubscription);
+
+        // expires_at > now + 60s means duration was over 60s — reject:
+        // this enforces the per-call semantic at the policy layer.
+        let now = sui::clock::timestamp_ms(clock);
+        let expires = sp::expires_at(sub);
+        assert!(expires >= now, ESubscriptionExpired);
+        assert!(expires - now <= PAY_PER_CALL_MAX_AGE_MS, EPaymentExpired);
+
+        authorize_read(brain, policy, sub, clock, kya_claim);
+    }
+
     // --- read accessors ----------------------------------------------------
 
     public fun walrus_blob_ids(b: &Brain): &vector<vector<u8>> { &b.walrus_blob_ids }

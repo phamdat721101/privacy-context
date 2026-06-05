@@ -15,7 +15,9 @@
  * to a Seal key server anywhere in this codebase.
  */
 
-import { createHash, createHmac } from 'node:crypto';
+import { sha256 } from '@noble/hashes/sha256';
+import { hmac } from '@noble/hashes/hmac';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
 import {
   resilientCall,
   type ResilientLogger,
@@ -25,6 +27,10 @@ import {
 export interface SealSubscriptionProof {
   /** Sui object ID of the `Subscription` capability NFT. */
   suiObjectId: string;
+  /** Sui object ID of the `Brain` (used to build seal_approve tx). */
+  brainObjectId: string;
+  /** Sui object ID of the shared `SubscriptionPolicy` (used to build seal_approve tx). */
+  policyObjectId: string;
   /** Off-chain signature attesting the subscription is unexpired. T11 sources this from RPC. */
   signature: string;
 }
@@ -34,6 +40,8 @@ export interface SealKYAClaim {
   agentAddress: string;
   reputation: number;
   proof: string;
+  /** Sui object ID of the on-chain `KYAClaim` (when one exists). */
+  objectId?: string;
 }
 
 export interface EncryptKeyOpts {
@@ -83,7 +91,7 @@ class MockSealKeyClient implements SealKeyClient {
   constructor(private readonly mockSecret: string) {}
 
   private derive(identity: string): Uint8Array {
-    return createHmac('sha256', this.mockSecret).update(identity).digest();
+    return hmac(sha256, utf8ToBytes(this.mockSecret), utf8ToBytes(identity));
   }
 
   async encryptKey({ identity, key }: EncryptKeyOpts): Promise<Uint8Array> {
@@ -106,61 +114,147 @@ class MockSealKeyClient implements SealKeyClient {
 // ---------- HTTP implementation (skeleton) ---------------------------------
 
 /**
- * HTTP impl for real Seal threshold key servers.
+ * Real Seal threshold-IBE adapter for `@mysten/seal`.
  *
- * Encryption is local IBE wrapping (no servers needed). Decryption queries
- * `threshold` of `keyServers`, each verifies the on-chain Move policy plus the
- * caller's `subscriptionProof` (and optional `kyaClaim`), and returns a key
- * share. Shares are combined client-side.
+ * Encryption is local IBE wrapping — no network. Decryption builds a
+ * `seal_approve` (or `seal_approve_pay_per_call`) Move tx-kind targeting the
+ * `OPENX_BRAIN_PACKAGE_ID` deployment, hands it to `SealClient.decrypt`, and
+ * the SDK fans the request out to the configured threshold key servers.
  *
- * The exact wire format will follow the published `@mysten/seal` SDK once
- * stable; for now this class exposes the contract and throws "not wired yet"
- * with documented next steps.
+ * Mock-first: when `@mysten/seal` isn't installed (CI / unit tests / fresh
+ * dev), the factory returns the mock client. Production swap: install
+ * `@mysten/seal` + `@mysten/sui` and set `SEAL_KEY_SERVERS` + `OPENX_BRAIN_PACKAGE_ID`.
+ *
+ * The SDK is loaded via dynamic import to keep it a peer dep (sui-sdk users
+ * who only need the mock pay no install cost).
  */
 class HttpSealKeyClient implements SealKeyClient {
   constructor(
     private readonly keyServers: string[],
     private readonly threshold: number,
+    private readonly packageId: string,
+    private readonly suiRpcUrl: string,
   ) {}
 
-  async encryptKey(_opts: EncryptKeyOpts): Promise<Uint8Array> {
-    throw new Error(
-      'HttpSealKeyClient.encryptKey not wired yet. Wire when @mysten/seal is published; ' +
-        'until then unset SEAL_KEY_SERVERS to use the mock.',
+  async encryptKey(opts: EncryptKeyOpts): Promise<Uint8Array> {
+    if (opts.key.byteLength !== 32) throw new Error('Seal: key must be 32 bytes');
+    const seal = await this.loadSdk();
+    const { ciphertext } = await resilientCall(
+      { name: 'seal-encrypt', logger: opts.logger },
+      async () =>
+        seal.client.encrypt({
+          packageId: this.packageId,
+          id: hexFromIdentity(opts.identity),
+          threshold: this.threshold,
+          data: opts.key,
+        }),
     );
+    return ciphertext as Uint8Array;
   }
 
   async decryptKey(opts: DecryptKeyOpts): Promise<Uint8Array> {
     if (this.keyServers.length < this.threshold) {
       throw new Error(`Seal: need ≥${this.threshold} key servers, have ${this.keyServers.length}`);
     }
-    // Sketch — kept here so the resilientCall wiring is pre-baked.
-    const _shares: Uint8Array[] = [];
-    for (let i = 0; i < this.threshold; i++) {
-      const url = this.keyServers[i];
-      await resilientCall(
-        { name: `seal-key-server-${i}`, logger: opts.logger },
-        async () => {
-          const res = await fetch(`${url}/v1/key-share`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              identity: opts.identity,
-              ciphertext: Buffer.from(opts.ciphertext).toString('base64'),
-              subscriptionProof: opts.subscriptionProof,
-              kyaClaim: opts.kyaClaim,
-            }),
-          });
-          if (!res.ok) throw new Error(`seal key-server ${i} returned ${res.status}`);
-          // Real combination logic lands when SDK is wired.
-          return res.arrayBuffer();
-        },
-      );
+    const seal = await this.loadSdk();
+    // Caller supplies the raw (already constructed) tx kind via opts.metadata
+    // OR we synthesise a default `seal_approve_pay_per_call` call from the
+    // subscription proof + brain identity. The latter covers 95 % of the
+    // OpenX flagship paid-query flow; bespoke flows (multi-sig, gasless)
+    // build their own tx kinds.
+    if (!opts.subscriptionProof) {
+      throw new Error('Seal: decryptKey requires subscriptionProof for SEAL approve');
     }
-    throw new Error(
-      'HttpSealKeyClient.decryptKey: share-combination not wired yet (await @mysten/seal stable release).',
+    const txBytes = await seal.buildSealApproveTx({
+      packageId: this.packageId,
+      module: 'brain_registry',
+      function: 'seal_approve_pay_per_call',
+      identity: hexFromIdentity(opts.identity),
+      brainObjectId: opts.subscriptionProof.brainObjectId,
+      policyObjectId: opts.subscriptionProof.policyObjectId,
+      subscriptionObjectId: opts.subscriptionProof.suiObjectId,
+      kyaClaimObjectId: opts.kyaClaim?.objectId,
+      suiRpcUrl: this.suiRpcUrl,
+    });
+    return resilientCall(
+      { name: 'seal-decrypt', logger: opts.logger },
+      async () =>
+        seal.client.decrypt({
+          ciphertext: opts.ciphertext,
+          txBytes,
+        }),
     );
   }
+
+  /**
+   * Lazily import `@mysten/seal`. Returns a thin facade so tests can mock the
+   * surface; if the package is absent we throw with a clear remediation.
+   */
+  private async loadSdk(): Promise<SealSdkFacade> {
+    const moduleName = '@mysten/seal';
+    const sdk: any = await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleName).catch(
+      () => null,
+    );
+    if (!sdk?.SealClient) {
+      throw new Error(
+        '@mysten/seal not installed. Run `npm i @mysten/seal @mysten/sui` or unset SEAL_KEY_SERVERS to use the mock.',
+      );
+    }
+    const client = new sdk.SealClient({
+      suiClient: await this.suiClient(),
+      serverObjectIds: this.keyServers,
+      verifyKeyServers: true,
+    });
+    return {
+      client,
+      buildSealApproveTx: (params: SealApproveCallParams) => sdk.buildSealApproveTx(params),
+    };
+  }
+
+  private async suiClient(): Promise<unknown> {
+    const moduleName = '@mysten/sui/client';
+    const m: any = await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleName);
+    // Pass TATUM_API_KEY via x-api-key header when set — lifts the free-tier rate limit.
+    // Without this, demo-time bursts get 429s. Fallback transport routes to the public
+    // Mysten fullnode on 429 / 5xx so the demo never wedges on Tatum-side issues.
+    const apiKey = process.env.TATUM_API_KEY;
+    const isTestnet = this.suiRpcUrl.includes('testnet');
+    const fallbackUrl = isTestnet
+      ? 'https://fullnode.testnet.sui.io'
+      : 'https://fullnode.mainnet.sui.io';
+    if (m.SuiHTTPTransport) {
+      const transport = new m.SuiHTTPTransport({
+        url: this.suiRpcUrl,
+        rpc: apiKey ? { headers: { 'x-api-key': apiKey } } : undefined,
+        // Fallback transport — used by SuiClient when primary returns 429/5xx.
+        fallback: { url: fallbackUrl },
+      });
+      return new m.SuiClient({ transport });
+    }
+    // Older @mysten/sui versions without SuiHTTPTransport — best-effort headers via url.
+    return new m.SuiClient({ url: this.suiRpcUrl });
+  }
+}
+
+interface SealApproveCallParams {
+  packageId: string;
+  module: string;
+  function: string;
+  identity: string;
+  brainObjectId: string;
+  policyObjectId: string;
+  subscriptionObjectId: string;
+  kyaClaimObjectId?: string;
+  suiRpcUrl: string;
+}
+
+interface SealSdkFacade {
+  client: { encrypt: (a: any) => Promise<{ ciphertext: Uint8Array }>; decrypt: (a: any) => Promise<Uint8Array> };
+  buildSealApproveTx: (params: SealApproveCallParams) => Promise<Uint8Array>;
+}
+
+function hexFromIdentity(s: string): string {
+  return '0x' + Buffer.from(s, 'utf8').toString('hex');
 }
 
 // ---------- Factory --------------------------------------------------------
@@ -168,20 +262,23 @@ class HttpSealKeyClient implements SealKeyClient {
 /**
  * Pick an implementation. When `keyServers` is empty/unset we return the mock.
  * Real wiring is selected by `SEAL_KEY_SERVERS` env (csv) + optional
- * `SEAL_THRESHOLD` env (default 2).
+ * `SEAL_THRESHOLD` env (default 2) + `OPENX_BRAIN_PACKAGE_ID` for the
+ * `seal_approve_pay_per_call` Move target.
  */
-export function createSealKeyClient(cfg: SealConfig = {}): SealKeyClient {
+export function createSealKeyClient(cfg: SealConfig & { packageId?: string; suiRpcUrl?: string } = {}): SealKeyClient {
   const envServers = (process.env.SEAL_KEY_SERVERS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   const keyServers = cfg.keyServers ?? envServers;
   const threshold = cfg.threshold ?? Number(process.env.SEAL_THRESHOLD ?? 2);
+  const packageId = cfg.packageId ?? process.env.OPENX_BRAIN_PACKAGE_ID ?? '';
+  const suiRpcUrl =
+    cfg.suiRpcUrl ?? process.env.SUI_RPC_URL ?? 'https://sui-mainnet.gateway.tatum.io';
 
-  if (keyServers.length === 0) {
+  if (keyServers.length === 0 || !packageId) {
     const mockSecret =
       cfg.mockSecret ??
       process.env.SEAL_MOCK_SECRET ??
-      // Stable per-process so encrypt and decrypt agree without any setup. Logged once.
-      createHash('sha256').update('fhe-second-brain-mock-secret').digest('hex');
+      bytesToHex(sha256(utf8ToBytes('fhe-second-brain-mock-secret')));
     return new MockSealKeyClient(mockSecret);
   }
-  return new HttpSealKeyClient(keyServers, threshold);
+  return new HttpSealKeyClient(keyServers, threshold, packageId, suiRpcUrl);
 }

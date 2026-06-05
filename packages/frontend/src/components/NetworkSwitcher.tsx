@@ -4,35 +4,36 @@
  * components/NetworkSwitcher.tsx — top-bar chain picker.
  *
  * Renders a compact pill next to the WalletConnect button. Click → dropdown
- * with the networks OpenX supports (Base Sepolia, Arbitrum Sepolia).
- * Selecting a row asks the user's wallet to switch chains via Privy's
- * `wallet.switchChain(id)` — both chains are pre-known to common wallets.
+ * with the networks OpenX supports (Base Sepolia, Arbitrum Sepolia, Sui
+ * Testnet). Selection branches on `network.kind`:
  *
- * Persistence:
- *   - localStorage key `openx:network` remembers the last picked NetworkKey.
- *   - URL param `?network=<key>` overrides on mount.
- *   - On boot, if the wallet's actual chainId differs from the persisted
- *     choice, we *trust the wallet* (don't auto-switch); we only update the
- *     pill UI to match. Auto-switching on mount would be hostile.
+ *   - EVM chains use Privy's `wallet.switchChain(id)` (chains are pre-known
+ *     to common wallets).
+ *   - Sui chains open the dapp-kit `useConnectWallet()` flow if no Sui
+ *     wallet is connected; otherwise the persistence is enough.
+ *
+ * Single source of truth for the *selected key* lives in `hooks/useNetwork`.
+ * This component only renders + delegates.
  *
  * SOLID:
- *   - SRP: this component owns the pill UI, the dropdown, and the persistence
- *     for the user's *intent*. Actual chain switching delegates to the
- *     wallet's own RPC method.
- *   - DIP: no chain literals. Everything comes from `lib/networks.ts`.
+ *   - SRP: dropdown UI + delegate. No persistence here.
+ *   - DIP: chain literals come from `lib/networks.ts`; switch verbs come
+ *     from per-kind adapters.
+ *   - OCP: a 4th network kind = a new branch in `switchTo`, nothing else.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePrivy, useWallets, type ConnectedWallet } from '@privy-io/react-auth';
+import { useConnectWallet, useCurrentWallet, useWallets as useSuiWallets } from '@mysten/dapp-kit';
 import {
   SUPPORTED_NETWORKS,
   getNetworkById,
+  isEvmNetwork,
+  isSuiNetwork,
   type Network,
   type NetworkKey,
 } from '@/lib/networks';
-
-const STORAGE_KEY = 'openx:network';
-const URL_PARAM = 'network';
+import { useNetwork } from '@/hooks/useNetwork';
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
@@ -45,45 +46,37 @@ function parseChainId(caip2OrNumber: string | number | undefined | null): number
   return Number.isFinite(n) ? n : undefined;
 }
 
-function readPersistedKey(): NetworkKey | null {
-  try {
-    const url = new URL(window.location.href);
-    const fromUrl = url.searchParams.get(URL_PARAM);
-    if (isNetworkKey(fromUrl)) return fromUrl;
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (isNetworkKey(stored)) return stored;
-  } catch {
-    /* SSR */
+// ─── chain switch (per-kind adapter) ─────────────────────────────────────
+
+type SwitchError = 'rejected' | 'no-wallet' | 'no-sui-wallet' | string;
+
+interface SwitchCtx {
+  evmWallet: ConnectedWallet | undefined;
+  suiConnected: boolean;
+  connectSui: () => Promise<void>;
+}
+
+async function switchTo(network: Network, ctx: SwitchCtx): Promise<void> {
+  if (isEvmNetwork(network)) {
+    if (!ctx.evmWallet) throw Object.assign(new Error('no-wallet'), { code: 'no-wallet' });
+    await ctx.evmWallet.switchChain(network.id);
+    return;
   }
-  return null;
-}
-
-function persistKey(key: NetworkKey) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, key);
-    const url = new URL(window.location.href);
-    url.searchParams.set(URL_PARAM, key);
-    window.history.replaceState({}, '', url.toString());
-  } catch {
-    /* SSR */
+  if (isSuiNetwork(network)) {
+    // If a Sui wallet is already connected, persistence + key change is enough.
+    // dapp-kit's chain selection lives at the call-site (per-tx) — there's no
+    // global "switch Sui chain" verb on a wallet adapter today.
+    if (ctx.suiConnected) return;
+    await ctx.connectSui();
+    return;
   }
-}
-
-function isNetworkKey(v: unknown): v is NetworkKey {
-  return typeof v === 'string' && SUPPORTED_NETWORKS.some((n) => n.key === v);
-}
-
-// ─── chain switch (delegates per network kind) ───────────────────────────
-
-type SwitchError = 'rejected' | 'no-wallet' | string;
-
-async function switchTo(wallet: ConnectedWallet, network: Network): Promise<void> {
-  await wallet.switchChain(network.id);
 }
 
 function classifyError(err: unknown): SwitchError {
-  const e = err as { code?: number; message?: string };
+  const e = err as { code?: number | string; message?: string };
   if (e.code === 4001 || /user rejected|denied/i.test(e.message ?? '')) return 'rejected';
+  if (e.code === 'no-wallet') return 'no-wallet';
+  if (e.code === 'no-sui-wallet') return 'no-sui-wallet';
   return e.message ?? 'unknown';
 }
 
@@ -92,28 +85,36 @@ function classifyError(err: unknown): SwitchError {
 export function NetworkSwitcher() {
   const { authenticated, ready } = usePrivy();
   const { wallets } = useWallets();
-  const wallet = wallets[0];
+  const evmWallet = wallets[0];
 
-  const walletChainId = parseChainId(wallet?.chainId);
-  const walletNetwork = getNetworkById(walletChainId);
+  // Sui dapp-kit hooks — present on every render but no-ops when no Sui
+  // wallet extension is installed.
+  const suiCurrent = useCurrentWallet();
+  const suiAvailable = useSuiWallets();
+  const { mutateAsync: connectSuiAsync } = useConnectWallet();
+
+  const evmChainId = parseChainId(evmWallet?.chainId);
+  const evmNetwork = getNetworkById(evmChainId);
+
+  const { network: selected, networkKey, setNetworkKey, ready: netReady } = useNetwork();
 
   const [open, setOpen] = useState(false);
   const [pendingKey, setPendingKey] = useState<NetworkKey | null>(null);
   const [error, setError] = useState<SwitchError | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // On first mount: rehydrate the persisted choice into the URL so deep
-  // links pick up the user's last network. We do NOT auto-switch the wallet.
+  // Whenever the user's wallet *actually* settles on a new EVM chain, mirror
+  // that into the selected network — keeps the pill honest if they switched
+  // chains externally (MetaMask). We only do this when the current selection
+  // is itself an EVM network — switching from Sui back to EVM is the user's
+  // explicit action, not something we infer.
   useEffect(() => {
-    const persisted = readPersistedKey();
-    if (persisted) persistKey(persisted);
-  }, []);
-
-  // Whenever the wallet's actual chain settles, persist it as the new intent.
-  // This keeps the pill UI honest if the user switches chains via MetaMask.
-  useEffect(() => {
-    if (walletNetwork) persistKey(walletNetwork.key);
-  }, [walletNetwork?.key]);
+    if (!netReady) return;
+    if (selected.kind !== 'evm') return;
+    if (evmNetwork && evmNetwork.key !== selected.key) {
+      setNetworkKey(evmNetwork.key);
+    }
+  }, [evmNetwork?.key, netReady, selected.kind, selected.key, setNetworkKey]);
 
   // Close on outside click.
   useEffect(() => {
@@ -128,18 +129,24 @@ export function NetworkSwitcher() {
   const onPick = useCallback(
     async (network: Network) => {
       setError(null);
-      if (!wallet) {
-        setError('no-wallet');
-        return;
-      }
-      if (network.id === walletChainId) {
+      if (network.key === networkKey && (network.kind === 'evm' ? network.id === evmChainId : suiCurrent.connectionStatus === 'connected')) {
         setOpen(false);
         return;
       }
       setPendingKey(network.key);
       try {
-        await switchTo(wallet, network);
-        persistKey(network.key);
+        await switchTo(network, {
+          evmWallet,
+          suiConnected: suiCurrent.connectionStatus === 'connected',
+          connectSui: async () => {
+            const wallet = suiAvailable[0];
+            if (!wallet) throw Object.assign(new Error('no-sui-wallet'), { code: 'no-sui-wallet' });
+            await connectSuiAsync({ wallet });
+          },
+        });
+        // Only persist after the user-facing switch succeeds; otherwise the
+        // pill would lie about state (showing Sui while wallet is on EVM).
+        setNetworkKey(network.key);
         setOpen(false);
       } catch (err) {
         setError(classifyError(err));
@@ -147,18 +154,24 @@ export function NetworkSwitcher() {
         setPendingKey(null);
       }
     },
-    [wallet, walletChainId],
+    [
+      networkKey,
+      evmWallet,
+      evmChainId,
+      suiCurrent.connectionStatus,
+      suiAvailable,
+      connectSuiAsync,
+      setNetworkKey,
+    ],
   );
 
   const pillLabel = useMemo(() => {
     if (!authenticated) return 'Network';
-    if (walletNetwork) return walletNetwork.shortName;
-    if (walletChainId) return `Chain ${walletChainId}`;
-    return 'Network';
-  }, [authenticated, walletNetwork, walletChainId]);
+    return selected.shortName;
+  }, [authenticated, selected.shortName]);
 
-  const pillIcon = walletNetwork?.icon ?? '⚪';
-  const disabled = !ready || !authenticated || !wallet;
+  const pillIcon = selected.icon;
+  const disabled = !ready || !authenticated;
 
   return (
     <div ref={containerRef} className="relative">
@@ -166,8 +179,8 @@ export function NetworkSwitcher() {
         type="button"
         onClick={() => !disabled && setOpen((v) => !v)}
         disabled={disabled}
-        title={walletNetwork?.name ?? 'Connect a wallet to switch networks'}
-        aria-label={`Switch network. Current: ${walletNetwork?.name ?? 'unknown'}.`}
+        title={selected.name}
+        aria-label={`Switch network. Current: ${selected.name}.`}
         aria-haspopup="listbox"
         aria-expanded={open}
         className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-mono transition-colors ${
@@ -194,8 +207,10 @@ export function NetworkSwitcher() {
           </div>
           <ul className="py-1">
             {SUPPORTED_NETWORKS.map((n) => {
-              const active = n.id === walletChainId;
+              const active = n.key === networkKey;
               const pending = pendingKey === n.key;
+              const subtitle =
+                n.kind === 'evm' ? `${n.featureHint} · chain ${n.id}` : `${n.featureHint} · ${n.suiChain}`;
               return (
                 <li key={n.key}>
                   <button
@@ -216,9 +231,7 @@ export function NetworkSwitcher() {
                         {n.name}
                         {active && <span className="material-symbols-outlined text-[14px]">check_circle</span>}
                       </span>
-                      <span className="block text-[11px] text-on-surface-variant">
-                        {n.featureHint} · chain {n.id}
-                      </span>
+                      <span className="block text-[11px] text-on-surface-variant">{subtitle}</span>
                     </span>
                     {pending && (
                       <span className="material-symbols-outlined animate-spin text-[16px] text-on-surface-variant">
@@ -243,6 +256,8 @@ function ErrorRow({ error, onDismiss }: { error: SwitchError; onDismiss: () => v
       ? 'Switch declined in your wallet.'
       : error === 'no-wallet'
       ? 'Connect a wallet first.'
+      : error === 'no-sui-wallet'
+      ? 'No Sui wallet detected. Install Slush, Suiet, or another Sui wallet to use trustless mode.'
       : `Switch failed: ${error}`;
   return (
     <div className="flex items-start gap-2 border-t border-error/30 bg-error/10 px-3 py-2 text-[11px] text-error">

@@ -22,6 +22,13 @@ import {
   type FactType,
   type SemanticFact,
   type ProceduralBundle,
+  type WorkflowStep,
+  type WorkflowCandidate,
+  type WorkflowRunReceipt,
+  type ReflectiveCandidate,
+  type ReflectiveObservation,
+  type DerivedRule,
+  type CognitiveTier,
 } from './types';
 // ─── Public surface ─────────────────────────────────────────────────────────
 
@@ -284,3 +291,226 @@ function sha256Hex(s: string): string {
 
 // Re-export so callers don't have to import twice.
 export { _L3_TTL_SEC };
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// L3 → L4 promotion : ProceduralBundle[] → Workflow candidates
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface WorkflowPromotionInput {
+  /**
+   * Bundles tagged with their owning brain's tier. Standard-tier bundles
+   * are filtered out (G3 isolation: workflows are Sui-resident only).
+   */
+  bundles: Array<ProceduralBundle & { id: string; tier: CognitiveTier; brainId: number }>;
+  /** workflowKeys already minted — used for dedup. */
+  existingWorkflowKeys: Set<string>;
+  now?: number;
+}
+
+/**
+ * promoteToWorkflow — deterministic, no-LLM L3→L4 promotion.
+ *
+ * Algorithm:
+ *   1. Drop standard-tier bundles (G3 isolation).
+ *   2. Group bundles by `workflowGroupKey` — derived from the bundle's
+ *      first verb-object pair via the same heuristic as `inferProcedureKey`,
+ *      keeping the verb prefix (e.g. "verify-fhe-by-checking-X" and
+ *      "verify-fhe-against-Y" both share the verb "verify" → group key "verify").
+ *      Bundles whose key cannot be inferred fall under their procedureKey
+ *      head segment (kebab-split, first 2 tokens).
+ *   3. For groups with ≥3 distinct procedureKeys not already promoted, emit
+ *      one WorkflowCandidate. Steps wired as a linear DAG in deterministic
+ *      order (sorted by procedureKey lexicographic).
+ *   4. defaultPriceUsdc = sum(group.price) × 1.5 (orchestration markup).
+ *   5. revenueSplit defaults to {authorBps: 9500, platformBps: 500}.
+ */
+export function promoteToWorkflow(input: WorkflowPromotionInput): WorkflowCandidate[] {
+  const now = input.now ?? Date.now();
+  const trustless = input.bundles.filter((b) => b.tier === 'trustless');
+
+  const groups = new Map<string, Array<typeof trustless[number]>>();
+  for (const b of trustless) {
+    const key = inferWorkflowGroupKey(b.procedureKey);
+    if (!key) continue;
+    const arr = groups.get(key) ?? [];
+    arr.push(b);
+    groups.set(key, arr);
+  }
+
+  const out: WorkflowCandidate[] = [];
+  for (const [groupKey, group] of groups) {
+    // Distinct procedureKeys — `seen` enforces uniqueness within group.
+    const seen = new Map<string, typeof trustless[number]>();
+    for (const b of group) if (!seen.has(b.procedureKey)) seen.set(b.procedureKey, b);
+    if (seen.size < 3) continue;
+
+    const workflowKey = `auto-${groupKey}-v1`;
+    if (input.existingWorkflowKeys.has(workflowKey)) continue;
+
+    const sorted = Array.from(seen.values()).sort((a, b) =>
+      a.procedureKey.localeCompare(b.procedureKey),
+    );
+
+    const steps: WorkflowStep[] = sorted.map((b, i) => ({
+      id: `step-${i + 1}`,
+      name: b.procedureKey,
+      type: 'procedure',
+      procedureRef: { brainId: b.brainId, procedureKey: b.procedureKey },
+      dependsOn: i === 0 ? [] : [`step-${i}`],
+      inputSchema: b.manifest.inputSchema,
+      outputSchema: b.manifest.outputSchema,
+    }));
+
+    const sumUsdc = sorted.reduce((acc, b) => acc + Number(b.defaultPriceUsdc || '0'), 0);
+    const defaultPriceUsdc = (sumUsdc * 1.5).toFixed(2);
+
+    out.push({
+      workflowKey,
+      name: humanizeKey(groupKey),
+      description: `Auto-promoted workflow grouping ${seen.size} procedures.`,
+      steps,
+      derivedFrom: sorted.map((b) => b.id),
+      defaultPriceUsdc,
+      revenueSplit: { authorBps: 9500, platformBps: 500 },
+      createdAt: now,
+    });
+  }
+  return out;
+}
+
+/** Verb-prefix grouping. Returns the verb (first kebab segment) when present. */
+function inferWorkflowGroupKey(procedureKey: string): string | null {
+  if (!procedureKey) return null;
+  const parts = procedureKey.split('-').filter(Boolean);
+  if (parts.length === 0) return null;
+  const verbs = ['verify', 'audit', 'check', 'summarize', 'review', 'compare', 'analyze', 'evaluate'];
+  if (verbs.includes(parts[0])) return parts[0];
+  // Otherwise group by the first two tokens of the procedureKey.
+  return parts.slice(0, 2).join('-');
+}
+
+function humanizeKey(key: string): string {
+  return key.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// L4 → L5 promotion : WorkflowRunReceipt[] → ReflectiveTrace candidates
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface ReflectivePromotionInput {
+  /** Run receipts grouped per-workflow (caller filters by workflowKey). */
+  runs: WorkflowRunReceipt[];
+  /** traceKeys already minted for the same workflow — used for dedup. */
+  existingTraceKeys: Set<string>;
+  /** Quality scores per runId (0-100); typically TEE judge or human eval. */
+  qualityScores: Record<string, number>;
+  now?: number;
+}
+
+/**
+ * promoteToReflective — deterministic L4→L5 promotion via correlation analysis.
+ *
+ * Trigger: ≥3 successful runs AND ≥1 failed run for the same workflow.
+ *
+ * Algorithm:
+ *   1. Compute success/failure cohorts.
+ *   2. For each unique step in the input, treat (stepId, success-of-that-step)
+ *      as a binary input dimension. Compute Pearson correlation between
+ *      "this step succeeded" and "the run succeeded" across all runs.
+ *   3. Emit a DerivedRule for each |correlation| > 0.7. Confidence = round(|r|*100).
+ *   4. The LLM does NOT phrase rules — text is mechanical:
+ *      "When step <stepId> {succeeds|fails}, the workflow {succeeds|fails}."
+ *      A future task can swap this for an LLM phraser without changing the
+ *      correlation logic (OCP).
+ */
+export function promoteToReflective(input: ReflectivePromotionInput): ReflectiveCandidate[] {
+  const now = input.now ?? Date.now();
+  if (input.runs.length === 0) return [];
+
+  // Single-workflow batch — caller filters by workflowKey.
+  const workflowKey = input.runs[0].workflowKey;
+  if (input.runs.some((r) => r.workflowKey !== workflowKey)) {
+    throw new Error('promoteToReflective: input runs must share workflowKey');
+  }
+
+  const successCount = input.runs.filter((r) => r.success).length;
+  const failCount = input.runs.length - successCount;
+  if (successCount < 3 || failCount < 1) return [];
+
+  const traceKey = `reflect-${workflowKey}-r${input.runs.length}`;
+  if (input.existingTraceKeys.has(traceKey)) return [];
+
+  // Collect every step id observed across runs.
+  const stepIds = new Set<string>();
+  for (const r of input.runs) for (const sr of r.stepReceipts) stepIds.add(sr.stepId);
+
+  const derivedRules: DerivedRule[] = [];
+  const successVector = input.runs.map((r) => (r.success ? 1 : 0));
+
+  for (const stepId of stepIds) {
+    const stepVector = input.runs.map((r) => {
+      const sr = r.stepReceipts.find((x) => x.stepId === stepId);
+      return sr?.success ? 1 : 0;
+    });
+    const r = pearson(stepVector, successVector);
+    if (Math.abs(r) <= 0.7) continue;
+    const evidence = input.runs
+      .filter((_, i) => stepVector[i] === (r > 0 ? 1 : 0))
+      .map((rec) => rec.runId);
+    derivedRules.push({
+      rule:
+        r > 0
+          ? `When step "${stepId}" succeeds, the workflow tends to succeed.`
+          : `When step "${stepId}" fails, the workflow tends to fail.`,
+      confidence: Math.round(Math.abs(r) * 100),
+      evidenceRunIds: evidence,
+    });
+  }
+
+  if (derivedRules.length === 0) return [];
+
+  const observations: ReflectiveObservation[] = input.runs.map((r) => ({
+    runId: r.runId,
+    success: r.success,
+    failureMode: r.success ? undefined : firstFailureMode(r),
+    inputFingerprint: r.inputFingerprint,
+    outputQualityScore: input.qualityScores[r.runId] ?? (r.success ? 80 : 30),
+  }));
+
+  return [
+    {
+      traceKey,
+      workflowKey,
+      observations,
+      derivedRules,
+      derivedFrom: input.runs.map((r) => r.runId),
+      defaultLicensePriceUsdc: '5.00',
+      createdAt: now,
+    },
+  ];
+}
+
+function firstFailureMode(r: WorkflowRunReceipt): string | undefined {
+  return r.stepReceipts.find((sr) => !sr.success)?.failureMode;
+}
+
+/** Pearson correlation coefficient. Returns 0 on degenerate input. */
+function pearson(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return 0;
+  const n = a.length;
+  const meanA = a.reduce((s, v) => s + v, 0) / n;
+  const meanB = b.reduce((s, v) => s + v, 0) / n;
+  let num = 0;
+  let denA = 0;
+  let denB = 0;
+  for (let i = 0; i < n; i++) {
+    const da = a[i] - meanA;
+    const db = b[i] - meanB;
+    num += da * db;
+    denA += da * da;
+    denB += db * db;
+  }
+  if (denA === 0 || denB === 0) return 0;
+  return num / Math.sqrt(denA * denB);
+}

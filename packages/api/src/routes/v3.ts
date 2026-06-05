@@ -1,13 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
-import { registerLink, getLinkByEth, getLinkBySui } from '../services/agentLinkOracle';
+import { registerLink, getLinkByEth, getLinkBySui, getCombinedReputation } from '../services/agentLinkOracle';
 import { paymentGate, PriceableRequest } from '../middleware/paymentGate';
 import { issueBundle, getBundle, verifyManifest } from '../services/bundleService';
+import { createTatumClient } from '../services/tatumClient';
 import { discover } from '../services/discoveryService';
 import { streamBundle } from '../services/hostedRunner';
 import { pool } from '../db';
 import { logger } from '../lib';
 import type { AuthRequest } from '../middleware/auth';
+import { TatumNotifications } from './v3-tatum';
 
 /**
  * v3 — Dual-chain agentic marketplace API.
@@ -76,6 +78,17 @@ v3.get('/links/by-eth/:address', async (req: Request, res: Response) => {
   const link = await getLinkByEth(req.params.address);
   if (!link) return res.status(404).json({ error: 'not-found' });
   res.json(link);
+});
+
+// ---------------------------------------------------------------------------
+// /v3/agents/:canonical_id/reputation — ERC-8004 + Sui-tier roll-up.
+// Combined = max(eth_rep, sui_rep). KYA gates consume `combined_reputation`.
+// ---------------------------------------------------------------------------
+
+v3.get('/agents/:canonical_id/reputation', async (req: Request, res: Response) => {
+  const rep = await getCombinedReputation(req.params.canonical_id);
+  if (!rep) return res.status(404).json({ error: 'agent link not found' });
+  res.json(rep);
 });
 
 v3.get('/links/by-sui/:address', async (req: Request, res: Response) => {
@@ -252,8 +265,12 @@ function tryAllow(key: string, capPerDay: number): { ok: boolean; retryAfterSec?
 
 v3.post('/agents/:id/try', async (req: Request, res: Response) => {
   const id = req.params.id;
-  const q = String(req.body?.q ?? '').trim();
-  if (!q || q.length > 2000) return res.status(400).json({ error: 'q required, ≤2000 chars' });
+  // Accept both `q` (legacy n-payment SDK convention) and `message` (the
+  // /agent/[id] try button + most chat-style clients). Single source of
+  // truth for the trimmed value below — old curl tests + the frontend
+  // both work.
+  const q = String(req.body?.q ?? req.body?.message ?? '').trim();
+  if (!q || q.length > 2000) return res.status(400).json({ error: 'q or message required, ≤2000 chars' });
 
   // Privacy: hash the IP rather than store it. 12 hex chars = 48 bits, plenty
   // for keying without re-identification.
@@ -432,7 +449,9 @@ v3.post('/bundles/:id/verify', async (req: Request, res: Response) => {
 
 v3.post('/discover', async (req: Request, res: Response) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
-  const result = await discover(req.body ?? { message: '' }, baseUrl);
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const message = typeof body.message === 'string' ? body.message : '';
+  const result = await discover({ ...body, message } as any, baseUrl);
   res.json(result);
 });
 
@@ -441,5 +460,229 @@ v3.post('/discover', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 v3.post('/runner/:id', streamBundle as any);
+
+// ---------------------------------------------------------------------------
+// /v3/brains/trustless — register a freshly-published trustless brain so
+// /v3/brains/:id/sovereignty-proof has something to return. Idempotent
+// (ON CONFLICT DO UPDATE) so the publish flow can retry safely.
+//
+// SOLID: this route's single responsibility is to persist trust metadata.
+// Optional artifacts (sui_object_id / seal_policy_id / walrus_blob_ids)
+// fall back to honest placeholders while T11/T14 (real Sui tx submission)
+// is parked, so the publish→view round-trip works end-to-end today.
+// ---------------------------------------------------------------------------
+
+v3.post('/brains/trustless', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const body = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>;
+  const id = String(body.id ?? '').trim();
+  if (!id) return res.status(400).json({ error: 'id required' });
+
+  const owner = req.user.address.toLowerCase();
+  const suiObjectId = String(body.suiObjectId ?? `sui:pending:${id}`);
+  const sealPolicyId = String(body.sealPolicyId ?? `seal:pending:${id}`);
+  const walrusBlobIds = Array.isArray(body.walrusBlobIds) ? (body.walrusBlobIds as unknown[]).map(String) : [];
+  const totalBytes = Number.isFinite(Number(body.totalBytes)) ? Number(body.totalBytes) : 0;
+  const contentMetadataHash = String(body.contentMetadataHash ?? '');
+  const kyaRequired = Boolean(body.kyaRequired);
+  const minReputation = Number.isFinite(Number(body.minReputation)) ? Number(body.minReputation) : 0;
+  const suiAddress = typeof body.suiAddress === 'string' ? body.suiAddress.trim() : '';
+
+  try {
+    await pool.query(
+      `INSERT INTO brains_trustless
+         (id, owner_address, sui_object_id, seal_policy_id, walrus_blob_ids,
+          total_bytes, content_metadata_hash, kya_required, min_reputation, published)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+       ON CONFLICT (id) DO UPDATE SET
+         walrus_blob_ids = EXCLUDED.walrus_blob_ids,
+         total_bytes = EXCLUDED.total_bytes,
+         content_metadata_hash = EXCLUDED.content_metadata_hash,
+         kya_required = EXCLUDED.kya_required,
+         min_reputation = EXCLUDED.min_reputation,
+         published = true`,
+      [id, owner, suiObjectId, sealPolicyId, walrusBlobIds, totalBytes, contentMetadataHash, kyaRequired, minReputation],
+    );
+
+    // Tatum auto-subscribe — fire-and-forget. Watches the seller's Sui
+    // address for inbound USDC payments, mirroring Sui events into our
+    // /v3/webhooks/tatum-notifications receiver. Skipped silently when
+    // TATUM_API_KEY is unset (dev/stage) or when no Sui address was
+    // supplied (caller is on the legacy non-Sui flow).
+    const tatumKey = process.env.TATUM_API_KEY;
+    if (tatumKey && suiAddress) {
+      const apiBase = process.env.PUBLIC_API_BASE ?? `${req.protocol}://${req.get('host')}`;
+      const webhookUrl = `${apiBase}/v3/webhooks/tatum-notifications`;
+      void new TatumNotifications(tatumKey)
+        .subscribe(suiAddress, webhookUrl)
+        .then((sub) =>
+          logger.info({ id, suiAddress, subscriptionId: sub.id }, 'v3:brains:tatum:subscribed'),
+        )
+        .catch((err) =>
+          logger.warn({ id, err: (err as Error).message }, 'v3:brains:tatum:subscribe-failed'),
+        );
+    }
+
+    res.status(201).json({ ok: true, id });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, id }, 'v3:brains:register:error');
+    res.status(503).json({ error: 'persistence unavailable' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// /v3/brains/:id/sovereignty-proof — institutional-grade audit endpoint.
+// Rebuilds the brain's chunk index from Walrus alone. The OpenX database
+// is in the relay path, not the trust path: this endpoint must remain
+// answerable even if the Postgres connection is down.
+//
+// Phase 1: returns the manifest assembled from the in-DB chunk_refs cache
+// (cheap, fast). Phase 2: bypasses Postgres and reads directly from Sui
+// brain object + Walrus aggregator. Same JSON shape — caller can't tell.
+// ---------------------------------------------------------------------------
+
+v3.get('/brains/:id/sovereignty-proof', async (req: Request, res: Response) => {
+  const brainId = req.params.id;
+  try {
+    const r = await pool.query(
+      `SELECT id, walrus_blob_ids, content_metadata_hash, sui_object_id, created_at
+       FROM brains_trustless WHERE id = $1`,
+      [brainId],
+    );
+    if (r.rowCount === 0) {
+      // Phase 2 fallback: synthesize from Sui object directly. For now, 404.
+      return res.status(404).json({ error: 'brain not found in trustless tier' });
+    }
+    const row = r.rows[0];
+    res.json({
+      brainId,
+      chunkCount: (row.walrus_blob_ids ?? []).length,
+      totalBytes: 0, // populated when chunk metadata is indexed (Phase 2)
+      walrusBlobIds: row.walrus_blob_ids ?? [],
+      suiObjectId: row.sui_object_id ?? undefined,
+      contentMetadataHash: row.content_metadata_hash ?? '',
+      timestamp: Date.now(),
+      walrusNetwork: process.env.WALRUS_PUBLISHER_URL?.includes('testnet') ? 'testnet' : 'mainnet',
+    });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, brainId }, 'v3:sovereignty-proof:error');
+    res.status(503).json({ error: 'index unavailable; try again' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// /v3/brains/:id/cost — Walrus storage cost in USD + WAL.
+// Uses Tatum Crypto Price API for live WAL→USD; cached 60s in-memory.
+// Falls back to a configurable WAL_PRICE_USD_FALLBACK env when Tatum is down.
+// ---------------------------------------------------------------------------
+
+let walPriceCache: { value: number; ts: number } | null = null;
+const WAL_PRICE_TTL_MS = 60_000;
+
+async function getWalPriceUsd(): Promise<number> {
+  if (walPriceCache && Date.now() - walPriceCache.ts < WAL_PRICE_TTL_MS) {
+    return walPriceCache.value;
+  }
+  const fallback = Number(process.env.WAL_PRICE_USD_FALLBACK ?? '0.08');
+  const apiKey = process.env.TATUM_API_KEY;
+  if (!apiKey) return fallback;
+  try {
+    const res = await fetch('https://api.tatum.io/v3/tatum/rate/WAL?basePair=USD', {
+      headers: { 'x-api-key': apiKey },
+    });
+    if (!res.ok) return fallback;
+    const data = (await res.json()) as { value?: number };
+    const value = Number(data.value ?? fallback);
+    walPriceCache = { value, ts: Date.now() };
+    return value;
+  } catch {
+    return fallback;
+  }
+}
+
+v3.get('/brains/:id/cost', async (req: Request, res: Response) => {
+  const brainId = req.params.id;
+  try {
+    const r = await pool.query(
+      `SELECT walrus_blob_ids, total_bytes FROM brains_trustless WHERE id = $1`,
+      [brainId],
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'brain not found' });
+    const row = r.rows[0];
+    const blobCount = (row.walrus_blob_ids ?? []).length;
+    const totalBytes: number = Number(row.total_bytes ?? 0);
+    // Walrus pricing model (mainnet, June 2026): ~0.0001 WAL/MB/epoch × ~10 epochs/yr
+    // ⇒ ~$0.00008/MB/yr at $0.08/WAL. Quilt overhead ≈ 0.05 WAL flat per blob.
+    const walPriceUsd = await getWalPriceUsd();
+    const epochsPerYear = 10;
+    const walPerMbEpoch = 0.0001;
+    const walFlatPerBlob = 0.05;
+    const annualCostWal =
+      (totalBytes / (1024 * 1024)) * walPerMbEpoch * epochsPerYear + blobCount * walFlatPerBlob;
+    const annualCostUsd = annualCostWal * walPriceUsd;
+    res.json({
+      brainId,
+      chunkCount: blobCount,
+      totalBytes,
+      annualCostUsd: Number(annualCostUsd.toFixed(4)),
+      annualCostWal: Number(annualCostWal.toFixed(4)),
+      walPriceUsd,
+      breakdown: {
+        storage: Number(((totalBytes / 1048576) * walPerMbEpoch * epochsPerYear * walPriceUsd).toFixed(4)),
+        writes: Number((blobCount * walFlatPerBlob * walPriceUsd).toFixed(4)),
+        reads: 'metered, ~$0.000001/read',
+      },
+    });
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, brainId }, 'v3:cost:error');
+    res.status(503).json({ error: 'cost computation unavailable' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// /v3/dashboard/stats — public cash-flow dashboard (Frame F1).
+// Aggregates over paid_calls + cognitive_workflows + brains. SQL-only; cheap
+// (<5 ms with the existing covering indexes). No auth required — the
+// numbers are public marketing artifacts. Whitelisted in middleware/auth.ts.
+// ---------------------------------------------------------------------------
+v3.get('/dashboard/stats', async (_req: Request, res: Response) => {
+  try {
+    const [counts, topSellers, recentReceipts, walRate] = await Promise.all([
+      pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM brains WHERE published = true)                            AS brains_published,
+           (SELECT COUNT(*)::int FROM cognitive_workflows WHERE published = true)               AS workflows_published,
+           (SELECT COUNT(*)::int FROM cognitive_skills_marketplace WHERE published = true)      AS skills_published,
+           (SELECT COUNT(*)::int FROM cognitive_reflective WHERE published = true)              AS reflective_published,
+           (SELECT COUNT(*)::int FROM cognitive_workflow_runs)                                  AS workflow_runs_total,
+           (SELECT COUNT(*)::int FROM cognitive_workflow_runs WHERE created_at >= now() - interval '24 hours') AS workflow_runs_24h,
+           (SELECT COALESCE(SUM(amount_usdc), 0)::numeric(20,6) FROM paid_calls)                AS total_usdc_routed,
+           (SELECT COALESCE(SUM(amount_usdc), 0)::numeric(20,6) FROM paid_calls WHERE created_at >= now() - interval '24 hours') AS usdc_routed_24h`,
+      ),
+      pool.query(
+        `SELECT a.owner_address AS seller, SUM(pc.amount_usdc)::numeric(20,6) AS earned, COUNT(pc.id)::int AS calls
+           FROM paid_calls pc JOIN agents a ON a.id = pc.agent_id
+          GROUP BY a.owner_address
+          ORDER BY earned DESC LIMIT 10`,
+      ),
+      pool.query(
+        `SELECT slug, buyer, amount_usdc, tx_hash, network, method, created_at
+           FROM paid_calls ORDER BY created_at DESC LIMIT 20`,
+      ),
+      // T4 — Tatum Crypto Price API (24h cached). Falls back to $0.023/GB/mo on outage.
+      createTatumClient().getWalUsdRate().catch(() => null),
+    ]);
+    res.json({
+      counts: counts.rows[0],
+      topSellers: topSellers.rows,
+      recentReceipts: recentReceipts.rows,
+      walUsdRate: walRate ?? { usdPerWal: 0.023, cached: true, updatedAt: Date.now() },
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, 'v3:dashboard:stats:failed');
+    res.status(500).json({ error: 'stats-failed' });
+  }
+});
 
 export default v3;

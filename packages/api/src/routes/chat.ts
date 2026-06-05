@@ -9,12 +9,16 @@ router.post('/', async (req: AuthRequest, res) => {
     const { message, brainId, mode = 'learn' } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
-    // Store mode requires FHE permit (proves wallet ownership)
-    if (mode === 'store' && !req.user!.hasPermit) {
+    const chain = (req.headers['x-chain'] as string) || 'arbitrum-sepolia';
+    const isSui = chain === 'sui' || chain.startsWith('sui-');
+
+    // Store mode requires FHE permit (proves wallet ownership). EVM-tier
+    // only — on Sui, ownership is proven by Seal IBE-wrapping at the brain
+    // level, so the platform permit doesn't apply (G5 isolation).
+    if (mode === 'store' && !isSui && !req.user!.hasPermit) {
       return res.status(403).json({ error: 'FHE authorization required to store knowledge. Import permit first.' });
     }
 
-    const chain = (req.headers['x-chain'] as string) || 'arbitrum-sepolia';
     const result = await ChatService.chat(req.user!.address, message, brainId || null, mode, chain);
     res.json(result);
   } catch (e: any) {

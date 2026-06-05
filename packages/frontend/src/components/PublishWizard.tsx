@@ -22,9 +22,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { isAddress } from 'viem';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
-import { CIRCLE_FAUCET_URL } from '@/lib/networks';
+import { CIRCLE_FAUCET_URL, isValidEvmOrSuiAddress } from '@/lib/networks';
 import { useUsdcBalance } from '@/hooks/useUsdcBalance';
 
 interface BrainSummary {
@@ -39,7 +38,7 @@ interface WizardConfig {
   brainId: number;
   slug: string;
   priceUsdc: string;     // decimal string e.g. "0.01"
-  network: 'arbitrum-sepolia';
+  network: 'arbitrum-sepolia' | 'sui-testnet' | 'sui-mainnet';
   method: 'exact' | 'fherc20';
   acceptPrivate: boolean;
   payTo: `0x${string}`;
@@ -59,6 +58,15 @@ interface WizardProps {
 
 const SLUG_RE = /^[a-z0-9-]{3,30}$/;
 
+// Human-friendly chain labels. Single source of truth for any UI that
+// renders the wizard's selected `network` value (price hint, receipt
+// page, etc.). Adding a rail = one entry; no other UI needs editing.
+const NETWORK_LABEL: Record<WizardConfig['network'], string> = {
+  'arbitrum-sepolia': 'Arbitrum Sepolia',
+  'sui-testnet': 'Sui Testnet',
+  'sui-mainnet': 'Sui Mainnet',
+};
+
 async function checkSlugAvailable(slug: string, walletAddress?: string): Promise<{ available: boolean; reason?: string }> {
   try {
     const r = await fetch(`${AGENT_BACKEND_URL}/v3/agents/slug-available?slug=${encodeURIComponent(slug)}`, {
@@ -73,8 +81,18 @@ async function checkSlugAvailable(slug: string, walletAddress?: string): Promise
 
 // ─── faucet banner (inline — used only here) ───────────────────────────────
 
-function UsdcFaucetBanner({ address }: { address: `0x${string}` | undefined }) {
+function UsdcFaucetBanner({
+  address,
+  network,
+}: {
+  address: `0x${string}` | undefined;
+  network: WizardConfig['network'];
+}) {
   const { display, isLow, loading } = useUsdcBalance(address);
+  // Banner is EVM-tier (Circle USDC + the Circle faucet are Arbitrum-only).
+  // On Sui networks the seller will receive Sui USDC, so this banner is
+  // irrelevant — short-circuit. EVM behavior unchanged.
+  if (network !== 'arbitrum-sepolia') return null;
   if (loading || !isLow) return null;
   return (
     <div
@@ -115,6 +133,13 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
   const [brainId, setBrainId] = useState<number>(initialBrainId || brains[0]?.id || 0);
   const [slug, setSlug] = useState('');
   const [priceUsdc, setPriceUsdc] = useState('0.01');
+  // Payment network — auto-seeded from the seller's pay-to address format
+  // (Sui addresses are 64 hex chars, EVM are 40). Sellers can override
+  // with the dropdown in Step 2 to choose a different testnet/mainnet
+  // settlement chain. SOLID: one swap-point for adding rails.
+  const [network, setNetwork] = useState<WizardConfig['network']>(
+    /^0x[0-9a-fA-F]{64}$/.test(defaultPayTo) ? 'sui-testnet' : 'arbitrum-sepolia',
+  );
   const [acceptPrivate, setAcceptPrivate] = useState(false);
   const [payTo, setPayTo] = useState<string>(defaultPayTo);
   const [agentPrompt, setAgentPrompt] = useState('');
@@ -144,7 +169,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
   }, [slug, step]);
 
   const selectedBrain = useMemo(() => brains.find((b) => b.id === brainId), [brains, brainId]);
-  const canShip = !!selectedBrain && SLUG_RE.test(slug) && slugStatus?.available && Number(priceUsdc) > 0 && isAddress(payTo);
+  const canShip = !!selectedBrain && SLUG_RE.test(slug) && slugStatus?.available && Number(priceUsdc) > 0 && isValidEvmOrSuiAddress(payTo);
 
   async function handleShip() {
     if (!canShip || !selectedBrain) return;
@@ -154,7 +179,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
       brainId: selectedBrain.id,
       slug,
       priceUsdc,
-      network: 'arbitrum-sepolia',
+      network,
       method: 'exact',
       acceptPrivate,
       payTo: payTo as `0x${string}`,
@@ -195,11 +220,13 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
           slugStatus={slugStatus}
           priceUsdc={priceUsdc}
           payTo={payTo}
+          network={network}
           acceptPrivate={acceptPrivate}
           agentPrompt={agentPrompt}
           onSlug={setSlug}
           onPrice={setPriceUsdc}
           onPayTo={setPayTo}
+          onNetwork={setNetwork}
           onAcceptPrivate={setAcceptPrivate}
           onAgentPrompt={setAgentPrompt}
           onBack={() => go(1)}
@@ -215,7 +242,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
             brainId: selectedBrain.id,
             slug,
             priceUsdc,
-            network: 'arbitrum-sepolia',
+            network,
             method: 'exact',
             acceptPrivate,
             payTo: payTo as `0x${string}`,
@@ -323,12 +350,14 @@ function Step2(props: {
   slugStatus: { available: boolean; reason?: string } | null;
   priceUsdc: string;
   payTo: string;
+  network: WizardConfig['network'];
   acceptPrivate: boolean;
   agentPrompt: string;
   ownerAddress: `0x${string}`;
   onSlug: (s: string) => void;
   onPrice: (s: string) => void;
   onPayTo: (s: string) => void;
+  onNetwork: (n: WizardConfig['network']) => void;
   onAcceptPrivate: (b: boolean) => void;
   onAgentPrompt: (s: string) => void;
   onBack: () => void;
@@ -344,13 +373,13 @@ function Step2(props: {
       : 'Try another';
   const slugOk = props.slugStatus?.available === true;
   const priceOk = Number(props.priceUsdc) > 0 && Number(props.priceUsdc) <= 100;
-  const payToOk = isAddress(props.payTo);
+  const payToOk = isValidEvmOrSuiAddress(props.payTo);
   const canNext = slugOk && priceOk && payToOk;
 
   return (
     <section className="space-y-5">
       <h2 className="font-headline text-lg font-semibold">2. Configure your API</h2>
-      <UsdcFaucetBanner address={props.ownerAddress} />
+      <UsdcFaucetBanner address={props.ownerAddress} network={props.network} />
 
       <Field label="Slug" hint={slugMsg} hintTone={slugOk ? 'ok' : props.slug && !SLUG_RE.test(props.slug) ? 'err' : 'muted'}>
         <input
@@ -374,7 +403,9 @@ function Step2(props: {
             onChange={(e) => props.onPrice(e.target.value)}
             className="w-32 rounded-full border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 font-mono text-sm focus:border-primary/60 focus:outline-none"
           />
-          <span className="text-xs text-on-surface-variant">USDC · Arbitrum Sepolia</span>
+          <span className="text-xs text-on-surface-variant">
+            USDC · {NETWORK_LABEL[props.network]}
+          </span>
         </div>
       </Field>
 
@@ -387,7 +418,19 @@ function Step2(props: {
         </div>
       </Field>
 
-      <Field label="Pay-to address" hint={payToOk ? '✓' : 'Must be a valid 0x address'} hintTone={payToOk ? 'ok' : 'err'}>
+      <Field label="Settlement network" hint="Where buyers' USDC payments settle for this API.">
+        <select
+          value={props.network}
+          onChange={(e) => props.onNetwork(e.target.value as WizardConfig['network'])}
+          className="w-full rounded-full border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-sm focus:border-primary/60 focus:outline-none"
+        >
+          <option value="arbitrum-sepolia">Arbitrum Sepolia (USDC, x402)</option>
+          <option value="sui-testnet">Sui Testnet (USDC)</option>
+          <option value="sui-mainnet">Sui Mainnet (USDC)</option>
+        </select>
+      </Field>
+
+      <Field label="Pay-to address" hint={payToOk ? '✓' : 'Must be a valid 0x address (EVM 40-hex or Sui 64-hex)'} hintTone={payToOk ? 'ok' : 'err'}>
         <input
           value={props.payTo}
           onChange={(e) => props.onPayTo(e.target.value)}

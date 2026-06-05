@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { auth, AuthRequest } from '../middleware/auth';
 import { pool } from '../db';
+import { logger } from '../lib';
 
 const router = Router();
 
@@ -126,29 +127,78 @@ router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
 });
 
 router.post('/create', auth, async (req: AuthRequest, res) => {
-  // Single permit gate for the creator funnel.
-  // Onboarding flow is `login → permit → create`. Once a wallet has a brain
-  // it has, by construction, held a permit at some point — so /upload and
-  // /brains/publish stay open and rely on ownership instead of re-checking.
-  if (!req.user?.hasPermit) {
+  // Chain dispatch: the FHE permit gate is EVM-only — Fhenix CoFHE wraps
+  // the AES key on Arbitrum, so EVM sellers must authorize a permit. The
+  // Sui trustless tier uses Seal IBE-wrapping at the brain level, so the
+  // platform permit doesn't apply (G5: EVM behavior is byte-identical
+  // for clients that don't send `x-chain`).
+  const isSui = String(req.header('x-chain') ?? '').toLowerCase() === 'sui';
+
+  // Optional Seal-style identity verification on Sui. Opt-in via headers:
+  //   x-sui-signature  base64-encoded personal-message signature
+  //   x-sui-message    the exact message bytes that were signed
+  // We require the message to embed the wallet address (anti-replay) and
+  // the signature to verify against `@mysten/sui/verify`. When the client
+  // doesn't send the headers we fall through gracefully — strict mode can
+  // be turned on later by flipping the `OPENX_REQUIRE_SUI_SIGNATURE` flag
+  // without changing call-sites. SOLID: one swap-point.
+  if (isSui) {
+    const sig = req.header('x-sui-signature');
+    const msg = req.header('x-sui-message');
+    const requireSig = process.env.OPENX_REQUIRE_SUI_SIGNATURE === 'true';
+    if (sig && msg) {
+      try {
+        const { verifyPersonalMessageSignature } = await import('@mysten/sui/verify');
+        const messageBytes = new TextEncoder().encode(msg);
+        const publicKey = await verifyPersonalMessageSignature(messageBytes, sig);
+        const signer = publicKey.toSuiAddress().toLowerCase();
+        const claimed = (req.user?.address ?? '').toLowerCase();
+        if (signer !== claimed || !msg.includes(claimed)) {
+          return res.status(401).json({ error: 'sui_sig_mismatch' });
+        }
+      } catch {
+        return res.status(401).json({ error: 'sui_sig_invalid' });
+      }
+    } else if (requireSig) {
+      return res.status(401).json({
+        error: 'sui_sig_required',
+        message: 'Sign in with Sui (provide x-sui-signature + x-sui-message).',
+      });
+    }
+  } else if (!req.user?.hasPermit) {
     return res.status(403).json({
       error: 'Permit required',
       reason: req.user?.permitReason ?? 'never_authorized',
       message: 'Authorize the FHE permit before creating your first agent.',
     });
   }
+
   const { title = 'New Brain' } = req.body;
+  const chain = isSui ? (process.env.SUI_NETWORK ?? 'sui-testnet') : 'arbitrum-sepolia';
   const { rows } = await pool.query(
-    `INSERT INTO brains (owner_address, title, chain) VALUES ($1, $2, 'arbitrum-sepolia') RETURNING *`,
-    [req.user!.address, title]
+    `INSERT INTO brains (owner_address, title, chain) VALUES ($1, $2, $3) RETURNING *`,
+    [req.user!.address, title, chain]
   );
   res.json(rows[0]);
 });
 
 router.get('/:id', async (req, res) => {
-  const { rows } = await pool.query(`SELECT * FROM brains WHERE id = $1`, [req.params.id]);
-  if (!rows[0]) return res.status(404).json({ error: 'Brain not found' });
-  res.json(rows[0]);
+  // Standard-tier brains use INTEGER ids (auto-increment in `brains.id`).
+  // Reject non-numeric params at the boundary so a malformed id (e.g. a
+  // trustless tx digest accidentally routed here) cannot reach Postgres
+  // and trigger an unhandled rejection that crashes the process.
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(404).json({ error: 'Brain not found' });
+  }
+  try {
+    const { rows } = await pool.query(`SELECT * FROM brains WHERE id = $1`, [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Brain not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    logger.warn({ err: (err as Error).message, id }, 'brains:get-by-id:error');
+    res.status(503).json({ error: 'temporary' });
+  }
 });
 
 router.post('/publish', auth, async (req: AuthRequest, res) => {

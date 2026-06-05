@@ -3,22 +3,32 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletConnect } from './WalletConnect';
 import { NetworkSwitcher } from './NetworkSwitcher';
+import { SuiWalletButton } from './SuiWalletButton';
+import { useAutoLinkSui } from '@/hooks/useAutoLinkSui';
+import { useNetwork } from '@/hooks/useNetwork';
+import { isSuiNetwork } from '@/lib/networks';
 
 interface NavItem {
   href: string;
   icon: string;
   label: string;
+  /** When true, item is only shown on Sui networks (the MemWal commercial overlay). */
+  suiOnly?: boolean;
 }
 
-// Single source of truth for global nav. /studio is always visible — the
-// page itself handles its own permit-onboarding gate, so role-based hiding
-// here was a chicken-and-egg loop for new users (no agents → not "producer"
-// → no /studio link → can't ever create a first agent).
+// Single source of truth for global nav.
+//
+// Information architecture:
+//   • Home / Brain / Marketplace / Studio / Settings — always-on pillars.
+//     Brain (cognitive memory) + Studio (agent CRUD + publish) are the
+//     seller-facing creation surfaces; Marketplace is the buyer surface.
+//   • Train / Dashboard / Connect MCP — Sui-only MemWal-tier surfaces.
+//     Hidden from non-Sui networks (G1) so standard-tier UX stays clean.
 const NAV_ITEMS: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
-  { href: '/brain', icon: 'psychology', label: 'Brain' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
   { href: '/studio', icon: 'science', label: 'Studio' },
+  { href: '/dashboard', icon: 'dashboard', label: 'Dashboard' },
   { href: '/settings', icon: 'tune', label: 'Settings' },
 ];
 
@@ -29,7 +39,15 @@ function isActive(pathname: string, href: string) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const items = NAV_ITEMS;
+  const { network } = useNetwork();
+
+  // Side-effect: auto-bind EVM↔Sui identity the first time the user connects
+  // a Sui wallet on a Sui network. No-op otherwise.
+  useAutoLinkSui();
+
+  // Filter out Sui-only items when the active network isn't Sui. This keeps
+  // the standard-tier UX byte-identical to the pre-MemWal build (G1).
+  const items = NAV_ITEMS.filter((item) => !item.suiOnly || isSuiNetwork(network));
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
@@ -69,6 +87,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-2">
             <NetworkSwitcher />
+            <SuiWalletButton />
             <WalletConnect />
           </div>
         </div>

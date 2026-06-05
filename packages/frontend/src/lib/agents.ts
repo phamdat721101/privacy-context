@@ -24,6 +24,9 @@ export interface Agent {
   v3AgentId?: string;
   /** Seller-authored persona (system prompt, etc.). PRD-1. */
   persona?: { system_prompt?: string | null; description?: string };
+  /** Settlement chain stamped at create-time (e.g. 'arbitrum-sepolia',
+   *  'sui-testnet'). Drives chain-aware UI labels. */
+  chain?: string;
 }
 
 interface BrainDto {
@@ -34,6 +37,7 @@ interface BrainDto {
   tags?: string[] | null;
   published?: boolean;
   created_at?: string;
+  chain?: string;
 }
 
 function brainToAgent(b: BrainDto): Agent {
@@ -45,6 +49,7 @@ function brainToAgent(b: BrainDto): Agent {
     ownerAddress: b.owner_address,
     published: !!b.published,
     createdAt: b.created_at,
+    chain: b.chain,
   };
 }
 
@@ -127,10 +132,24 @@ export async function listMyAgents(walletAddress: string): Promise<Agent[]> {
   return data.map(brainToAgent);
 }
 
-export async function createAgent(walletAddress: string, title: string): Promise<Agent | null> {
+export async function createAgent(
+  walletAddress: string,
+  title: string,
+  /**
+   * Active chain. When 'sui', sends `x-chain: sui` so the backend skips the
+   * EVM-only FHE permit gate and stamps the brain with the Sui chain id.
+   * Defaults to EVM behavior so existing callers stay byte-identical (G5).
+   */
+  chain: 'sui' | 'evm' = 'evm',
+): Promise<Agent | null> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-wallet-address': walletAddress,
+  };
+  if (chain === 'sui') headers['x-chain'] = 'sui';
   const r = await fetch(`${AGENT_BACKEND_URL}/brains/create`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-wallet-address': walletAddress },
+    headers,
     body: JSON.stringify({ title }),
   });
   if (!r.ok) return null;

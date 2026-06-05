@@ -2,11 +2,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AgentCard } from '@/components/AgentCard';
+import { MarketplaceCard, type MarketplaceCardType } from '@/components/MarketplaceCard';
+import { MemWalBrainCard, type MemWalBrainSummary } from '@/components/MemWalBrainCard';
+import { SwitchToSuiPrompt } from '@/components/RequireSuiNetwork';
 import { listAgents, type Agent } from '@/lib/agents';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
+import { useNetwork } from '@/hooks/useNetwork';
+import { isSuiNetwork } from '@/lib/networks';
 
 const log = createLogger('marketplace');
+
+interface SuiProduct {
+  id: string;
+  workflow_key?: string;
+  skill_key?: string;
+  trace_key?: string;
+  name: string;
+  description?: string;
+  default_price_usdc?: string;
+  default_license_price_usdc?: string;
+  steps?: unknown[];
+  runs?: number;
+  invocations?: number;
+  licenses_sold?: number;
+  sui_object_id?: string;
+}
 
 interface DiscoverBundle {
   id: string;
@@ -21,7 +42,14 @@ interface DiscoverResult {
 
 export default function MarketplacePage() {
   const router = useRouter();
+  const [activeType, setActiveType] = useState<'all' | MarketplaceCardType | 'memwal'>('all');
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [workflows, setWorkflows] = useState<SuiProduct[]>([]);
+  const [skills, setSkills] = useState<SuiProduct[]>([]);
+  const [reflective, setReflective] = useState<SuiProduct[]>([]);
+  const [memwalBrains, setMemwalBrains] = useState<MemWalBrainSummary[]>([]);
+  const { network } = useNetwork();
+  const onSui = isSuiNetwork(network);
   const [search, setSearch] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,11 +60,45 @@ export default function MarketplacePage() {
   const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null);
   const [discoverErr, setDiscoverErr] = useState<string | null>(null);
 
+  // Read ?type= from the URL once on mount (client-only; no SSR involvement).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const t = new URLSearchParams(window.location.search).get('type') as MarketplaceCardType | 'memwal' | null;
+    if (t && ['brain', 'skill', 'workflow', 'reflective', 'memwal'].includes(t)) setActiveType(t);
+  }, []);
+
   useEffect(() => {
     setLoading(true);
-    listAgents()
-      .then(setAgents)
+    Promise.all([
+      listAgents().catch(() => []),
+      // Sui-native product types — fetch in parallel; tolerate 404 / older API.
+      fetch(`${AGENT_BACKEND_URL}/v3/workflows?published=true`)
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch(`${AGENT_BACKEND_URL}/v3/skills?published=true`)
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+      fetch(`${AGENT_BACKEND_URL}/v3/reflective`)
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => []),
+    ])
+      .then(([a, wf, sk, ref]) => {
+        setAgents(a);
+        setWorkflows(wf as SuiProduct[]);
+        setSkills(sk as SuiProduct[]);
+        setReflective(ref as SuiProduct[]);
+      })
       .finally(() => setLoading(false));
+  }, []);
+
+  // Fetch MemWal-tier brains independently — always-public catalog endpoint,
+  // safe to call regardless of network. We render the result only when the
+  // user is on Sui (G1).
+  useEffect(() => {
+    fetch(`${AGENT_BACKEND_URL}/v3/memory/marketplace`)
+      .then((r) => (r.ok ? r.json() : { brains: [] }))
+      .then((j) => setMemwalBrains((j.brains ?? []) as MemWalBrainSummary[]))
+      .catch(() => setMemwalBrains([]));
   }, []);
 
   // Top-10 most-frequent tags, used as filter chips.
@@ -157,6 +219,30 @@ export default function MarketplacePage() {
         />
       </div>
 
+      {/* Type filter — tri-marketplace product types (G1: Sui-only types still listed
+          for discovery; click triggers SwitchToSuiPrompt when on Standard tier).
+          'memwal' is the new MemWal-tier filter (PRD-08); only meaningful on Sui. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(['all', 'brain', 'skill', 'workflow', 'reflective', 'memwal'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => {
+              setActiveType(t);
+              const params = new URLSearchParams(window.location.search);
+              if (t === 'all') params.delete('type'); else params.set('type', t);
+              router.replace(`/marketplace${params.toString() ? '?' + params.toString() : ''}`);
+            }}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              activeType === t
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-outline-variant/40 text-on-surface-variant hover:border-primary/40'
+            }`}
+          >
+            {t === 'all' ? 'All' : t.charAt(0).toUpperCase() + t.slice(1) + 's'}
+          </button>
+        ))}
+      </div>
+
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <button
@@ -167,7 +253,7 @@ export default function MarketplacePage() {
                 : 'border-outline-variant/40 text-on-surface-variant hover:border-primary/40'
             }`}
           >
-            All
+            All tags
           </button>
           {tags.map((t) => (
             <button
@@ -186,20 +272,80 @@ export default function MarketplacePage() {
       )}
 
       {loading ? (
-        <div className="py-20 text-center text-on-surface-variant">Loading agents…</div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-12 text-center">
-          <span className="material-symbols-outlined mb-3 text-4xl text-on-surface-variant">
-            search_off
-          </span>
-          <p className="text-on-surface-variant">No agents match your search.</p>
-        </div>
+        <div className="py-20 text-center text-on-surface-variant">Loading marketplace…</div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((a) => (
-            <AgentCard key={a.id} {...a} />
-          ))}
+          {(activeType === 'all' || activeType === 'brain') &&
+            filtered.map((a) => (
+              <MarketplaceCard
+                key={`brain-${a.id}`}
+                type="brain"
+                id={a.id}
+                title={a.title}
+                description={a.description}
+                priceUsdc={a.price?.amount ?? '0.05'}
+                meta={{ tags: a.tags }}
+              />
+            ))}
+          {(activeType === 'all' || activeType === 'workflow') &&
+            workflows.map((w) => (
+              <MarketplaceCard
+                key={`wf-${w.id}`}
+                type="workflow"
+                id={w.id}
+                title={w.name}
+                description={w.description}
+                priceUsdc={w.default_price_usdc ?? '0'}
+                meta={{
+                  stepCount: Array.isArray(w.steps) ? w.steps.length : 7,
+                  runs: w.runs ?? 0,
+                  suiObjectId: w.sui_object_id,
+                }}
+              />
+            ))}
+          {(activeType === 'all' || activeType === 'skill') &&
+            skills.map((s) => (
+              <MarketplaceCard
+                key={`sk-${s.id}`}
+                type="skill"
+                id={s.id}
+                title={s.name}
+                description={s.description}
+                priceUsdc={s.default_price_usdc ?? '0'}
+                meta={{ suiObjectId: s.sui_object_id }}
+              />
+            ))}
+          {(activeType === 'all' || activeType === 'reflective') &&
+            reflective.map((r) => (
+              <MarketplaceCard
+                key={`ref-${r.id}`}
+                type="reflective"
+                id={r.id}
+                title={r.name ?? `Reflective trace ${r.trace_key}`}
+                description={r.description ?? 'Agent metacognition license'}
+                priceUsdc={r.default_license_price_usdc ?? '5.00'}
+                meta={{ licensesSold: r.licenses_sold ?? 0, suiObjectId: r.sui_object_id }}
+              />
+            ))}
+          {/* MemWal-tier brains (PRD-08). Cards are rendered for everyone but
+              clicking through paid query enforces Sui via requireSuiWallet. */}
+          {(activeType === 'all' || activeType === 'memwal') &&
+            memwalBrains.map((b) => <MemWalBrainCard key={`mw-${b.sui_object_id}`} brain={b} />)}
         </div>
+      )}
+
+      {/* Empty state when MemWal tab is active but user isn't on Sui — the
+          server still returns brains, but paid query would fail closed. */}
+      {activeType === 'memwal' && !onSui && (
+        <div className="mt-6">
+          <SwitchToSuiPrompt />
+        </div>
+      )}
+      {activeType === 'memwal' && onSui && memwalBrains.length === 0 && !loading && (
+        <p className="py-8 text-center text-sm text-on-surface-variant">
+          No MemWal-tier brains published yet. Publish from{' '}
+          <a href="/train" className="text-primary hover:underline">/train</a>.
+        </p>
       )}
     </div>
   );

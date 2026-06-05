@@ -7,11 +7,19 @@ import { auth } from './middleware/auth';
 import { agentKya } from './middleware/agent-kya';
 import uploadRouter from './routes/upload';
 import brainsRouter from './routes/brains';
+import chatRouter from './routes/chat';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
 import v3Router from './routes/v3';
+import v3IdentityRouter from './routes/v3-identity';
+import v3WorkflowsRouter from './routes/v3-workflows';
+import v3SkillsRouter from './routes/v3-skills';
+import v3ReflectiveRouter from './routes/v3-reflective';
+import v3MemoryRouter from './routes/v3-memory';
 import v4Router from './routes/v4';
 import v1PublicRouter from './routes/v1Public';
+import mcpRouter from './routes/mcp';
+import v3TatumRouter from './routes/v3-tatum';
 import {
   logger,
   correlationId,
@@ -41,6 +49,29 @@ app.use('/v2', auth, agentKya, v2Router);
 // Per-route ownership/KYA gating happens inside the sub-router.
 app.use('/v3', auth, agentKya, v3Router);
 
+// v3 EVM↔Sui identity binding — separate sub-router so the auth boundary
+// is unambiguous (uses /v3/identity/* prefix, agentKya skipped because the
+// binding is for human users, not agents).
+app.use('/v3/identity', auth, v3IdentityRouter);
+
+// v3 Workflows — Sui-native L4 product surface. requireSuiWallet is applied
+// per-route inside v3WorkflowsRouter (G2 isolation on POST publish + execute).
+// GET endpoints stay open so Standard-tier visitors can browse the catalog.
+app.use('/v3/workflows', auth, agentKya, v3WorkflowsRouter);
+
+// v3 Skills — Sui-native standalone Skill product type. Same auth pattern
+// as workflows: GETs open for catalog, POSTs gated by requireSuiWallet inside.
+app.use('/v3/skills', auth, agentKya, v3SkillsRouter);
+
+// v3 Reflective traces — L5 license-tier product. Same pattern as skills.
+app.use('/v3/reflective', auth, agentKya, v3ReflectiveRouter);
+
+// v3 Memory — paid recall/remember/restore against Walrus Memory (PRD-06).
+// Every route inside applies `requireSuiWallet` (G2). Skipped silently when
+// MEMWAL_PEERDEP_ENABLED=false: the adapter throws OpenXMemWalUpstreamMissingError
+// which the route translates to a 503 with an actionable hint.
+app.use('/v3/memory', auth, agentKya, v3MemoryRouter);
+
 // v4 API — private-payment surface (T5/PRD-B). Flag-gated for byte-identical
 // rollback. Off → 404; on → /v4/billing/* + /v4/settlement/* + /v4/admin/stats.
 if (process.env.FEATURE_FHE_PAY === 'true') {
@@ -51,6 +82,14 @@ if (process.env.FEATURE_FHE_PAY === 'true') {
 // /api/v1 — PUBLIC, x402-paywalled brain endpoints. NO parent auth — the
 // paywall (n-payment middleware) is the auth. Per PRD-1.
 app.use('/api/v1', v1PublicRouter);
+
+// /mcp — MCP JSON-RPC 2.0 server (protocol 2025-11-25). Public; the -32402
+// envelope on paid tools is the paywall. See packages/sdk/src/mcp/server.ts.
+app.use('/mcp', mcpRouter);
+
+// /v3/webhooks — Tatum Notifications receiver. Public (signature-verified).
+// Side-channel from /v3 to keep auth wiring clean.
+app.use('/v3/webhooks', v3TatumRouter);
 
 app.get('/platform', (_, res) => res.json({
   platformWallet: process.env.PLATFORM_WALLET || '',
@@ -110,9 +149,12 @@ app.delete('/permit/revoke', async (req, res) => {
 });
 
 // x402 paywall on subscribe (disabled in dev, enable in production)
-// /chat → 308 redirect to /v2/inference (legacy path; UI uses /v2/inference directly).
-// /subscribe removed — sellers don't subscribe; buyers pay per-call x402 on /v2/inference.
-app.all('/chat', (_req, res) => res.redirect(308, '/v2/inference'));
+// /chat — chat router (handles store + learn modes; Sui-aware). The EVM
+// permit gate is enforced inside the route handler. Previously a 308
+// redirect to /v2/inference; that masked Sui flows because the redirected
+// endpoint assumes Fhenix-encrypted chunks. Now mounted properly so the
+// chain dispatch lives in one file (`routes/chat.ts`).
+app.use('/chat', auth, chatRouter);
 
 // Upload — wallet-auth only. The permit (FHE on-chain authorization) is a
 // feature gate for the encrypted-brain path, not a precondition for plaintext
@@ -149,9 +191,34 @@ if (missing.length) {
 const server = app.listen(PORT, () => logger.info({ port: PORT }, 'api:listening'));
 installLifecycle(server);
 
+// MemWal settlement worker (PRD-11 / T15) — every 60s, batch un-settled paid
+// queries per brain, apply the volume dial, emit on-chain SettlementBatchEmitted,
+// record memwal_revenue_settlements rows. No-op when MEMWAL_SETTLEMENT_ENABLED=false.
+import('./services/memwalSettlement').then((m) => {
+  const enabled = process.env.MEMWAL_SETTLEMENT_ENABLED !== 'false';
+  // Deferred to avoid a top-level pool import here — services/* own their own
+  // db handles via ../db. Pass the same pool the routes use.
+  return import('./db').then((db) => {
+    const w = new m.MemWalSettlementWorker({ pool: db.pool, enabled });
+    w.start();
+    server.on('close', () => w.stop());
+  });
+}).catch((err) =>
+  logger.warn({ err: (err as Error).message }, 'memwal:settlement:boot:error'),
+);
+
 // T4: seeded demo agent — fires test queries against newly-published brains so
 // sellers see their first earning event within seconds. No-op when
 // DEMO_AGENT_ENABLED=false. Must run after listen so logs interleave nicely.
 import('./services/demo-agent').then((m) => m.startDemoAgent()).catch((err) =>
   logger.warn({ err: err?.message }, 'demo-agent:boot:error'),
 );
+
+// Walrus epoch renewal — Phase 4 productization. Off by default; enable
+// per-deployment via WALRUS_RENEWAL_ENABLED=true once at least 1 brain has
+// been published to Walrus (otherwise the cron is a Postgres no-op).
+if (process.env.WALRUS_RENEWAL_ENABLED === 'true') {
+  import('./services/walrusRenewal')
+    .then((m) => m.startWalrusRenewalCron())
+    .catch((err) => logger.warn({ err: err?.message }, 'walrus-renewal:boot:error'));
+}

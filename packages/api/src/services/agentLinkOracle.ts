@@ -34,6 +34,27 @@ export interface AgentLinkRow {
   reputation: number;
 }
 
+/**
+ * Rolled-up reputation across both tiers.
+ *
+ *   reputation = combined ERC-8004 (EVM) + Sui-native rep
+ *
+ * Used by `kya_gate::verify` (Move side reads `reputation`) and by the
+ * Standard tier's KYA middleware (`agent-kya.ts`) so an agent that has
+ * earned reputation on either tier doesn't have to rebuild it on the other.
+ *
+ * Phase 5: when both addresses are linked + signed, rep = max(eth, sui).
+ * Single-tier agents see only their tier's value (no upgrade pressure).
+ */
+export interface AgentReputation {
+  canonical_id: string;
+  eth_reputation: number;
+  sui_reputation: number;
+  /** max(eth_reputation, sui_reputation) — the value Move policies + KYA middleware consume. */
+  combined_reputation: number;
+  tier: 'eth-only' | 'sui-only' | 'both';
+}
+
 export async function registerLink(input: RegisterLinkInput): Promise<AgentLinkRow> {
   if (!input.eth_address && !input.sui_address) {
     throw new Error('agentLinkOracle:at-least-one-address-required');
@@ -114,4 +135,47 @@ async function fetchEthReputation(address: string): Promise<number> {
   // Deterministic mock based on address hash so tests are stable.
   const h = Number((BigInt(keccak256(toHex(address))) % 100n));
   return h;
+}
+
+/**
+ * MOCK: Sui-side reputation (paid-query count, KYA tier, OpenX-internal score).
+ * Phase 5 swap: read from `agent_receipts` rolling sum + cap at 99.
+ */
+async function fetchSuiReputation(suiAddress: string): Promise<number> {
+  // Per-buyer paid-query count, normalized 0..99. Mock for now: deterministic
+  // hash so tests pass without a populated `agent_receipts` table.
+  const h = Number((BigInt(keccak256(toHex(suiAddress))) % 100n));
+  return h;
+}
+
+/**
+ * Cross-tier reputation roll-up.
+ *
+ * Resolves a canonical_id to (eth_rep, sui_rep, combined). Combined is
+ * `max(eth, sui)` — agents who graduate from Sui-only to EVM-linked don't
+ * lose their Sui rep, and vice versa. KYA gates downstream consume only
+ * `combined_reputation`, never the per-tier values.
+ */
+export async function getCombinedReputation(canonicalId: string): Promise<AgentReputation | null> {
+  const r = await pool.query<AgentLinkRow>(
+    `SELECT canonical_id, eth_address, sui_address, reputation
+     FROM agent_links WHERE canonical_id = $1`,
+    [canonicalId],
+  );
+  const row = r.rows[0];
+  if (!row) return null;
+
+  const ethRep = row.eth_address ? await fetchEthReputation(row.eth_address) : 0;
+  const suiRep = row.sui_address ? await fetchSuiReputation(row.sui_address) : 0;
+  const combined = Math.max(ethRep, suiRep);
+  const tier: AgentReputation['tier'] =
+    row.eth_address && row.sui_address ? 'both' : row.eth_address ? 'eth-only' : 'sui-only';
+
+  return {
+    canonical_id: row.canonical_id,
+    eth_reputation: ethRep,
+    sui_reputation: suiRep,
+    combined_reputation: combined,
+    tier,
+  };
 }

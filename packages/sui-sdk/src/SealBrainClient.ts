@@ -66,7 +66,12 @@ export class SealBrainClient implements BrainClient {
     // Mock subscription — T11 replaces with real `subscription_policy::subscribe` Sui tx.
     const expiresAt = new Date(Date.now() + tierToMs(tier)).toISOString();
     const txHash = `mock-sui-${Date.now().toString(16)}`;
-    this.subscription = { suiObjectId: `0xmocksub-${this.opts.walletAddress ?? 'anon'}`, signature: 'mock-sig' };
+    this.subscription = {
+      suiObjectId: `0xmocksub-${this.opts.walletAddress ?? 'anon'}`,
+      brainObjectId: '0xmockbrain',
+      policyObjectId: '0xmockpolicy',
+      signature: 'mock-sig',
+    };
     return { txHash, expiresAt, tier };
   }
 

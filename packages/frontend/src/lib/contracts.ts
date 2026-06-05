@@ -55,6 +55,13 @@ export const AGENT_ADDRESS =
 export const AGENT_BACKEND_URL =
   process.env.NEXT_PUBLIC_AGENT_BACKEND_URL ?? 'http://localhost:3001';
 
+// Sui Move package containing the openx + fhe_brain modules. Override
+// per-deploy via NEXT_PUBLIC_OPENX_BRAIN_PACKAGE_ID — the constant default
+// is the canonical testnet deployment so `npm run dev` works out of the box.
+export const OPENX_BRAIN_PACKAGE_ID =
+  process.env.NEXT_PUBLIC_OPENX_BRAIN_PACKAGE_ID ??
+  '0x4a760f6c982fbbe814dadb11adfe1a6c6d50bcce156de578b5f33e442f0e2041';
+
 export const SKILL_REGISTRY_ADDRESS =
   (process.env.NEXT_PUBLIC_SKILL_REGISTRY_ADDRESS ?? '') as `0x${string}`;
 

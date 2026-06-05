@@ -3,6 +3,7 @@ import { SealBrainClient } from './SealBrainClient';
 
 export { SealBrainClient };
 export * from './storage/walrusStore';
+export * from './storage/walrusQuiltBatcher';
 export * from './seal/sealKeyClient';
 export * from './inference/phalaTeeInference';
 

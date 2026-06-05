@@ -20,7 +20,8 @@
  * to Walrus anywhere in the codebase.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import {
   resilientCall,
   signResumeToken,
@@ -69,6 +70,14 @@ interface WalrusConfig {
   aggregatorUrl?: string;
 }
 
+/**
+ * Path component of the Walrus HTTP API. Mysten renamed `/v1/store` to
+ * `/v1/blobs` (PUT) and `/v1/{blobId}` to `/v1/blobs/{blobId}` (GET) — kept
+ * here as a single named constant so a future rename is one-line work and
+ * a path drift in one place cannot diverge from the other.
+ */
+const WALRUS_BLOBS_PATH = '/v1/blobs';
+
 /** Resume payload — kept opaque to callers. */
 interface ResumePayload {
   uploadId: string;
@@ -79,7 +88,7 @@ interface ResumePayload {
 const DEFAULT_CHUNK_BYTES = 1024 * 1024;
 
 function sha256Hex(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
+  return bytesToHex(sha256(bytes));
 }
 
 function chunk(data: Uint8Array, size: number): Uint8Array[] {
@@ -103,7 +112,7 @@ class MockWalrusStore implements WalrusStore {
 
     let uploadedChunks: WalrusBlobRef[] = [];
     let startIndex = 0;
-    let uploadId = randomBytes(16).toString('hex');
+    let uploadId = bytesToHex(randomBytes(16));
 
     if (opts.resumeToken) {
       const resumed = verifyResumeToken<ResumePayload>(opts.resumeToken);
@@ -154,7 +163,7 @@ class HttpWalrusStore implements WalrusStore {
 
     let uploadedChunks: WalrusBlobRef[] = [];
     let startIndex = 0;
-    let uploadId = randomBytes(16).toString('hex');
+    let uploadId = bytesToHex(randomBytes(16));
 
     if (opts.resumeToken) {
       const resumed = verifyResumeToken<ResumePayload>(opts.resumeToken);
@@ -174,7 +183,7 @@ class HttpWalrusStore implements WalrusStore {
         const ref = await resilientCall(
           { name: 'walrus-http-upload', logger: opts.logger },
           async () => {
-            const res = await fetch(`${this.cfg.publisherUrl}/v1/store`, {
+            const res = await fetch(`${this.cfg.publisherUrl}${WALRUS_BLOBS_PATH}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/octet-stream' },
               body: new Blob([c as unknown as BlobPart]),
@@ -208,7 +217,7 @@ class HttpWalrusStore implements WalrusStore {
 
   async fetch(blobId: string): Promise<Uint8Array> {
     return resilientCall({ name: 'walrus-http-fetch' }, async () => {
-      const res = await fetch(`${this.cfg.aggregatorUrl}/v1/${blobId}`);
+      const res = await fetch(`${this.cfg.aggregatorUrl}${WALRUS_BLOBS_PATH}/${blobId}`);
       if (!res.ok) throw new Error(`walrus aggregator ${res.status}`);
       return new Uint8Array(await res.arrayBuffer());
     });
