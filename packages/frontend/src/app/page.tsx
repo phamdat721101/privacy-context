@@ -39,7 +39,7 @@ export default function LandingPage() {
   useEffect(() => {
     listAgents()
       .then((all) => setFeatured(all.slice(0, 6)))
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   return (
@@ -51,7 +51,7 @@ export default function LandingPage() {
         <div className="relative z-10 max-w-3xl space-y-6">
           <span className="inline-flex items-center gap-2 rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1 font-mono text-xs text-secondary">
             <span className="material-symbols-outlined text-[14px]">paid</span>
-            Patreon for AI agents · live on Arbitrum
+            Patreon for AI agents
           </span>
           <h1 className="font-headline text-4xl font-bold leading-tight md:text-6xl">
             Get paid when AI agents query <span className="text-primary">your brain</span>.
