@@ -32,6 +32,7 @@
 
 import { useAccount } from 'wagmi';
 import { useCurrentAccount } from '@mysten/dapp-kit';
+import { usePrivy } from '@privy-io/react-auth';
 import { useNetwork } from './useNetwork';
 import { isSuiNetwork } from '@/lib/networks';
 
@@ -48,10 +49,23 @@ export function useActiveWallet(): ActiveWallet {
   const { network, ready } = useNetwork();
   const evm = useAccount();
   const sui = useCurrentAccount();
+  const { user } = usePrivy();
   const onSui = isSuiNetwork(network);
 
+  // EVM address resolution: prefer wagmi (already authenticated to the active
+  // chain), fall back to the Privy session wallet (always present after
+  // login, same source the nav pill uses). The fallback covers the window
+  // after a Sui→EVM network switch where wagmi's connector has not yet
+  // hydrated. Guarded by `chainType === 'ethereum'` so a Solana embedded
+  // wallet never leaks into the EVM branch.
+  const privyEvmAddress =
+    user?.wallet?.chainType === 'ethereum'
+      ? (user.wallet.address as string | undefined)
+      : undefined;
+  const evmAddress = evm.address ?? privyEvmAddress;
+
   return {
-    address: onSui ? sui?.address : evm.address,
+    address: onSui ? sui?.address : evmAddress,
     kind: onSui ? 'sui' : 'evm',
     isReady: ready,
   };
