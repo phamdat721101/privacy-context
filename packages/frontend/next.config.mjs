@@ -2,11 +2,24 @@
 const config = {
   reactStrictMode: true,
   experimental: {
-    // Load @cofhe/sdk natively via Node.js so WASM resolves from node_modules,
-    // instead of being bundled by webpack into the wrong server path.
-    serverComponentsExternalPackages: ['@cofhe/sdk'],
+    // Packages that must be loaded natively by Node (not bundled by webpack):
+    //   - @cofhe/sdk        — WASM resolves from node_modules
+    //   - @mysten-incubation/memwal — optional peer dep, gated at runtime by
+    //     MEMWAL_PEERDEP_ENABLED; webpack must not try to resolve it at build
+    //     time (G4 isolation lives in packages/sdk/src/memwal/adapter.ts).
+    serverComponentsExternalPackages: ['@cofhe/sdk', '@mysten-incubation/memwal'],
   },
-  webpack: (config) => {
+  webpack: (config, { webpack, isServer }) => {
+    // Client bundle: the MemWal peer dep is server-only. Tell webpack the
+    // request resolves to nothing so the optional `await import(...)` in the
+    // SDK simply rejects at runtime — the SDK's try/catch already handles it.
+    if (!isServer) {
+      config.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^@mysten-incubation\/memwal$/,
+        }),
+      );
+    }
     // Stub the React Native storage module pulled in by @metamask/sdk → @wagmi/connectors.
     config.resolve.alias = {
       ...config.resolve.alias,
