@@ -95,6 +95,12 @@ The OpenX Move package contains 11 modules: `openx_memwal_marketplace`, `openx_m
 curl https://13-229-63-192.sslip.io/health
 curl https://13-229-63-192.sslip.io/v3/memory/marketplace
 curl https://13-229-63-192.sslip.io/api/v1/sui-audit-1780681145/.well-known/agent.json
+
+# Fhenix permit gate — V2-aligned 2026-06-06.
+# Was returning rpc_error before the fix because the on-chain probe
+# called the V1 ABI (isAuthorized) on a V2 vault (uses hasAccess).
+curl "https://13-229-63-192.sslip.io/permit/status?address=0x100690a32B562fd45e685BC2E63bbfF566d452db&refresh=1"
+# → {"authorized":true,"reason":"onchain_authorized"}
 ```
 
 ---
