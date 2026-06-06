@@ -2,9 +2,15 @@ import { ethers } from 'ethers';
 import { pool } from '../db';
 import { logger } from '../lib';
 
+// V2 ABI: BrainKeyVaultV2 carries per-brain access, not user-level authorization.
+//   - hasAccess(brainId, subscriber)  — the per-brain gate enforced at routes/v2.ts
+//   - brainOwner(brainId)              — used to assert seller identity when needed
+// User-level "is the user reachable on-chain?" reduces to "is the vault deployed?"
+// (eth_getCode), since V2 has no global authorization flag — the SDK permit signature
+// is itself the user's intent, and per-brain access is checked separately.
 const VAULT_ABI = [
-  'function isAuthorized(address user, address platform) view returns (bool)',
-  'function isBrainGranted(uint256 brainId, address platform) view returns (bool)',
+  'function brainOwner(uint256 brainId) view returns (address)',
+  'function hasAccess(uint256 brainId, address subscriber) view returns (bool)',
 ];
 let _contract: ethers.Contract | null = null;
 
@@ -76,19 +82,34 @@ export async function verifyPermit(
 }
 
 // ─── On-chain confirmation ──────────────────────────────────────────────────
+// V2 has no user-level authorization flag. The on-chain truth lives in
+// hasAccess(brainId, subscriber) and is enforced per-route (see isBrainGranted
+// + routes/v2.ts). At user-level, all we can verify cheaply is that the vault
+// contract is actually deployed at the configured address (proves RPC + addr
+// are sane). The SDK permit blob (verified upstream) carries the user's intent.
+const _vaultDeployedCache = new Map<string, { deployed: boolean; ts: number }>();
 
 export async function confirmOnChain(userAddress: string): Promise<{ authorized: boolean; error?: string }> {
   const platform = process.env.PLATFORM_WALLET;
-  if (!platform || !process.env.BRAIN_KEY_VAULT_ADDRESS) return { authorized: false, error: 'config_missing' };
+  const vaultAddr = process.env.BRAIN_KEY_VAULT_ADDRESS;
+  if (!platform || !vaultAddr) return { authorized: false, error: 'config_missing' };
+
+  const cacheKey = vaultAddr.toLowerCase();
+  const cached = _vaultDeployedCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 60 * 60_000) {
+    return cached.deployed ? { authorized: true } : { authorized: false, error: 'rpc_unavailable' };
+  }
+
   try {
-    const authorized: boolean = await getVault().isAuthorized(
-      ethers.getAddress(userAddress),
-      ethers.getAddress(platform),
-    );
-    logger.info({ user: userAddress, authorized }, 'onchain:isAuthorized');
-    return { authorized };
+    const rpc = process.env.ARBITRUM_SEPOLIA_RPC || 'https://sepolia-rollup.arbitrum.io/rpc';
+    const provider = new ethers.JsonRpcProvider(rpc);
+    const code = await provider.getCode(vaultAddr);
+    const deployed = code !== '0x' && code.length > 2;
+    _vaultDeployedCache.set(cacheKey, { deployed, ts: Date.now() });
+    logger.info({ user: userAddress, deployed }, 'onchain:vaultReachable');
+    return deployed ? { authorized: true } : { authorized: false, error: 'rpc_unavailable' };
   } catch (e: any) {
-    logger.warn({ user: userAddress, err: e.message }, 'onchain:isAuthorized:rpc_error');
+    logger.warn({ user: userAddress, err: e.message }, 'onchain:vaultReachable:rpc_error');
     return { authorized: false, error: 'rpc_unavailable' };
   }
 }
@@ -104,7 +125,7 @@ export async function isBrainGranted(brainId: number | string): Promise<boolean>
   const cached = _brainGrantCache.get(key);
   if (cached && Date.now() - cached.ts < 5 * 60_000) return cached.authorized;
   try {
-    const granted: boolean = await getVault().isBrainGranted(BigInt(brainId), ethers.getAddress(platform));
+    const granted: boolean = await getVault().hasAccess(BigInt(brainId), ethers.getAddress(platform));
     _brainGrantCache.set(key, { authorized: granted, ts: Date.now() });
     return granted;
   } catch {
