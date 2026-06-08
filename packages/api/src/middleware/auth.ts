@@ -30,6 +30,10 @@ const PUBLIC_PATHS: RegExp[] = [
   // Read-only aggregation over `paid_calls`; called before any wallet has
   // connected, so it cannot require an x-wallet-address header.
   /^\/agents\/top$/,
+  // /v3/marketplace/listings — public catalog read; called from
+  // /marketplace and the /seller/onboard success card before any wallet
+  // has connected. Single indexed SELECT, no wallet context needed.
+  /^\/marketplace\/listings$/,
   // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
   // rate limiter (in v3.ts) is the abuse defense here.
   /^\/agents\/[^/]+\/try$/,

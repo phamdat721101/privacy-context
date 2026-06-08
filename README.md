@@ -99,6 +99,15 @@ curl https://13-229-63-192.sslip.io/api/v1/sui-audit-1780681145/.well-known/agen
 # AI-Discovery home — top-5 agents by paid calls in the last 30 days.
 curl "https://13-229-63-192.sslip.io/v3/agents/top?n=5"
 
+# Marketplace v1 — public listing catalog (PRD-A/B/C).
+curl "https://13-229-63-192.sslip.io/v3/marketplace/listings?domain=research&limit=5"
+
+# Seller publish — atomic in one transaction (auth required).
+curl -X POST https://13-229-63-192.sslip.io/v3/marketplace/seller/publish \
+  -H 'content-type: application/json' \
+  -H 'x-wallet-address: 0xYOUR_WALLET' \
+  -d '{"title":"Smart Contract Auditor","short_description":"Reviews Solidity for reentrancy + access-control flaws.","domain":"engineering","persona_system_prompt":"You are a senior smart contract auditor.","pricing_amount_usdc":"0.10","pricing_rails":["x402"]}'
+
 # Concierge — describe a need, get LLM-ranked agents + a signed bundle.
 curl -X POST https://13-229-63-192.sslip.io/v3/discover \
   -H 'content-type: application/json' \

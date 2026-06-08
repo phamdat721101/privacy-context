@@ -18,17 +18,17 @@ interface NavItem {
 
 // Single source of truth for global nav.
 //
-// Information architecture:
-//   • Home / Brain / Marketplace / Studio / Settings — always-on pillars.
-//     Brain (cognitive memory) + Studio (agent CRUD + publish) are the
-//     seller-facing creation surfaces; Marketplace is the buyer surface.
-//   • Train / Dashboard / Connect MCP — Sui-only MemWal-tier surfaces.
-//     Hidden from non-Sui networks (G1) so standard-tier UX stays clean.
+// Information architecture (mode-only): each nav entry is a top-level
+// destination the user lives inside. Contextual entry points live inside
+// their owning surface, not the global nav:
+//   • /seller/onboard  — published from /marketplace ("Sell on OpenX" CTA).
+//   • /dashboard       — surfaced as a "My activity" widget on /settings.
+//                        The page stays reachable via deep link for the
+//                        cross-account aggregate view.
 const NAV_ITEMS: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
   { href: '/studio', icon: 'science', label: 'Studio' },
-  { href: '/dashboard', icon: 'dashboard', label: 'Dashboard' },
   { href: '/settings', icon: 'tune', label: 'Settings' },
 ];
 

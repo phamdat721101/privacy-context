@@ -16,6 +16,7 @@ import v3WorkflowsRouter from './routes/v3-workflows';
 import v3SkillsRouter from './routes/v3-skills';
 import v3ReflectiveRouter from './routes/v3-reflective';
 import v3MemoryRouter from './routes/v3-memory';
+import v3MarketplaceRouter from "./routes/v3-marketplace";
 import v4Router from './routes/v4';
 import v1PublicRouter from './routes/v1Public';
 import mcpRouter from './routes/mcp';
@@ -71,6 +72,12 @@ app.use('/v3/reflective', auth, agentKya, v3ReflectiveRouter);
 // MEMWAL_PEERDEP_ENABLED=false: the adapter throws OpenXMemWalUpstreamMissingError
 // which the route translates to a 503 with an actionable hint.
 app.use('/v3/memory', auth, agentKya, v3MemoryRouter);
+
+// /v3/marketplace — seller-first marketplace v1 (PRD-A/B/C).
+// /listings is whitelisted in auth.ts (anonymous browsers + the
+// /seller/onboard success card hit it before any wallet connects);
+// /seller/publish requires `x-wallet-address`.
+app.use("/v3/marketplace", auth, agentKya, v3MarketplaceRouter);
 
 // v4 API — private-payment surface (T5/PRD-B). Flag-gated for byte-identical
 // rollback. Off → 404; on → /v4/billing/* + /v4/settlement/* + /v4/admin/stats.

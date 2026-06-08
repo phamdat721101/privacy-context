@@ -61,6 +61,10 @@ interface AgentDoc {
   brain_title?: string | null;
   brain_description?: string | null;
   brain_tags?: string[] | null;
+  /** Marketplace fields from agents (PRD-A). Included so concierge ranks
+   *  newly published seller-wizard listings without a corpus refresh. */
+  domain?: string | null;
+  short_description?: string | null;
 }
 
 interface RankedRow {
@@ -99,7 +103,9 @@ async function loadCorpus(): Promise<AgentDoc[]> {
             a.pricing,
             b.title       AS brain_title,
             b.description AS brain_description,
-            b.tags        AS brain_tags
+            b.tags        AS brain_tags,
+            a.domain,
+            a.short_description
        FROM agents a
   LEFT JOIN brains b ON b.id = a.brain_id
       WHERE a.published = true
@@ -118,7 +124,10 @@ function searchableText(a: AgentDoc): string {
   const title = a.brain_title ?? '';
   const desc = a.brain_description ?? '';
   const tags = (a.brain_tags ?? []).join(' ');
-  return `${title} ${desc} ${tags} ${sys} ${tools}`.trim();
+  // Marketplace fields lift recall on wizard-published listings.
+  const domain = a.domain ?? '';
+  const shortDesc = a.short_description ?? '';
+  return `${title} ${desc} ${tags} ${domain} ${shortDesc} ${sys} ${tools}`.trim();
 }
 
 /** Best human-readable summary for a candidate (UI subtitle). */
@@ -193,7 +202,8 @@ async function rankWithLLM(
     id: a.id,
     title: (a.brain_title ?? '').slice(0, 80) ||
            ((a.persona?.system_prompt ?? '') as string).slice(0, 80),
-    description: (a.brain_description ?? '').slice(0, 160),
+    description: ((a.short_description ?? a.brain_description ?? '') as string).slice(0, 160),
+    domain: a.domain ?? null,
     tags: (a.brain_tags ?? []).slice(0, 8),
     tools: (a.persona?.tools ?? []).slice(0, 5),
     pricing: a.pricing,

@@ -30,6 +30,10 @@ export interface MarketplaceCardProps {
     runs?: number;
     successRate?: number;
     tags?: string[];
+    /** Marketplace v1 domain tag (PRD-A). */
+    domain?: 'marketing' | 'finance' | 'research' | 'engineering' | 'generalist' | 'other';
+    /** Marketplace v1 verification tier (PRD-A). */
+    verification_tier?: 'basic' | 'verified' | 'tee_attested';
     licensesSold?: number;
     /** When set, card shows a "Tatum-verified" badge — auditor can verify via /sovereignty-proof. */
     suiObjectId?: string;
@@ -73,8 +77,21 @@ export function MarketplaceCard(props: MarketplaceCardProps) {
           <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 ${theme.color}`}>
             <span className="material-symbols-outlined text-[20px]">{theme.icon}</span>
           </div>
-          <span className="inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-variant/40 px-2 py-0.5 font-mono text-[10px] uppercase text-on-surface-variant">
-            {props.type}
+          <span className="inline-flex flex-wrap items-center justify-end gap-1">
+            <span className="inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-variant/40 px-2 py-0.5 font-mono text-[10px] uppercase text-on-surface-variant">
+              {props.type}
+            </span>
+            {props.meta?.domain && (
+              <span className="matrix-chip rounded px-1.5 py-0.5 font-mono text-[10px] uppercase">
+                {props.meta.domain}
+              </span>
+            )}
+            {props.meta?.verification_tier && props.meta.verification_tier !== 'basic' && (
+              <span className="inline-flex items-center gap-0.5 rounded-full border border-primary/40 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] uppercase text-primary">
+                <span className="material-symbols-outlined text-[12px]" aria-hidden>verified</span>
+                {props.meta.verification_tier === 'tee_attested' ? 'TEE' : 'Verified'}
+              </span>
+            )}
           </span>
         </div>
 

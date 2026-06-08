@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AgentCard } from '@/components/AgentCard';
@@ -131,6 +132,30 @@ export default function MarketplacePage() {
         <p className="text-on-surface-variant">
           Browse encrypted AI agents. Every answer is cryptographically verified.
         </p>
+      </div>
+
+      {/* Sell-on-OpenX CTA — re-homed here per IA cleanup (PRD-A.5). The
+          buyer-becomes-seller pivot happens while browsing what's already
+          listed; the global nav stays mode-only. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-secondary/30 bg-secondary/5 px-4 py-3">
+        <div className="flex items-start gap-3">
+          <span className="material-symbols-outlined mt-0.5 text-secondary" aria-hidden>
+            sell
+          </span>
+          <div>
+            <div className="text-sm font-medium text-on-surface">Have knowledge worth selling?</div>
+            <div className="text-xs text-on-surface-variant">
+              Publish in 60 seconds. Other agents pay per query — knowledge stays encrypted in your browser.
+            </div>
+          </div>
+        </div>
+        <Link
+          href="/seller/onboard"
+          className="inline-flex items-center gap-1 rounded-full bg-secondary/20 px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:bg-secondary/30"
+        >
+          Sell on OpenX
+          <span className="material-symbols-outlined text-[14px]" aria-hidden>arrow_forward</span>
+        </Link>
       </div>
 
       {/* Discovery concierge — describe what you need; get a signed bundle. */}

@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useCurrentAccount } from '@mysten/dapp-kit';
 import { usePermit } from '@/hooks/usePermit';
@@ -8,6 +9,7 @@ import { useTier } from '@/hooks/useTier';
 import { useNetwork } from '@/hooks/useNetwork';
 import { PermitManager } from '@/components/PermitManager';
 import {
+  AGENT_BACKEND_URL,
   BRAIN_KEY_VAULT_ADDRESS,
   KNOWLEDGE_REGISTRY_ADDRESS,
   SUBSCRIPTION_CONTROLLER_ADDRESS,
@@ -122,6 +124,8 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+
+      <MyActivitySection wallet={userAddress} />
 
       <section className="space-y-3">
         <h2 className="font-headline text-lg font-semibold">Encryption</h2>
@@ -249,6 +253,139 @@ export default function SettingsPage() {
           </table>
         </div>
       </section>
+    </div>
+  );
+}
+
+// ─── My activity — re-homed dashboard widget ────────────────────────────
+//
+// Per IA cleanup: the global /dashboard page is no longer in nav; instead
+// the user-specific cash-flow surface lives here, on /settings. The full
+// aggregate dashboard is still reachable via the "View full dashboard →"
+// deeplink for cross-account view.
+//
+// Data source: the existing wallet-auth-gated /brains/earnings/:wallet
+// endpoint. No new API. SOLID: SRP (one component, one job — surface
+// per-user activity).
+
+interface EarningsResponse {
+  wallet: string;
+  pricePerQueryUsdc: number;
+  totalQueries: number;
+  totalUsdc: number;
+  settledTotalUsdc: number;
+  settledCallCount: number;
+  brains: Array<{ id: number; title: string; queryCount: number; earnedUsdc: number; lastAt: string | null }>;
+  receipts: Array<{ brainId: number; brainTitle: string; agentAddress: string; amount: string; currency: string; at: string }>;
+  paidCalls: Array<{ slug: string; buyer: string; amountUsdc: string; txHash: string; network: string; method: string; explorerUrl: string; at: string }>;
+}
+
+function MyActivitySection({ wallet }: { wallet: string | undefined }) {
+  const [data, setData] = useState<EarningsResponse | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!wallet) return;
+    setLoading(true);
+    fetch(`${AGENT_BACKEND_URL}/brains/earnings/${wallet}`, {
+      headers: { 'x-wallet-address': wallet },
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return (await r.json()) as EarningsResponse;
+      })
+      .then(setData)
+      .catch((e) => setErr(e?.message ?? String(e)))
+      .finally(() => setLoading(false));
+  }, [wallet]);
+
+  if (!wallet) return null;
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-2">
+        <div>
+          <h2 className="font-headline text-lg font-semibold">My activity</h2>
+          <p className="text-sm text-on-surface-variant">
+            Cash-flow from your published brains. Live counts from <code className="font-mono text-xs">paid_calls</code>.
+          </p>
+        </div>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-1 font-mono text-[11px] uppercase text-primary hover:underline"
+        >
+          View full dashboard
+          <span className="material-symbols-outlined text-[14px]" aria-hidden>arrow_forward</span>
+        </Link>
+      </div>
+
+      {loading && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} aria-hidden className="h-24 animate-pulse rounded-xl border border-outline-variant/20 bg-surface-container-low" />
+          ))}
+        </div>
+      )}
+
+      {err && !loading && (
+        <p role="alert" className="text-sm text-amber-500">Couldn&apos;t load activity ({err}).</p>
+      )}
+
+      {data && !loading && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard label="Total earned (settled)" value={`$${data.settledTotalUsdc.toFixed(4)}`} hint={`${data.settledCallCount} on-chain calls`} />
+            <KpiCard label="Lifetime queries" value={String(data.totalQueries)} hint={`@ $${data.pricePerQueryUsdc} avg`} />
+            <KpiCard label="Brains published" value={String(data.brains.length)} hint={data.brains.length ? 'live in catalog' : 'none yet'} />
+            <KpiCard label="Recent receipts" value={String(data.receipts.length + data.paidCalls.length)} hint="last 50 each" />
+          </div>
+
+          {data.brains.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-6 text-center">
+              <p className="text-on-surface-variant">No brains published yet.</p>
+              <Link href="/seller/onboard" className="mt-2 inline-block text-sm text-primary hover:underline">
+                Publish your first agent →
+              </Link>
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-outline-variant/30 bg-surface">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-surface-variant/40">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">Brain</th>
+                    <th className="px-4 py-2 text-right font-medium">Queries</th>
+                    <th className="px-4 py-2 text-right font-medium">Earned (USDC)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.brains.slice(0, 5).map((b) => (
+                    <tr key={b.id} className="border-t border-outline-variant/20">
+                      <td className="px-4 py-2">
+                        <Link href={`/agent/${b.id}`} className="text-primary hover:underline">
+                          {b.title || `Brain #${b.id}`}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2 text-right font-mono text-xs">{b.queryCount}</td>
+                      <td className="px-4 py-2 text-right font-mono text-xs">${b.earnedUsdc.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function KpiCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-outline-variant/30 bg-surface p-4">
+      <div className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">{label}</div>
+      <div className="mt-1 font-headline text-2xl font-semibold text-on-surface">{value}</div>
+      {hint && <div className="mt-1 text-xs text-on-surface-variant">{hint}</div>}
     </div>
   );
 }

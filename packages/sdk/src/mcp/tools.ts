@@ -225,6 +225,78 @@ export const TOOLS: ToolDef[] = [
     handler: async ({ openx, args }) =>
       memwalFetch(openx, '/v3/memory/marketplace/publish', 'POST', args),
   },
+
+  // ─── Marketplace v1 tools — agent-callable surface (PRD-C) ──────────────
+  // openx_marketplace_search returns LLM-ranked listings via /v3/discover.
+  // openx_agent_invoke proxies the paid /v3/agents/:id/chat endpoint and
+  // surfaces the standard -32402 envelope so MCP hosts that handle
+  // pay-then-retry (Claude / Cursor / AgentCash) work without bespoke wiring.
+  {
+    name: 'openx_marketplace_search',
+    description:
+      'Search the OpenX agent marketplace. Returns LLM-ranked agents with score, reason, chain, and pricing.',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: { query: tStr, domain: tStr, max: tInt },
+      required: ['query'],
+    },
+    handler: async ({ openx, args }) => {
+      const message = String(args.query ?? '').trim();
+      if (!message) return { candidates: [], bundle: null };
+      const max = typeof args.max === 'number' ? Math.min(Math.max(args.max, 1), 5) : 5;
+      const res = (await openxApiFetch(openx, '/v3/discover', 'POST', {
+        message,
+        max_steps: max,
+      })) as {
+        candidates?: Array<{
+          agent_id: string;
+          score: number;
+          reason: string;
+          chain: string;
+          pricing: Record<string, string | null>;
+        }>;
+        bundle?: unknown;
+      };
+      // Optional client-side domain filter (concierge already biases on it
+      // via the LLM prompt, but explicit filter helps tight queries).
+      const domain = typeof args.domain === 'string' ? args.domain : null;
+      const candidates = (res?.candidates ?? []).filter((c) =>
+        domain ? (c as { domain?: string }).domain === domain : true,
+      );
+      return { candidates, bundle: res?.bundle ?? null };
+    },
+  },
+  {
+    name: 'openx_agent_invoke',
+    description:
+      'Invoke a published OpenX marketplace agent. Returns -32402 with x-payment-info on first call; pay then retry. Accepts either agent_id (UUID) or slug.',
+    paid: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent_id: tStr,
+        slug: tStr,
+        input: { type: 'object' },
+      },
+      required: ['input'],
+    },
+    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
+    handler: async ({ openx, args }) => {
+      const id = (args.agent_id ?? args.slug) as string | undefined;
+      if (!id) throw new Error('agent_id or slug required');
+      const input = (args.input ?? {}) as Record<string, unknown>;
+      const message =
+        typeof input.q === 'string'
+          ? input.q
+          : typeof input.message === 'string'
+          ? input.message
+          : JSON.stringify(input);
+      return openxApiFetch(openx, `/v3/agents/${encodeURIComponent(id)}/chat`, 'POST', {
+        message,
+      });
+    },
+  },
 ];
 
 // Re-export MemoryId so MCP consumers don't need a second import.
@@ -264,6 +336,51 @@ async function memwalFetch(
       status?: number;
     };
     err.code = json?.error;
+    err.status = r.status;
+    throw err;
+  }
+  return json;
+}
+
+
+// ─── Generic OpenX API helper — used by marketplace tools (PRD-C) ────────
+// Sibling of `memwalFetch` but without the hardcoded `x-chain: sui` header,
+// since marketplace listings work across chains. SOLID: one function, one
+// concern, one error envelope. Errors carry HTTP status so the JSON-RPC
+// mapper in server.ts translates 402/429/503 etc. correctly.
+async function openxApiFetch(
+  openx: OpenXClient,
+  path: string,
+  method: 'GET' | 'POST',
+  body?: unknown,
+): Promise<unknown> {
+  const apiUrl = (openx as unknown as { apiUrl?: string }).apiUrl ?? '';
+  const wallet = (openx as unknown as { walletAddress?: string }).walletAddress;
+  const url = new URL(path, apiUrl || 'http://localhost:3001');
+  const headers: Record<string, string> = {};
+  if (wallet) headers['x-wallet-address'] = wallet;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const r = await fetch(url.toString(), {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const text = await r.text();
+  let json: unknown = {};
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = { error: text.slice(0, 200) };
+    }
+  }
+  if (!r.ok) {
+    const j = json as { error?: string; code?: string };
+    const err = new Error(j?.error ?? `HTTP ${r.status}`) as Error & {
+      code?: string;
+      status?: number;
+    };
+    err.code = j?.code;
     err.status = r.status;
     throw err;
   }
