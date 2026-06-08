@@ -175,9 +175,11 @@ packages/*/yarn.lock
 packages/*/pnpm-lock.yaml
 
 # =============================================================================
-# Internal docs (un-shipped working notes)
+# Internal docs (un-shipped working notes — top-level only).
+# Anchored with leading slash so it matches /docs/ at the repo root, NOT
+# every nested `docs/` directory (e.g. packages/frontend/src/app/docs/).
 # =============================================================================
-docs/
+/docs/
 
 # =============================================================================
 # Misc archives & temp
