@@ -96,6 +96,14 @@ curl https://13-229-63-192.sslip.io/health
 curl https://13-229-63-192.sslip.io/v3/memory/marketplace
 curl https://13-229-63-192.sslip.io/api/v1/sui-audit-1780681145/.well-known/agent.json
 
+# AI-Discovery home — top-5 agents by paid calls in the last 30 days.
+curl "https://13-229-63-192.sslip.io/v3/agents/top?n=5"
+
+# Concierge — describe a need, get LLM-ranked agents + a signed bundle.
+curl -X POST https://13-229-63-192.sslip.io/v3/discover \
+  -H 'content-type: application/json' \
+  -d '{"message":"audit my Sui Move contract for reentrancy","max_steps":5}'
+
 # Fhenix permit gate — V2-aligned 2026-06-06.
 # Was returning rpc_error before the fix because the on-chain probe
 # called the V1 ABI (isAuthorized) on a V2 vault (uses hasAccess).

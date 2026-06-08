@@ -72,3 +72,44 @@ body {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* Glass-panel — translucent layered surface used for the discovery chat box
+   and similar focus containers. Pairs with .x-blue-glow for active state. */
+.glass-panel {
+  background: rgba(22, 22, 24, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Matrix-chip — Sui-green status pill (Active, Encrypted, System Online). */
+.matrix-chip {
+  background: rgba(0, 230, 57, 0.05);
+  color: #00e639;
+}
+
+/* X-blue-glow — focus ring for the discovery input; applied via
+   `focus-within:x-blue-glow` on the chat box wrapper. */
+.x-blue-glow {
+  box-shadow: inset 0 0 0 1px #00dbe9;
+}
+
+/* Agent-card-border — holographic gradient ring revealed on hover; used on
+   matched-agent cards to denote "Active AI". */
+.agent-card-border {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+}
+.agent-card-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(45deg, rgba(0, 219, 233, 0.3), rgba(0, 230, 57, 0.3));
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.agent-card-border:hover::before {
+  opacity: 1;
+}

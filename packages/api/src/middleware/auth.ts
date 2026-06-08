@@ -26,6 +26,10 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/version$/,
   // /v3/agents/slug-available — slug presence is public information.
   /^\/agents\/slug-available$/,
+  // /v3/agents/top — public top-N ranked agents (home highlights).
+  // Read-only aggregation over `paid_calls`; called before any wallet has
+  // connected, so it cannot require an x-wallet-address header.
+  /^\/agents\/top$/,
   // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
   // rate limiter (in v3.ts) is the abuse defense here.
   /^\/agents\/[^/]+\/try$/,

@@ -9,6 +9,7 @@ jspm_packages/
 .yarn/build-state.yml
 .yarn/install-state.gz
 logo/
+new-home/
 
 # =============================================================================
 # Build & compile outputs

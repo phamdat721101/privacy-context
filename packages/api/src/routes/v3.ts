@@ -220,6 +220,40 @@ v3.get('/agents', async (req: Request, res: Response) => {
   res.json(r.rows);
 });
 
+// Public — must be declared before /agents/:id so Express matches the
+// literal /top instead of treating "top" as an :id. Whitelisted in
+// middleware/auth.ts as `/^\/agents\/top$/`. Aggregates over the indexed
+// `paid_calls.agent_id` (paid_calls_agent_idx, migration 010); cheap.
+v3.get('/agents/top', async (req: Request, res: Response) => {
+  const n = Math.min(Math.max(Number(req.query.n ?? 5), 1), 20);
+  const windowDays = Math.min(Math.max(Number(req.query.window_days ?? 30), 1), 365);
+  const r = await pool.query(
+    `SELECT a.id,
+            a.brain_id,
+            a.chain,
+            a.pricing,
+            a.persona,
+            a.slug,
+            b.title,
+            b.description,
+            b.tags,
+            COALESCE(stats.calls, 0)::int AS calls_30d
+       FROM agents a
+       JOIN brains b ON b.id = a.brain_id
+  LEFT JOIN (
+              SELECT agent_id, COUNT(*)::int AS calls
+                FROM paid_calls
+               WHERE created_at > now() - (INTERVAL '1 day' * $2)
+            GROUP BY agent_id
+            ) AS stats ON stats.agent_id = a.id
+      WHERE a.published = true
+   ORDER BY calls_30d DESC, a.created_at DESC
+      LIMIT $1`,
+    [n, windowDays],
+  );
+  res.json({ agents: r.rows, window_days: windowDays });
+});
+
 v3.get('/agents/:id', async (req: Request, res: Response) => {
   const r = await pool.query(
     `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
