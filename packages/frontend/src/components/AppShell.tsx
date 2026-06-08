@@ -1,6 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { usePrivy } from '@privy-io/react-auth';
 import { WalletConnect } from './WalletConnect';
 import { NetworkSwitcher } from './NetworkSwitcher';
 import { SuiWalletButton } from './SuiWalletButton';
@@ -14,6 +15,9 @@ interface NavItem {
   label: string;
   /** When true, item is only shown on Sui networks (the MemWal commercial overlay). */
   suiOnly?: boolean;
+  /** When true, item is only shown to authenticated users. The route stays
+   *  reachable via URL — this gates nav visibility, not route auth. */
+  requiresAuth?: boolean;
 }
 
 // Single source of truth for global nav.
@@ -29,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/', icon: 'home', label: 'Home' },
   { href: '/marketplace', icon: 'storefront', label: 'Marketplace' },
   { href: '/studio', icon: 'science', label: 'Studio' },
+  { href: '/docs', icon: 'menu_book', label: 'Docs', requiresAuth: true },
   { href: '/settings', icon: 'tune', label: 'Settings' },
 ];
 
@@ -40,6 +45,7 @@ function isActive(pathname: string, href: string) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { network } = useNetwork();
+  const { authenticated } = usePrivy();
 
   // Side-effect: auto-bind EVM↔Sui identity the first time the user connects
   // a Sui wallet on a Sui network. No-op otherwise.
@@ -47,7 +53,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Filter out Sui-only items when the active network isn't Sui. This keeps
   // the standard-tier UX byte-identical to the pre-MemWal build (G1).
-  const items = NAV_ITEMS.filter((item) => !item.suiOnly || isSuiNetwork(network));
+  const items = NAV_ITEMS.filter((item) =>
+    (!item.suiOnly || isSuiNetwork(network)) && (!item.requiresAuth || authenticated),
+  );
 
   return (
     <div className="min-h-screen bg-background text-on-surface">

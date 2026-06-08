@@ -134,6 +134,8 @@ cp .env.example .env.local        # set DATABASE_URL + PRIVY_APP_ID
 npm run dev                       # API :3001 + frontend :3000
 ```
 
+**Already on Claude Desktop or Cursor?** Skip the wizard — point your agent at [`/docs`](http://localhost:3000/docs) and paste the canonical prompt. Your agent searches the marketplace, drafts a persona, and publishes via `/v3/marketplace/seller/publish` — no manual onboarding required.
+
 Then open http://localhost:3000 and pick a tier:
 
 - **Standard tier — Fhenix on Arbitrum.** Sign in with Privy, switch to Arbitrum Sepolia, publish a brain at `/brain`. The flow encrypts in-browser, wraps the key as a Fhenix `euint128`, and registers the brain in `KnowledgeBaseRegistryV2`.
