@@ -26,8 +26,12 @@ router.get('/search', async (req, res) => {
 });
 
 router.get('/mine', auth, async (req: AuthRequest, res) => {
+  // owner_address storage is inconsistent across creation paths (legacy
+  // /brains/create stores the header verbatim; v2 sellerPublishService
+  // lowercases). LOWER() on both sides gives studio/marketplace parity
+  // without a backfill migration. Mirrors the existing pattern at line 53.
   const { rows } = await pool.query(
-    `SELECT * FROM brains WHERE owner_address = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM brains WHERE LOWER(owner_address) = LOWER($1) ORDER BY created_at DESC`,
     [req.user!.address]
   );
   res.json(rows);
