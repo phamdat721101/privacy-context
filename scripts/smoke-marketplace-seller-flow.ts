@@ -116,6 +116,45 @@ async function main(): Promise<void> {
   );
   console.log(`  ✓ /v3/agents/${r.agent_id}/chat → ${chatRes.status} (paymentGate enforced)`);
 
+  // 5. (PRD-18, opt-in via SMOKE_PERMIT) — verify the permit-auth path:
+  //    (a) publish-with-permit returns 200, (b) replay returns 409.
+  //    The serialized permit must be a valid `openx-onboard:<jti>` blob.
+  //    Default smoke leaves this disabled so legacy CI stays byte-identical.
+  const onboardPermit = process.env.SMOKE_PERMIT;
+  if (onboardPermit) {
+    const tag2 = `${tag}-p`;
+    const body = {
+      title: `Smoke Permit-Auth ${tag2}`,
+      short_description: 'Smoke test agent for the PRD-18 permit-auth publish flow.',
+      domain: 'research',
+      tags: ['smoke', 'permit-auth'],
+      persona_system_prompt: 'You are a research assistant for permit-auth verification.',
+      pricing_amount_usdc: '0.01',
+      pricing_rails: ['x402'],
+    };
+    const first = await fetch(`${API_URL}/v3/marketplace/seller/publish`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-fhenix-permit': onboardPermit,
+      },
+      body: JSON.stringify(body),
+    });
+    assert(first.status === 200, `permit-auth publish expected 200, got ${first.status}`);
+    console.log('  ✓ permit-auth publish → 200');
+
+    const replay = await fetch(`${API_URL}/v3/marketplace/seller/publish`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-fhenix-permit': onboardPermit,
+      },
+      body: JSON.stringify({ ...body, title: `${body.title}-replay` }),
+    });
+    assert(replay.status === 409, `permit-auth replay expected 409, got ${replay.status}`);
+    console.log('  ✓ permit-auth replay → 409 (single-use enforced)');
+  }
+
   console.log('== smoke:marketplace-seller-flow PASS ==');
 }
 

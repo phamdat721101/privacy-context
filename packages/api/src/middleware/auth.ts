@@ -6,6 +6,12 @@ export interface AuthRequest extends Request {
     address: string;
     hasPermit: boolean;
     permitReason?: PermitReason;
+    /** PRD-18 — single-use jti carried inside the onboard permit's `name`.
+     *  Forwarded to sellerPublishService.publish() for atomic consumption. */
+    permitJti?: string;
+    /** PRD-18 — issuance ceiling (epoch seconds) recorded in
+     *  onboard_permits_spent.expires_at. */
+    permitExpSec?: number;
   };
 }
 
@@ -88,9 +94,68 @@ const PUBLIC_PATHS: RegExp[] = [
   /^(?:\/memory)?\/brain\/[^/]+\/sovereignty-proof$/,
 ];
 
+/**
+ * PRD-18 — routes that REQUIRE x-fhenix-permit when FEATURE_PERMIT_AUTH=true.
+ *
+ * Mirror of PUBLIC_PATHS for the inverse direction. Mounted under
+ * /v3/marketplace, so the middleware sees relative paths (with or without
+ * the /marketplace prefix depending on which mount runs first — same shape
+ * as the listing/workflow whitelist regexes above).
+ *
+ * When FEATURE_PERMIT_AUTH=false (default), this list has no effect:
+ * x-wallet-address keeps working byte-identically and rollback is free.
+ */
+const PERMIT_AUTH_REQUIRED: RegExp[] = [
+  /^(?:\/marketplace)?\/seller\/publish$/,
+];
+
 export const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (PUBLIC_PATHS.some((re) => re.test(req.path))) return next();
 
+  // ─── Permit-auth path (preferred when header present) ──────────────────
+  // The permit IS the proof of identity: verifyPermit() (without an
+  // expectedIssuer) cryptographically derives the wallet address from the
+  // signed blob. No need for x-wallet-address; spoofing is impossible.
+  const permitHeader = req.headers['x-fhenix-permit'];
+  const serialized = typeof permitHeader === 'string' ? permitHeader : null;
+  if (serialized && serialized.length > 100) {
+    try {
+      const mod = await import('../fhe/permits');
+      const result = await mod.verifyPermit(serialized);
+      if (result.valid === false) {
+        return res.status(401).json({ error: 'invalid permit', reason: result.reason });
+      }
+      const { issuer, jti, name, expiration } = result.permit;
+      // Scope is enforced here: only `openx-onboard:*` permits may auth via
+      // this header. Full-scope permits (legacy /v2/inference) keep using the
+      // x-wallet-address path with a server-side hasPermit() lookup.
+      if (!jti || !name?.startsWith(mod.ONBOARD_SCOPE_PREFIX)) {
+        return res.status(401).json({ error: 'permit scope mismatch', reason: 'scope_mismatch' });
+      }
+      req.user = {
+        address: issuer,
+        hasPermit: true,
+        permitReason: 'onchain_authorized',
+        permitJti: jti,
+        permitExpSec: expiration === Infinity ? undefined : expiration,
+      };
+      return next();
+    } catch {
+      return res.status(401).json({ error: 'permit verification failed' });
+    }
+  }
+
+  // ─── Permit-auth gate (PRD-18 §6) ──────────────────────────────────────
+  // When the feature flag is on, the routes in PERMIT_AUTH_REQUIRED MUST
+  // carry an onboard permit; the legacy x-wallet-address path is rejected.
+  if (
+    process.env.FEATURE_PERMIT_AUTH === 'true' &&
+    PERMIT_AUTH_REQUIRED.some((re) => re.test(req.path))
+  ) {
+    return res.status(401).json({ error: 'x-fhenix-permit required', reason: 'permit_required' });
+  }
+
+  // ─── Legacy x-wallet-address path (byte-identical default) ─────────────
   const address = req.headers['x-wallet-address'] as string;
   if (!address) return res.status(401).json({ error: 'Missing wallet address' });
 

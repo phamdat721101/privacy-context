@@ -1,4 +1,5 @@
 import { ethers } from 'ethers';
+import type { Pool, PoolClient } from 'pg';
 import { pool } from '../db';
 import { logger } from '../lib';
 
@@ -40,21 +41,44 @@ export type VerifyReason =
   | 'recipient_mismatch'
   | 'contract_mismatch'
   | 'expired'
-  | 'sdk_unavailable';
+  | 'sdk_unavailable'
+  | 'scope_mismatch';
 
 export type ImportRejectReason = VerifyReason | 'onchain_unauthorized' | 'config_unavailable';
 
 export interface PermitStatus { authorized: boolean; reason: PermitReason }
 
+/** PRD-18 — onboard permits encode a single-use id inside `name` as
+ *  `openx-onboard:<jti>`. `verifyPermit()` parses it (best-effort; null when
+ *  absent) so middleware/services can enforce scope without a second decode. */
+export const ONBOARD_SCOPE_PREFIX = 'openx-onboard:';
+
+export interface VerifiedPermit {
+  issuer: string;
+  recipient: string;
+  contract: string;
+  expiration: number;
+  /** Raw `name` field from the permit blob (null when the SDK omits it). */
+  name: string | null;
+  /** Parsed jti when `name` starts with `openx-onboard:`; null otherwise. */
+  jti: string | null;
+}
+
 export type VerifyResult =
-  | { valid: true; permit: { issuer: string; recipient: string; contract: string; expiration: number } }
+  | { valid: true; permit: VerifiedPermit }
   | { valid: false; reason: VerifyReason };
 
 // ─── Verify permit blob (pure validation, no DB) ────────────────────────────
+//
+// `expectedIssuer` is OPTIONAL (PRD-18). When passed, the call enforces an
+// issuer match (legacy callers — `/permit/import` — still bind issuer to the
+// authenticated user). When omitted, the permit's own `issuer` is taken as
+// authoritative — used by the auth middleware where the permit IS the proof
+// of identity (no out-of-band wallet header).
 
 export async function verifyPermit(
   serialized: string,
-  expectedIssuer: string,
+  expectedIssuer?: string,
 ): Promise<VerifyResult> {
   const platform = process.env.PLATFORM_WALLET?.toLowerCase();
   const contract = process.env.BRAIN_KEY_VAULT_ADDRESS?.toLowerCase();
@@ -69,13 +93,30 @@ export async function verifyPermit(
     const recipient = (permit.recipient ?? permit.allowed ?? platform).toLowerCase();
     const permitContract = (permit.contract ?? permit.contractAddress ?? '').toLowerCase();
     const expiration: number = permit.expiration ?? permit.exp ?? Infinity;
+    const name: string | null = typeof permit.name === 'string' ? permit.name : null;
+    const jti =
+      name && name.startsWith(ONBOARD_SCOPE_PREFIX)
+        ? name.slice(ONBOARD_SCOPE_PREFIX.length) || null
+        : null;
 
-    if (issuer !== expectedIssuer.toLowerCase()) return { valid: false, reason: 'issuer_mismatch' };
-    if (recipient !== platform) return { valid: false, reason: 'recipient_mismatch' };
+    if (expectedIssuer && issuer !== expectedIssuer.toLowerCase()) {
+      return { valid: false, reason: 'issuer_mismatch' };
+    }
+    if (!issuer) return { valid: false, reason: 'issuer_mismatch' };
+    // PRD-18 §B fix — onboard permits use the BrainKeyVault contract address
+    // as the recipient (the seller and platform may share the same wallet
+    // during dev testing; CoFHE rejects createSharing when issuer===recipient,
+    // so we route onboard permits through the contract address instead).
+    // Legacy full-scope permits still bind to PLATFORM_WALLET.
+    const expectedRecipient = jti ? contract : platform;
+    if (recipient !== expectedRecipient) return { valid: false, reason: 'recipient_mismatch' };
     if (permitContract && permitContract !== contract) return { valid: false, reason: 'contract_mismatch' };
     if (expiration !== Infinity && expiration < Date.now() / 1000) return { valid: false, reason: 'expired' };
 
-    return { valid: true, permit: { issuer, recipient, contract: permitContract || contract, expiration } };
+    return {
+      valid: true,
+      permit: { issuer, recipient, contract: permitContract || contract, expiration, name, jti },
+    };
   } catch {
     return { valid: false, reason: 'parse_failed' };
   }
@@ -196,4 +237,34 @@ export async function hasPermit(
   // On-chain says no — if we had a stale cache row, delete it.
   await pool.query(`DELETE FROM permits WHERE user_address = $1`, [addr]);
   return { authorized: false, reason: opts.forceRefresh ? 'permit_revoked' : 'never_authorized' };
+}
+
+// ─── Single-use onboard permit consumption (PRD-18) ─────────────────────────
+//
+// Atomic INSERT into `onboard_permits_spent` (migration 025). Accepts a Pool
+// OR a PoolClient so the call lives inside an existing transaction (the
+// seller publish path) — single-use enforcement is at the DB layer, not in
+// middleware, which removes any race window between the verify and the
+// publish INSERTs.
+//
+//   - Returns { ok: true }  when the row was inserted (first use).
+//   - Returns { ok: false } when the jti is already spent (replay).
+//
+// Caller maps `ok:false` to HTTP 409.
+
+export async function consumeOnboardJti(
+  client: Pool | PoolClient,
+  jti: string,
+  walletAddress: string,
+  expiresAtSec: number,
+): Promise<{ ok: boolean }> {
+  if (!jti) return { ok: false };
+  const r = await client.query(
+    `INSERT INTO onboard_permits_spent (jti, wallet_address, expires_at)
+     VALUES ($1, $2, to_timestamp($3))
+     ON CONFLICT (jti) DO NOTHING
+     RETURNING jti`,
+    [jti, walletAddress.toLowerCase(), expiresAtSec],
+  );
+  return { ok: (r.rowCount ?? 0) === 1 };
 }

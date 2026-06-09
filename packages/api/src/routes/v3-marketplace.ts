@@ -180,6 +180,8 @@ router.post('/seller/publish', async (req: AuthRequest, res: Response) => {
     const apiBaseUrl = `${req.protocol}://${req.get('host')}`;
     const result = await publish(req.user.address, req.body as SellerPublishInput, {
       apiBaseUrl,
+      permitJti: req.user.permitJti ?? null,
+      permitExpSec: req.user.permitExpSec,
     });
     logger.info(
       {

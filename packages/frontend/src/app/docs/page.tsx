@@ -3,50 +3,79 @@
 /**
  * /docs — agent-onboarding console.
  *
- * Single page. One canonical copy-paste prompt that any MCP-aware host
- * (Claude Desktop, Cursor, Codex, Bedrock AgentCore) can run to publish
- * a marketplace listing on the seller's behalf via the shipped
- * /v3/marketplace/seller/publish endpoint.
+ * One canonical copy-paste prompt that any MCP-aware host (Claude Desktop,
+ * Cursor, Codex, Bedrock AgentCore) can run to publish a marketplace listing
+ * on the seller's behalf via the shipped /v3/marketplace/seller/publish
+ * endpoint.
  *
- * The page is authoring content + UX wrappers — not a runtime. Agents run
- * inside the host; this page only delivers the prompt and the host
- * configuration.
+ * PRD-18: when the seller is logged in, the page mints a *scoped, single-use*
+ * Fhenix onboard permit and bakes it into the prompt as the
+ * `x-fhenix-permit` header value. The agent has zero placeholders to fill —
+ * one click to generate, one click to copy, one paste to publish.
  *
  * SOLID:
- *   - SRP: this file owns docs rendering. Sub-components are inline
- *          functions (HostTab, CopyButton, Section) for SRP via function
- *          boundaries, not file boundaries.
+ *   - SRP: this file owns docs rendering. The permit mint is a thin local
+ *          adapter around the SDK's `mintOnboardPermit` — no new hook.
  *   - OCP: adding a host = one HostTab entry; adding a step = one Section.
+ *   - DIP: the SDK function takes a viem WalletClient; we build it from the
+ *          Privy provider exactly the same way `usePayments` does. Single
+ *          source of truth for the wallet-client recipe stays in viem.
  *
  * The manual wizard at /seller/onboard is preserved unchanged and linked
  * from Section D as a fallback.
  */
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { createWalletClient, custom } from 'viem';
+import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
+import {
+  arbitrumSepolia,
+  mintOnboardPermit,
+  type OnboardPermit,
+} from '@fhe-ai-context/sdk';
+import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
+import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 
 // ─── The canonical onboarding prompt ─────────────────────────────────────
 //
-// Server enforces every constraint inside this prompt via
-// sellerPublishService.validate(). The agent cannot publish a malformed
-// listing, cannot publish on behalf of a different wallet (auth header),
-// and cannot self-grant verified / tee_attested tiers (server hardcodes
-// those behind the tier-review pipeline). The "show body before sending"
-// step in #4 is the human-in-the-loop checkpoint.
+// `buildPrompt` returns the prompt with placeholders or live values
+// substituted. The agent's behaviour is identical either way — only the
+// auth section changes shape. Server-side `verifyPermit()` enforces the
+// onboard scope and the single-use jti at publish time.
 
-const CANONICAL_PROMPT = `You are helping me publish an AI agent listing on OpenX
+function buildPrompt(args: { wallet?: string; permit?: OnboardPermit | null }): string {
+  const wallet = args.wallet ?? '<PASTE_YOUR_WALLET_HERE>';
+  const authBlock = args.permit
+    ? `Authentication (DO NOT MODIFY):
+  - Header:  x-fhenix-permit: ${args.permit.serialized}
+  - Wallet:  ${args.permit.walletAddress}
+  - Expires: ${new Date(args.permit.expiresAtSec * 1000).toISOString()}  (single-use, 15 min)`
+    : `Authentication (sign in at https://api.openx.so/docs to mint a token):
+  - Header:  x-fhenix-permit: <PASTE_ONBOARD_TOKEN_HERE>
+  - Wallet:  ${wallet}`;
+
+  return `You are helping me publish an AI agent listing on OpenX
 (https://api.openx.so), the AI agent marketplace with cognitive memory.
 
 The OpenX MCP server is connected and exposes (among others):
   • openx_marketplace_search(query, domain?, max?) — free, returns
     LLM-ranked existing listings so we can avoid duplicates and pick a
     price band.
+  • openx_seller_publish(listing, onboard_permit) — free, atomic publish.
+    Pass the onboard_permit value from the auth block below verbatim.
   • openx_agent_invoke(slug | agent_id, input)    — paid, calls a
     published agent (used after onboarding to verify).
 
-Your task is to publish ONE new listing on my behalf via
-POST https://api.openx.so/v3/marketplace/seller/publish
-(auth: header \`x-wallet-address: <my wallet>\`).
+${authBlock}
+
+Your task is to publish ONE new listing on my behalf. Prefer the MCP tool;
+fall back to direct HTTP only if the MCP server is unavailable:
+
+  POST https://api.openx.so/v3/marketplace/seller/publish
+  Headers: { 'content-type': 'application/json',
+             'x-fhenix-permit': '<value from the Authentication block>' }
 
 Steps:
   1. Ask me ONE round of clarifying questions if and only if the listing
@@ -73,9 +102,10 @@ Steps:
        "verification_tier": "basic"
      }
 
-  4. POST the JSON. SHOW ME the request body BEFORE sending so I can
-     approve. Use my wallet address from env or ask once.
-  5. On success, the response will be:
+  4. Call openx_seller_publish({ listing, onboard_permit }). SHOW ME the
+     listing JSON BEFORE calling so I can approve. Do not modify the
+     onboard_permit string.
+  5. On success the response will be:
        { agent_id, slug, listing_url, knowledge_url,
          mcp_invoke_snippet, manifest_yaml }
      Print listing_url, knowledge_url, and mcp_invoke_snippet.
@@ -91,11 +121,13 @@ Constraints:
   - Default rails to ["x402"] unless I explicitly ask for more.
   - Default accept_private_payment to false. Ask if I want
     confidential-amount payments via Fhenix.
-  - Never invent an x-wallet-address; ask me if you don't have one.
+  - The onboard_permit is single-use. If publish returns 409
+    "onboard token already used", ask me to mint a new one at /docs.
+  - Never invent the onboard_permit value; treat it as opaque.
 
-My wallet address is: <PASTE_YOUR_WALLET_HERE>
 My listing topic is:  <PASTE_TOPIC_HERE>
 `;
+}
 
 // ─── Host configurations ────────────────────────────────────────────────
 
@@ -142,10 +174,10 @@ curl -X POST https://api.openx.so/v3/discover \\
   -H 'content-type: application/json' \\
   -d '{"message":"<your listing topic>","max_steps":5}'
 
-# 2. Publish (auth required)
+# 2. Publish (auth via the onboard permit you minted in Section B)
 curl -X POST https://api.openx.so/v3/marketplace/seller/publish \\
   -H 'content-type: application/json' \\
-  -H 'x-wallet-address: 0xYOUR_WALLET' \\
+  -H 'x-fhenix-permit: <ONBOARD_PERMIT>' \\
   -d @listing.json
 
 # 3. Verify the 402 gate (proves listing is live + gated)
@@ -159,6 +191,55 @@ curl -X POST https://api.openx.so/v3/agents/<agent_id>/chat \\
 // ─── Page ───────────────────────────────────────────────────────────────
 
 export default function DocsPage() {
+  const { authenticated, ready, user, login } = usePrivy();
+  const { wallets } = useWallets();
+  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+
+  const [permit, setPermit] = useState<OnboardPermit | null>(null);
+  const [minting, setMinting] = useState(false);
+  const [mintError, setMintError] = useState<string | null>(null);
+
+  /**
+   * Mint a scoped onboard permit via the SDK. Wallet-client recipe matches
+   * `usePayments` byte-for-byte (Privy provider → viem custom transport).
+   * The SDK uses BRAIN_KEY_VAULT_ADDRESS as the permit recipient (PRD-18 §B
+   * fix) — a contract address can never collide with the user's wallet, so
+   * the platform-wallet-as-seller case Just Works.
+   */
+  const generate = useCallback(async () => {
+    if (!userAddress || !wallets.length) {
+      setMintError('Wallet not connected');
+      return;
+    }
+    setMintError(null);
+    setMinting(true);
+    try {
+      const pw = wallets[0];
+      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await pw.getEthereumProvider();
+      const walletClient = createWalletClient({
+        chain: viemArbitrumSepolia,
+        transport: custom(provider),
+        account: userAddress,
+      });
+
+      const next = await mintOnboardPermit(
+        { contractAddress: BRAIN_KEY_VAULT_ADDRESS },
+        arbitrumSepolia,
+        walletClient,
+      );
+      setPermit(next);
+    } catch (e) {
+      const err = e as { shortMessage?: string; message?: string };
+      setMintError(err?.shortMessage ?? err?.message ?? 'Mint failed');
+    } finally {
+      setMinting(false);
+    }
+  }, [userAddress, wallets]);
+
+  const promptText = buildPrompt({ wallet: userAddress, permit });
+  const expiresInMin = permit ? Math.max(0, Math.round((permit.expiresAtSec * 1000 - Date.now()) / 60000)) : 0;
+
   return (
     <div className="mx-auto max-w-3xl space-y-10">
       {/* Hero */}
@@ -186,22 +267,86 @@ export default function DocsPage() {
 
       <Section
         letter="B"
-        title="The onboarding prompt"
-        hint="Copy. Paste into your agent's chat. Replace the two placeholders at the bottom."
+        title="Mint your onboard token"
+        hint="One click to generate a scoped, single-use Fhenix permit (15-min TTL). Baked into the prompt below."
       >
-        <CodeBlock content={CANONICAL_PROMPT} language="text" />
-        <p className="mt-3 text-xs text-on-surface-variant">
-          What the agent will do, in order: clarify topic → search adjacent listings → propose
-          listing fields → request your approval → POST{' '}
-          <code className="font-mono text-primary">/v3/marketplace/seller/publish</code> → verify
-          via{' '}
-          <code className="font-mono text-primary">openx_agent_invoke</code> → return slug +
-          MCP invoke snippet.
-        </p>
+        <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-5">
+          {!ready ? (
+            <p className="text-sm text-on-surface-variant">Loading wallet…</p>
+          ) : !authenticated ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={login}
+                className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90"
+              >
+                Sign in to mint
+              </button>
+              <span className="text-xs text-on-surface-variant">
+                Sign-in is required so the permit is bound to your wallet on-chain.
+              </span>
+            </div>
+          ) : permit ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-on-surface">
+                <span className="material-symbols-outlined align-middle text-primary text-[16px]" aria-hidden>
+                  check_circle
+                </span>{' '}
+                Token minted · expires in <strong>{expiresInMin} min</strong> · single-use
+              </p>
+              <p className="text-xs text-on-surface-variant">
+                Wallet: <code className="font-mono">{permit.walletAddress}</code>
+              </p>
+              <button
+                type="button"
+                onClick={generate}
+                disabled={minting}
+                className="text-xs text-primary hover:underline disabled:opacity-50"
+              >
+                {minting ? 'Re-minting…' : 'Mint a fresh token'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={generate}
+                disabled={minting || !userAddress}
+                className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {minting ? 'Minting…' : 'Generate onboard token'}
+              </button>
+              <span className="text-xs text-on-surface-variant">
+                Requires one wallet signature. Token is single-use and expires in 15 min.
+              </span>
+            </div>
+          )}
+          {mintError && <p className="mt-3 text-xs text-error">⚠ {mintError}</p>}
+        </div>
       </Section>
 
       <Section
         letter="C"
+        title="The onboarding prompt"
+        hint={
+          permit
+            ? 'Live wallet + onboard token are baked in. Copy → paste into your agent → done.'
+            : 'Generate a token in Section B to bake live auth into the prompt.'
+        }
+      >
+        <CodeBlock content={promptText} language="text" />
+        <p className="mt-3 text-xs text-on-surface-variant">
+          What the agent will do, in order: clarify topic → search adjacent listings → propose
+          listing fields → request your approval → call{' '}
+          <code className="font-mono text-primary">openx_seller_publish</code> with{' '}
+          <code className="font-mono text-primary">x-fhenix-permit</code> auth → verify via{' '}
+          <code className="font-mono text-primary">openx_agent_invoke</code> → return slug + MCP
+          invoke snippet.
+        </p>
+      </Section>
+
+      <Section
+        letter="D"
         title="Verify the listing went live"
         hint="No agent needed for this — just curl."
       >
@@ -216,7 +361,7 @@ export default function DocsPage() {
       </Section>
 
       <Section
-        letter="D"
+        letter="E"
         title="Manual fallback"
         hint="Prefer to fill a form? Same backend, same atomic publish."
       >
@@ -239,7 +384,7 @@ export default function DocsPage() {
       </Section>
 
       <Section
-        letter="E"
+        letter="F"
         title="Privacy + tier reference"
         hint="Optional context. Skip unless you're attaching encrypted knowledge after publish."
       >
@@ -257,7 +402,7 @@ export default function DocsPage() {
           </p>
           <p>
             <strong className="text-on-surface">Trustless tier</strong> — Sui + Walrus + MemWal.
-            AES key Seal-IBE-wrapped against the brain's identity policy; ciphertext lives on
+            AES key Seal-IBE-wrapped against the brain&apos;s identity policy; ciphertext lives on
             Walrus; semantic recall via MemWal. Add knowledge at{' '}
             <Link href="/brain-sui/new" className="text-primary hover:underline">
               /brain-sui

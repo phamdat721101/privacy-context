@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { pool } from '../db';
+import { consumeOnboardJti } from '../fhe/permits';
 import { indexAgent } from './discoveryService';
 
 /**
@@ -308,7 +309,15 @@ function mcpInvokeSnippet(slug: string, agentId: string, apiBaseUrl: string): st
 export async function publish(
   walletAddress: string,
   input: SellerPublishInput,
-  opts?: { apiBaseUrl?: string },
+  opts?: {
+    apiBaseUrl?: string;
+    /** PRD-18 — when set, single-use jti is consumed atomically inside the
+     *  publish transaction. Conflict on jti ⇒ 409 (replay). */
+    permitJti?: string | null;
+    /** PRD-18 — issuance ceiling (epoch seconds). Defaults to now+15min when
+     *  the SDK didn't carry an explicit expiration on the permit blob. */
+    permitExpSec?: number;
+  },
 ): Promise<SellerPublishResult> {
   validate(input);
 
@@ -353,6 +362,15 @@ export async function publish(
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+
+    // §0 PRD-18 — single-use onboard permit consumption. Runs FIRST inside
+    // the transaction so a replay short-circuits before any writes. Skipped
+    // when no jti is supplied (legacy x-wallet-address path).
+    if (opts?.permitJti) {
+      const expSec = opts.permitExpSec ?? Math.floor(Date.now() / 1000) + 15 * 60;
+      const consumed = await consumeOnboardJti(client, opts.permitJti, owner, expSec);
+      if (!consumed.ok) throw httpErr('onboard token already used', 409);
+    }
 
     // §1 PRD-14 — find-or-create seller. Idempotent on UNIQUE(wallet_address).
     const sellerRes = await client.query(

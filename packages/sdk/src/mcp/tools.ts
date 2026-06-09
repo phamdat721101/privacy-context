@@ -329,6 +329,45 @@ export const TOOLS: ToolDef[] = [
       );
     },
   },
+  // openx_seller_publish — PRD-18. Atomic publish via the shipped
+  // /v3/marketplace/seller/publish endpoint, authenticated by a scoped
+  // single-use Fhenix onboard permit minted from /docs. Free (the listing
+  // bills per-call later via openx_agent_invoke). Replays of the same
+  // permit blob return HTTP 409.
+  {
+    name: 'openx_seller_publish',
+    description:
+      'Publish a new agent listing on OpenX using a scoped Fhenix onboard permit. ' +
+      'Mint the permit at /docs while logged in (15-min, single-use). Returns the ' +
+      'agent_id, slug, listing_url, and an MCP invoke snippet for the new listing.',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        listing: {
+          type: 'object',
+          description:
+            'SellerPublishInput — title, short_description, domain, persona_system_prompt, ' +
+            'pricing_amount_usdc, pricing_rails (default: ["x402"]), and optional fields.',
+        },
+        onboard_permit: {
+          type: 'string',
+          description:
+            'Serialized Fhenix permit (the value /docs prints into the canonical prompt). ' +
+            'Sent as x-fhenix-permit header. Single-use; valid 15 min.',
+        },
+      },
+      required: ['listing', 'onboard_permit'],
+    },
+    handler: async ({ openx, args }) => {
+      const permit = String(args.onboard_permit ?? '');
+      if (permit.length < 100) throw new Error('onboard_permit missing or too short');
+      const listing = (args.listing ?? {}) as Record<string, unknown>;
+      return openxApiFetch(openx, '/v3/marketplace/seller/publish', 'POST', listing, {
+        'x-fhenix-permit': permit,
+      });
+    },
+  },
 ];
 
 // Re-export MemoryId so MCP consumers don't need a second import.
@@ -385,6 +424,7 @@ async function openxApiFetch(
   path: string,
   method: 'GET' | 'POST',
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<unknown> {
   const apiUrl = (openx as unknown as { apiUrl?: string }).apiUrl ?? '';
   const wallet = (openx as unknown as { walletAddress?: string }).walletAddress;
@@ -392,6 +432,7 @@ async function openxApiFetch(
   const headers: Record<string, string> = {};
   if (wallet) headers['x-wallet-address'] = wallet;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (extraHeaders) Object.assign(headers, extraHeaders);
   const r = await fetch(url.toString(), {
     method,
     headers,

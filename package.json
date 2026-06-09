@@ -43,6 +43,7 @@
     "smoke:workflow-runner": "tsx scripts/smoke-workflow-runner.ts",
     "smoke:marketing-workflow": "tsx scripts/smoke-marketing-workflow.ts",
     "smoke:marketplace-seller-flow": "tsx scripts/smoke-marketplace-seller-flow.ts",
+    "smoke:permit-onboard": "tsx scripts/smoke-marketplace-seller-flow.ts",
     "smoke:marketplace-seller-first": "tsx scripts/smoke-marketplace-seller-first.ts",
     "backfill:agents-memwal": "tsx scripts/backfill-agents-to-memwal.ts",
     "smoke:walrus-memory-bridge": "tsx scripts/smoke-walrus-memory-bridge.ts",
