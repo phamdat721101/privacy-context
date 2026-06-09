@@ -34,6 +34,8 @@ export interface DiscoverInput {
   message: string;
   preferred_rail?: 'x402' | 'mpp' | 'sui_usdc';
   max_steps?: number;
+  /** PRD-15: when set, restrict the corpus to a single listing kind. */
+  kind?: 'api' | 'workflow' | 'skill' | 'brain';
 }
 
 export interface DiscoverResult {
@@ -65,6 +67,10 @@ interface AgentDoc {
    *  newly published seller-wizard listings without a corpus refresh. */
   domain?: string | null;
   short_description?: string | null;
+  /** PRD-15: listing kind. Drives concierge filter (`?kind=workflow`) so
+   *  the Marketplace tri-tab can route filter intent into the same code path. */
+  kind?: string | null;
+  workflow_ref?: string | null;
 }
 
 interface RankedRow {
@@ -85,6 +91,7 @@ const STOP = new Set([
 
 const MAX_CORPUS = 50;
 const CORPUS_TTL_MS = 60_000;
+const AGENT_INDEX_NAMESPACE = 'openx-agent-index';
 
 let corpusCache: { rows: AgentDoc[]; expiresAt: number } | null = null;
 
@@ -105,7 +112,9 @@ async function loadCorpus(): Promise<AgentDoc[]> {
             b.description AS brain_description,
             b.tags        AS brain_tags,
             a.domain,
-            a.short_description
+            a.short_description,
+            a.kind,
+            a.workflow_ref
        FROM agents a
   LEFT JOIN brains b ON b.id = a.brain_id
       WHERE a.published = true
@@ -115,6 +124,110 @@ async function loadCorpus(): Promise<AgentDoc[]> {
   corpusCache = { rows: r.rows as AgentDoc[], expiresAt: now + CORPUS_TTL_MS };
   return corpusCache.rows;
 }
+// ─── MemWal agent-index (PRD-17 §4) ───────────────────────────────────────
+// Single global namespace `openx-agent-index`. Each published agent is one
+// L1 memory record; the text body is the searchable corpus, prefixed with
+// `[id=<uuid>]` so recall hits can be hydrated from Postgres in a single
+// IN-list batch (Postgres stays the authoritative metadata store).
+//
+// SOLID:
+//   - SRP: two private helpers, one for write and one for read. Lazy
+//          singleton adapter; null when env not configured (dev path).
+//   - DIP: caller passes plain projections; this module owns the MemWal
+//          dependency edge.
+//   - OCP: adding a new search field = update IndexableAgent + indexText().
+
+import type { OpenXMemWalAdapter as MemWalAdapterT } from '@fhe-ai-context/sdk';
+
+let memwalAdapter: MemWalAdapterT | null | undefined;
+
+async function getAgentIndex(): Promise<MemWalAdapterT | null> {
+  if (memwalAdapter !== undefined) return memwalAdapter;
+  if (process.env.MEMWAL_PEERDEP_ENABLED !== 'true') {
+    memwalAdapter = null;
+    return null;
+  }
+  try {
+    const { OpenXMemWalAdapter } = await import('@fhe-ai-context/sdk');
+    memwalAdapter = await OpenXMemWalAdapter.create({
+      network: (process.env.MEMWAL_NETWORK ?? 'testnet') as 'testnet' | 'mainnet',
+      walletAddress: process.env.MEMWAL_OPERATOR_WALLET ?? '',
+      accountId: process.env.MEMWAL_OPERATOR_ACCOUNT_ID ?? '',
+      delegateKeys: (process.env.MEMWAL_OPERATOR_DELEGATE_KEYS ?? '')
+        .split(',').map((k) => k.trim()).filter(Boolean),
+      namespace: AGENT_INDEX_NAMESPACE,
+    });
+    return memwalAdapter;
+  } catch {
+    memwalAdapter = null;
+    return null;
+  }
+}
+
+export interface IndexableAgent {
+  agent_id: string;
+  slug: string;
+  title?: string | null;
+  short_description?: string | null;
+  domain?: string | null;
+  kind?: string | null;
+  tags?: string[] | null;
+  persona_system_prompt?: string | null;
+}
+
+function indexText(a: IndexableAgent): string {
+  const parts = [
+    a.title ?? '',
+    a.short_description ?? '',
+    a.persona_system_prompt ?? '',
+    (a.tags ?? []).join(' '),
+    a.domain ?? '',
+    a.kind ?? '',
+  ].filter(Boolean);
+  return `[id=${a.agent_id}] ${parts.join(' | ')}`;
+}
+
+const ID_PREFIX_RE = /^\[id=([0-9a-f-]+)\]/i;
+
+/** Best-effort write — never throws. Caller treats failure as a soft warning. */
+export async function indexAgent(a: IndexableAgent): Promise<void> {
+  try {
+    const adapter = await getAgentIndex();
+    if (!adapter) return;
+    await adapter.remember(indexText(a), AGENT_INDEX_NAMESPACE);
+  } catch {
+    /* swallow — DB row already committed; MemWal best-effort */
+  }
+}
+
+/** Recall + hydrate. Returns null when MemWal is disabled. */
+async function recallAgentsFromMemwal(query: string, limit: number): Promise<AgentDoc[] | null> {
+  const adapter = await getAgentIndex();
+  if (!adapter) return null;
+  try {
+    const r = await adapter.recall(query, { namespace: AGENT_INDEX_NAMESPACE, limit });
+    const ids = r.results
+      .map((h: { text: string }) => ID_PREFIX_RE.exec(h.text)?.[1])
+      .filter((x: string | undefined): x is string => Boolean(x));
+    if (ids.length === 0) return [];
+    const rows = await pool.query(
+      `SELECT a.id, a.brain_id, a.owner_address, a.chain, a.persona, a.pricing,
+              b.title       AS brain_title,
+              b.description AS brain_description,
+              b.tags        AS brain_tags,
+              a.domain, a.short_description, a.kind, a.workflow_ref
+         FROM agents a
+    LEFT JOIN brains b ON b.id = a.brain_id
+        WHERE a.id = ANY($1::uuid[]) AND a.published = true`,
+      [ids],
+    );
+    const byId = new Map(rows.rows.map((row: AgentDoc) => [row.id, row]));
+    return ids.map((id) => byId.get(id)).filter((x: AgentDoc | undefined): x is AgentDoc => Boolean(x));
+  } catch {
+    return null;
+  }
+}
+
 
 /** Public projection used as the search document. Buyers see the brain
  *  title/description first, so those have to be searchable. */
@@ -267,12 +380,24 @@ export async function discover(input: DiscoverInput, baseUrl: string): Promise<D
   const message = String(input.message ?? '').trim();
   if (!message) return { candidates: [], bundle: null };
 
-  const corpus = await loadCorpus();
+  // PRD-17 §4 — prefer MemWal-indexed corpus when available (single switch
+  // point: getCorpus). Falls back to the cached Postgres TF-IDF corpus when
+  // MemWal is disabled or returns nothing usable. Both paths produce the
+  // same `AgentDoc[]` shape so downstream ranking is unchanged.
+  const memwalHits = await recallAgentsFromMemwal(message, MAX_CORPUS);
+  const corpus = memwalHits && memwalHits.length > 0 ? memwalHits : await loadCorpus();
   if (corpus.length === 0) return { candidates: [], bundle: null };
 
-  let ranked = await rankWithLLM(message, corpus, max);
+  // PRD-15 — `kind` filter narrows the corpus before ranking. Empty after
+  // filter ⇒ no candidates rather than mis-ranked cross-kind matches.
+  const filtered = input.kind
+    ? corpus.filter((a) => (a.kind ?? 'api') === input.kind)
+    : corpus;
+  if (filtered.length === 0) return { candidates: [], bundle: null };
+
+  let ranked = await rankWithLLM(message, filtered, max);
   if (!ranked || ranked.length === 0) {
-    ranked = rankWithTfidf(message, corpus, max);
+    ranked = rankWithTfidf(message, filtered, max);
   }
   if (ranked.length === 0) return { candidates: [], bundle: null };
 
@@ -308,4 +433,64 @@ export async function discover(input: DiscoverInput, baseUrl: string): Promise<D
 /** Test-only — clear the in-memory corpus cache between runs. */
 export function __resetCorpusCacheForTests() {
   corpusCache = null;
+}
+
+/**
+ * searchAgents — keyword-only fast path. Used by /v3/agents/search.
+ * Reuses MemWal recall + Postgres fallback; no LLM, no bundle.
+ */
+export interface SearchAgentInput {
+  q: string;
+  limit?: number;
+  kind?: 'api' | 'workflow' | 'skill' | 'brain';
+}
+
+export interface SearchAgentResult {
+  candidates: Array<{
+    agent_id: string;
+    slug: string;
+    title: string;
+    short_description: string;
+    domain: string;
+    kind: string;
+    privacy_mode: string;
+    chain: string;
+    pricing: Record<string, string | null>;
+  }>;
+  source: 'memwal' | 'postgres';
+}
+
+export async function searchAgents(input: SearchAgentInput): Promise<SearchAgentResult> {
+  const q = String(input.q ?? '').trim();
+  const limit = Math.min(Math.max(Number(input.limit ?? 10), 1), 25);
+  if (!q) return { candidates: [], source: 'postgres' };
+
+  let rows: AgentDoc[] | null = await recallAgentsFromMemwal(q, limit);
+  let source: 'memwal' | 'postgres' = 'memwal';
+  if (!rows || rows.length === 0) {
+    const corpus = await loadCorpus();
+    const filtered = input.kind ? corpus.filter((a) => (a.kind ?? 'api') === input.kind) : corpus;
+    rows = rankWithTfidf(q, filtered, limit).map((r) => r.agent);
+    source = 'postgres';
+  } else if (input.kind) {
+    rows = rows.filter((a) => (a.kind ?? 'api') === input.kind);
+  }
+
+  const ids = rows.slice(0, limit).map((r) => r.id);
+  if (ids.length === 0) return { candidates: [], source };
+  const meta = await pool.query(
+    `SELECT a.id AS agent_id, a.slug, a.domain, a.kind, a.privacy_mode, a.chain, a.pricing,
+            a.short_description, b.title
+       FROM agents a
+       JOIN brains b ON b.id = a.brain_id
+      WHERE a.id = ANY($1::uuid[]) AND a.published = true`,
+    [ids],
+  );
+  const byId = new Map(meta.rows.map((row) => [row.agent_id, row]));
+  return {
+    candidates: ids
+      .map((id) => byId.get(id))
+      .filter((x): x is Record<string, unknown> => Boolean(x)) as SearchAgentResult['candidates'],
+    source,
+  };
 }

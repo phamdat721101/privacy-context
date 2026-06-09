@@ -85,6 +85,7 @@ step "Existing smokes (run locally with credentials):"
 cat <<EOF
    • smoke:auth                 (Standard tier — wallet + permit roundtrip)
    • smoke:marketplace-seller-flow  (publish → list → discover → 402 — needs live API+DB)
+   • smoke:marketplace-seller-first (v2 — multi-agent + workflow + privacy router; live API+DB)
    • smoke:chunks-auth          (Standard tier — encrypted chunk auth)
    • smoke:fhenix-onboard       (Standard tier — Fhenix CoFHE onboarding)
    • smoke:x402                 (multi-rail payment — Base testnet)

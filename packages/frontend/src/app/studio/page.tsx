@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
-import { listMyAgents, createAgent, type Agent } from '@/lib/agents';
+import { listMyAgents, type Agent } from '@/lib/agents';
 import { usePermit } from '@/hooks/usePermit';
 import { PermitManager } from '@/components/PermitManager';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
@@ -38,35 +38,46 @@ export default function StudioPage() {
   const hasPermit = onSui || !!permitState.serializedPermit;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userAddress) return;
     setLoading(true);
-    listMyAgents(userAddress)
-      .then(setAgents)
+    // Defensive joined view (PRD-17 §1c): show every agent the connected
+    // wallet owns — both v1 brains (via listMyAgents → /brains/mine) and
+    // v2 marketplace listings (via /v3/marketplace/seller/dashboard). The
+    // dashboard endpoint joins on `agents.seller_id`; the brain list joins
+    // on `brains.owner_address`. Together they catch every ownership path
+    // without an extra schema migration.
+    Promise.all([
+      listMyAgents(userAddress),
+      fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard`, {
+        headers: { 'x-wallet-address': userAddress },
+      })
+        .then((r) => (r.ok ? r.json() : { agents: [] }))
+        .catch(() => ({ agents: [] })),
+    ])
+      .then(([brainAgents, dash]) => {
+        // Dedupe: brain ids (number) vs agent uuids (string) live in
+        // different keyspaces, so we union directly with no collision.
+        // A v2-published listing exposes both a brain row and an agents
+        // row — listMyAgents already returns the brain side; we fold the
+        // v2-only fields (slug, kind, earnings) onto it where present.
+        const dashAgents = (dash?.agents ?? []) as Array<{
+          slug?: string;
+          kind?: string;
+          earned_total?: string;
+          calls_total?: number;
+        }>;
+        const dashBySlug = new Map(dashAgents.filter((a) => a.slug).map((a) => [a.slug as string, a]));
+        const merged = brainAgents.map((a) => {
+          const m = a.slug ? dashBySlug.get(a.slug) : undefined;
+          return m ? Object.assign({}, a, { _kind: m.kind, _earned: m.earned_total, _calls: m.calls_total }) : a;
+        });
+        setAgents(merged);
+      })
       .finally(() => setLoading(false));
   }, [userAddress]);
-
-  async function handleCreate() {
-    if (!userAddress || !newTitle.trim()) return;
-    setCreating(true);
-    setStatus(null);
-    try {
-      const agent = await createAgent(userAddress, newTitle.trim(), onSui ? 'sui' : 'evm');
-      if (agent) {
-        setAgents((prev) => [agent, ...prev]);
-        setNewTitle('');
-        setStatus(`✓ Created "${agent.title}"`);
-      } else {
-        setStatus('Failed to create agent');
-      }
-    } finally {
-      setCreating(false);
-    }
-  }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>, agentId: number) {
     const file = e.target.files?.[0];
@@ -116,11 +127,11 @@ export default function StudioPage() {
           </p>
         </div>
         <Link
-          href="/studio/publish"
+          href="/seller/onboard?return=/studio"
           className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-on-primary hover:opacity-90"
         >
           <span className="material-symbols-outlined text-[18px]">rocket_launch</span>
-          + New paid API
+          + New agent
         </Link>
       </div>
       <EarningsTile userAddress={userAddress} agents={agents} />
@@ -140,25 +151,26 @@ export default function StudioPage() {
         />
       ) : (
         <>
-          {/* Create new agent */}
-          <section className="space-y-4 rounded-xl border border-outline-variant/30 bg-surface p-6">
-        <h2 className="font-headline text-lg font-semibold">Create new agent</h2>
-        <div className="flex flex-col gap-3 md:flex-row">
-          <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="e.g. Solidity Security Mentor"
-            className="flex-1 rounded-full border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-on-surface placeholder:text-on-surface-variant focus:border-primary/60 focus:outline-none"
-          />
-          <button
-            onClick={handleCreate}
-            disabled={!newTitle.trim() || creating}
-            className="rounded-full bg-primary px-5 py-2.5 font-medium text-on-primary transition-colors hover:bg-primary/90 disabled:opacity-50"
-          >
-            {creating ? 'Creating…' : 'Create agent'}
-          </button>
-        </div>
-      </section>
+          {/* Create-new — unified with /seller/onboard (PRD-17 §1). The studio
+              listing below shows every agent the connected wallet owns, fed
+              by both `listMyAgents` (v1 brains) and the seller dashboard
+              (v2 marketplace listings). */}
+          <section className="rounded-xl border border-dashed border-outline-variant/30 bg-surface p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-headline text-lg font-semibold">Create a new agent</h2>
+                <p className="text-sm text-on-surface-variant">
+                  One human, many agents. Privacy auto-detects from your connected wallet.
+                </p>
+              </div>
+              <Link
+                href="/seller/onboard?return=/studio"
+                className="rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-on-primary hover:opacity-90"
+              >
+                Open the publish wizard →
+              </Link>
+            </div>
+          </section>
 
       {/* Agent list */}
       <section className="space-y-3">

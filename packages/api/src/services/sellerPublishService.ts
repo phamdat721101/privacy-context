@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { pool } from '../db';
+import { indexAgent } from './discoveryService';
 
 /**
  * sellerPublishService — atomic seller publish.
@@ -38,6 +39,42 @@ export type Chain =
   | 'sui-testnet'
   | 'sui-mainnet';
 
+/** Listing kind — PRD-15. v1 = api/brain; v2 adds workflow + skill. */
+export type Kind = 'api' | 'workflow' | 'skill' | 'brain';
+
+/** Privacy mode — PRD-16. Auto-detected from connected wallet network or
+ *  manually overridden in the wizard. */
+export type PrivacyModeStr = 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+export type PrivacySourceStr = 'auto' | 'manual';
+
+export interface SellerProfileInput {
+  display_name?: string;
+  bio?: string;
+  identity_type?: string;
+  identity_handle?: string;
+  contact_email?: string;
+  support_url?: string;
+}
+
+export interface PrivacyInput {
+  mode: PrivacyModeStr;
+  source: PrivacySourceStr;
+  /** Numeric EVM chain id or string Sui chain. Persisted as BIGINT for EVM. */
+  chain_id?: number | string;
+}
+
+/** Optional inline workflow definition for kind='workflow' publishes.
+ *  Stored in cognitive_workflows when present. */
+export interface WorkflowInput {
+  workflow_key: string;
+  name: string;
+  description?: string;
+  steps: unknown; // JSONB — array of step objects per workflowRunner.ts schema
+  default_price_usdc: string;
+  author_bps?: number;
+  platform_bps?: number;
+}
+
 export interface SellerPublishInput {
   title: string;
   short_description: string;
@@ -57,15 +94,28 @@ export interface SellerPublishInput {
    * stack — no new payment infra.
    */
   accept_private_payment?: boolean;
+  /** PRD-15: listing kind. Defaults to 'api'. */
+  kind?: Kind;
+  /** PRD-15: when kind='workflow', the cognitive_workflows row to upsert. */
+  workflow?: WorkflowInput;
+  /** PRD-14: optional seller profile to attach on first publish. */
+  seller_profile?: SellerProfileInput;
+  /** PRD-16: explicit privacy choice from the wizard. When omitted,
+   *  defaults to {mode:'fhe', source:'auto'} for back-compat. */
+  privacy?: PrivacyInput;
 }
 
 export interface SellerPublishResult {
   agent_id: string;
   brain_id: number;
+  seller_id: number;
   slug: string;
   domain: Domain;
+  kind: Kind;
   verification_tier: Tier;
   chain: Chain;
+  privacy_mode: PrivacyModeStr;
+  privacy_source: PrivacySourceStr;
   listing_url: string;
   /** Tier-aware deeplink to the post-publish knowledge upload page. */
   knowledge_url: string | null;
@@ -85,6 +135,10 @@ const DOMAINS: Domain[] = [
 const RAILS: Rail[] = ['x402', 'mpp', 'sui_usdc', 'fherc20'];
 
 const TIERS: Tier[] = ['basic', 'verified', 'tee_attested'];
+
+const KINDS: Kind[] = ['api', 'workflow', 'skill', 'brain'];
+const PRIVACY_MODES: PrivacyModeStr[] = ['fhe', 'seal_walrus', 'metadata-only', 'off'];
+const PRIVACY_SOURCES: PrivacySourceStr[] = ['auto', 'manual'];
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,40}$/;
 
@@ -159,19 +213,35 @@ function validate(input: SellerPublishInput): void {
   if (input.chain && !CHAINS.includes(input.chain)) {
     throw httpErr(`invalid chain (allowed: ${CHAINS.join(', ')})`, 400);
   }
+  const kind: Kind = input.kind ?? 'api';
+  if (!KINDS.includes(kind)) {
+    throw httpErr(`invalid kind (allowed: ${KINDS.join(', ')})`, 400);
+  }
+  if (kind === 'workflow' && !input.workflow) {
+    throw httpErr('kind=workflow requires a workflow object', 400);
+  }
+  if (input.privacy) {
+    if (!PRIVACY_MODES.includes(input.privacy.mode)) {
+      throw httpErr(`invalid privacy.mode (allowed: ${PRIVACY_MODES.join(', ')})`, 400);
+    }
+    if (!PRIVACY_SOURCES.includes(input.privacy.source)) {
+      throw httpErr(`invalid privacy.source (allowed: ${PRIVACY_SOURCES.join(', ')})`, 400);
+    }
+  }
 }
 
 /**
  * Render the canonical YAML manifest. Hash-stable (same input → same hash)
  * so re-publishing without changes produces an idempotent manifest_hash.
  *
- * v1 supports `type: agent` only; workflow + skill ship in v1.5.
+ * v2 supports `type: api | workflow | skill | brain`.
  */
 function renderManifest(
   input: SellerPublishInput,
   slug: string,
   owner: string,
   pricingRails: Rail[],
+  kind: Kind,
 ): string {
   const tier = input.verification_tier ?? 'basic';
   const tags = (input.tags ?? []).map((t) => `'${t.replace(/'/g, '')}'`).join(', ');
@@ -182,7 +252,7 @@ function renderManifest(
   return [
     `manifest_version: '1.0'`,
     `listing:`,
-    `  type: agent`,
+    `  type: ${kind}`,
     `  slug: ${slug}`,
     `  title: ${JSON.stringify(input.title)}`,
     `  short: ${JSON.stringify(input.short_description)}`,
@@ -248,6 +318,13 @@ export async function publish(
   const chain: Chain = input.chain ?? 'arbitrum-sepolia';
   const tags = input.tags ?? [];
   const apiBase = opts?.apiBaseUrl ?? '';
+  const kind: Kind = input.kind ?? 'api';
+
+  // PRD-16 — privacy defaults to {fhe, auto} for back-compat. The wizard
+  // always passes an explicit privacy block once FEATURE flag is on.
+  const privacy: PrivacyInput = input.privacy ?? { mode: 'fhe', source: 'auto' };
+  const connectedChainIdNum =
+    typeof privacy.chain_id === 'number' ? privacy.chain_id : null;
 
   // Build pricing JSONB. Every rail starts null; selected rails carry the
   // single price. fherc20 (Fhenix confidential-amount) is opt-in via the
@@ -268,64 +345,151 @@ export async function publish(
     tools: input.persona_tools ?? [],
   };
 
-  const manifestYaml = renderManifest(input, slug, owner, railsArr);
+  const manifestYaml = renderManifest(input, slug, owner, railsArr, kind);
   const manifestHash = createHash('sha256').update(manifestYaml).digest();
+
+  const workflowRef = kind === 'workflow' ? input.workflow!.workflow_key : null;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    // §1 PRD-14 — find-or-create seller. Idempotent on UNIQUE(wallet_address).
+    const sellerRes = await client.query(
+      `INSERT INTO sellers (wallet_address, display_name, bio,
+                            identity_type, identity_handle,
+                            contact_email, support_url, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
+       ON CONFLICT (wallet_address) DO UPDATE SET
+         display_name    = COALESCE(EXCLUDED.display_name,    sellers.display_name),
+         bio             = COALESCE(EXCLUDED.bio,             sellers.bio),
+         identity_type   = COALESCE(EXCLUDED.identity_type,   sellers.identity_type),
+         identity_handle = COALESCE(EXCLUDED.identity_handle, sellers.identity_handle),
+         contact_email   = COALESCE(EXCLUDED.contact_email,   sellers.contact_email),
+         support_url     = COALESCE(EXCLUDED.support_url,     sellers.support_url),
+         updated_at      = now()
+       RETURNING id`,
+      [
+        owner,
+        input.seller_profile?.display_name ?? owner,
+        input.seller_profile?.bio ?? null,
+        input.seller_profile?.identity_type ?? null,
+        input.seller_profile?.identity_handle ?? null,
+        input.seller_profile?.contact_email ?? null,
+        input.seller_profile?.support_url ?? null,
+      ],
+    );
+    const sellerId = sellerRes.rows[0].id as number;
+
+    // §2 PRD-15 — when kind='workflow', upsert cognitive_workflows row first
+    // so the FK target exists when agents.workflow_ref is written below.
+    // For Standard-tier (Fhenix) workflows the sui_object_id / signature
+    // fields take placeholder values derived from the manifest hash;
+    // Sui-tier workflows overwrite them via the existing /v3/workflows path.
+    if (kind === 'workflow' && input.workflow) {
+      const wf = input.workflow;
+      const manifestHashHex = manifestHash.toString('hex');
+      const placeholder = `manifest:${manifestHashHex.slice(0, 32)}`;
+      await client.query(
+        `INSERT INTO cognitive_workflows
+           (workflow_key, author_addr, sui_object_id, manifest_blob_id,
+            name, description, steps,
+            default_price_usdc, author_bps, platform_bps,
+            signer, signature, published)
+         VALUES ($1, $2, $3, $4,
+                 $5, $6, $7::jsonb,
+                 $8, $9, $10,
+                 $11, $12, true)
+         ON CONFLICT (author_addr, workflow_key) DO UPDATE SET
+           name               = EXCLUDED.name,
+           description        = EXCLUDED.description,
+           steps              = EXCLUDED.steps,
+           default_price_usdc = EXCLUDED.default_price_usdc,
+           author_bps         = EXCLUDED.author_bps,
+           platform_bps       = EXCLUDED.platform_bps,
+           published          = true`,
+        [
+          wf.workflow_key,
+          owner,
+          placeholder,
+          placeholder,
+          wf.name,
+          wf.description ?? '',
+          JSON.stringify(wf.steps),
+          wf.default_price_usdc,
+          wf.author_bps ?? 9500,
+          wf.platform_bps ?? 500,
+          owner,
+          `0x${manifestHashHex}`,
+        ],
+      );
+    }
+
+    // §3 brain INSERT (existing path; brain is the knowledge backstore for
+    // kind='brain'/'api' — for kind='workflow'/'skill' it's still created
+    // as a placeholder so existing chat/recall paths keep working).
     const brainRes = await client.query(
       `INSERT INTO brains (owner_address, title, description, tags, published, chain)
        VALUES ($1, $2, $3, $4, true, $5)
        RETURNING id`,
-      [
-        owner,
-        input.title,
-        input.long_description ?? input.short_description,
-        tags,
-        chain,
-      ],
+      [owner, input.title, input.long_description ?? input.short_description, tags, chain],
     );
     const brainId = brainRes.rows[0].id as number;
 
+    // §4 agents INSERT — extended with seller_id + kind + workflow_ref
+    // + privacy_mode/source/connected_chain_id (PRD-14 + PRD-15 + PRD-16).
     const agentRes = await client.query(
       `INSERT INTO agents (
          brain_id, owner_address, chain, persona, pricing,
          kya_required, min_reputation, published, slug,
-         domain, short_description, verification_tier, manifest_yaml, manifest_hash
+         domain, short_description, verification_tier, manifest_yaml, manifest_hash,
+         seller_id, kind, workflow_ref,
+         privacy_mode, privacy_source, connected_chain_id
        )
        VALUES (
          $1, $2, $3, $4::jsonb, $5::jsonb,
          false, 0, true, $6,
-         $7, $8, $9, $10, $11
+         $7, $8, $9, $10, $11,
+         $12, $13, $14,
+         $15, $16, $17
        )
        RETURNING id`,
       [
-        brainId,
-        owner,
-        chain,
-        JSON.stringify(persona),
-        JSON.stringify(pricing),
+        brainId, owner, chain, JSON.stringify(persona), JSON.stringify(pricing),
         slug,
-        input.domain,
-        input.short_description,
-        tier,
-        manifestYaml,
-        manifestHash,
+        input.domain, input.short_description, tier, manifestYaml, manifestHash,
+        sellerId, kind, workflowRef,
+        privacy.mode, privacy.source, connectedChainIdNum,
       ],
     );
     const agentId = agentRes.rows[0].id as string;
 
     await client.query('COMMIT');
 
+    // PRD-17 §4 — best-effort MemWal index. DB row is already persisted;
+    // index failure is logged inside indexAgent() and never blocks publish.
+    void indexAgent({
+      agent_id: agentId,
+      slug,
+      title: input.title,
+      short_description: input.short_description,
+      domain: input.domain,
+      kind,
+      tags: input.tags,
+      persona_system_prompt: input.persona_system_prompt,
+    });
+
     return {
       agent_id: agentId,
       brain_id: brainId,
+      seller_id: sellerId,
       slug,
       domain: input.domain,
+      kind,
       verification_tier: tier,
       chain,
+      privacy_mode: privacy.mode,
+      privacy_source: privacy.source,
       listing_url: `${apiBase}/agent/${slug}`,
       knowledge_url: knowledgeUrlFor(chain, brainId, apiBase),
       mcp_invoke_snippet: mcpInvokeSnippet(slug, agentId, apiBase),

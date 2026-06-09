@@ -4,7 +4,7 @@ import { registerLink, getLinkByEth, getLinkBySui, getCombinedReputation } from 
 import { paymentGate, PriceableRequest } from '../middleware/paymentGate';
 import { issueBundle, getBundle, verifyManifest } from '../services/bundleService';
 import { createTatumClient } from '../services/tatumClient';
-import { discover } from '../services/discoveryService';
+import { discover, searchAgents } from '../services/discoveryService';
 import { streamBundle } from '../services/hostedRunner';
 import { pool } from '../db';
 import { logger } from '../lib';
@@ -252,6 +252,26 @@ v3.get('/agents/top', async (req: Request, res: Response) => {
     [n, windowDays],
   );
   res.json({ agents: r.rows, window_days: windowDays });
+});
+
+// /v3/agents/search — keyword fast-path. PRD-17 §3. Public (whitelisted in
+// auth.ts). Reads MemWal `openx-agent-index` first; falls back to TF-IDF
+// over the cached Postgres corpus when MemWal is disabled. Must be
+// registered BEFORE the `/agents/:id` catch-all below or Express casts
+// the literal "search" as a UUID and the route never matches.
+v3.get('/agents/search', async (req: Request, res: Response) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  const limitN = Number(req.query.limit ?? 10);
+  const kindRaw = typeof req.query.kind === 'string' ? req.query.kind : undefined;
+  const allowedKinds = new Set(['api', 'workflow', 'skill', 'brain']);
+  const kind = kindRaw && allowedKinds.has(kindRaw)
+    ? (kindRaw as 'api' | 'workflow' | 'skill' | 'brain')
+    : undefined;
+  if (!q || q.trim().length === 0) {
+    return res.status(400).json({ error: 'q is required' });
+  }
+  const result = await searchAgents({ q, limit: limitN, kind });
+  res.json(result);
 });
 
 v3.get('/agents/:id', async (req: Request, res: Response) => {

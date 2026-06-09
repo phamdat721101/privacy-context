@@ -297,6 +297,38 @@ export const TOOLS: ToolDef[] = [
       });
     },
   },
+  // openx_workflow_run — PRD-15 §9. Invoke a workflow listing by slug.
+  // Pays via the existing x402/sui-usdc rails; returns the full execution
+  // receipt (per-step + total). Caller may set max_cost_usdc as a guard.
+  {
+    name: 'openx_workflow_run',
+    description:
+      'Run an OpenX workflow listing by slug. Pays via the agent wallet and returns the full execution receipt. Returns -32402 on first call; pay and retry.',
+    paid: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        slug: tStr,
+        input: { type: 'object' },
+        max_cost_usdc: tStr,
+      },
+      required: ['slug', 'input'],
+    },
+    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
+    handler: async ({ openx, args }) => {
+      const slug = String(args.slug ?? '').trim();
+      if (!slug) throw new Error('slug required');
+      const input = (args.input ?? {}) as Record<string, unknown>;
+      const max_cost_usdc =
+        typeof args.max_cost_usdc === 'string' ? args.max_cost_usdc : undefined;
+      return openxApiFetch(
+        openx,
+        `/v3/marketplace/workflows/${encodeURIComponent(slug)}/run`,
+        'POST',
+        { input, max_cost_usdc },
+      );
+    },
+  },
 ];
 
 // Re-export MemoryId so MCP consumers don't need a second import.

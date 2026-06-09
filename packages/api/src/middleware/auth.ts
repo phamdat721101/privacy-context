@@ -30,10 +30,25 @@ const PUBLIC_PATHS: RegExp[] = [
   // Read-only aggregation over `paid_calls`; called before any wallet has
   // connected, so it cannot require an x-wallet-address header.
   /^\/agents\/top$/,
+  // /v3/agents/search — keyword fast-path search (PRD-17). Public; reads
+  // MemWal openx-agent-index, falls back to Postgres TF-IDF.
+  /^\/agents\/search$/,
   // /v3/marketplace/listings — public catalog read; called from
   // /marketplace and the /seller/onboard success card before any wallet
   // has connected. Single indexed SELECT, no wallet context needed.
-  /^\/marketplace\/listings$/,
+  //
+  // The /marketplace prefix is optional here because Express runs the
+  // /v3 mount's auth pass BEFORE the /v3/marketplace mount's auth pass:
+  // first pass sees req.path = /marketplace/listings, second pass sees
+  // /listings. One regex covers both, same shape as the /memory rules
+  // a few lines below.
+  /^(?:\/marketplace)?\/listings$/,
+  // /v3/marketplace/workflows — public workflow listing catalog (PRD-15).
+  /^(?:\/marketplace)?\/workflows$/,
+  // /v3/marketplace/workflows/:slug — public workflow detail page.
+  /^(?:\/marketplace)?\/workflows\/[^/]+$/,
+  // /v3/marketplace/workflows/:slug/recent — anonymized last-N runs.
+  /^(?:\/marketplace)?\/workflows\/[^/]+\/recent$/,
   // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
   // rate limiter (in v3.ts) is the abuse defense here.
   /^\/agents\/[^/]+\/try$/,

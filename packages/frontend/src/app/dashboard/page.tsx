@@ -103,6 +103,9 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Seller rollup — only renders when the connected wallet has a sellers row. */}
+      {address ? <SellerSection walletAddress={address} /> : null}
+
       {/* Top counts — the headline numbers Frame F1 cares about. */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Brains" value={c.brains_published} hint="published" />
@@ -260,5 +263,130 @@ function StatCard({
       <div className="mt-1 font-headline text-2xl font-bold text-on-surface">{value}</div>
       {hint ? <div className="text-xs text-on-surface-variant">{hint}</div> : null}
     </div>
+  );
+}
+
+
+// ─── Seller rollup section (PRD-14 §7) ──────────────────────────────────
+// Renders only when the connected wallet has a `sellers` row. Hits
+// `/v3/marketplace/seller/dashboard` for rolled-up earnings + per-agent
+// table; CSV export downloads from `/v3/marketplace/seller/dashboard.csv`.
+
+interface SellerAgent {
+  id: string;
+  slug: string;
+  kind: 'api' | 'workflow' | 'skill' | 'brain';
+  domain: string;
+  verification_tier: 'basic' | 'verified' | 'tee_attested';
+  privacy_mode: 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+  created_at: string;
+  earned_total: string;
+  calls_total: number;
+}
+interface SellerEarnings {
+  last_7d: string;
+  last_30d: string;
+  all_time: string;
+  calls_7d: number;
+}
+interface SellerData {
+  seller_id?: number | null;
+  agents: SellerAgent[];
+  earnings: SellerEarnings | null;
+}
+
+function SellerSection({ walletAddress }: { walletAddress: string }) {
+  const [data, setData] = useState<SellerData | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard`, {
+      headers: { 'x-wallet-address': walletAddress },
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
+      .then((j) => !cancelled && setData(j as SellerData))
+      .catch((e) => !cancelled && setErr(String(e?.message ?? e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [walletAddress]);
+
+  if (err) return null;
+  if (!data || !data.seller_id || data.agents.length === 0) return null;
+
+  const e = data.earnings ?? { last_7d: '0', last_30d: '0', all_time: '0', calls_7d: 0 };
+  const csvUrl = `${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard.csv`;
+
+  return (
+    <section className="rounded-xl border border-[#00dbe9]/40 bg-[color-mix(in_oklab,_#00dbe9_4%,_transparent)] p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="material-symbols-outlined text-[18px] text-[#00dbe9]">storefront</span>
+        <h2 className="font-headline text-base font-semibold">Your seller dashboard</h2>
+        <span className="ml-auto rounded border border-[#00dbe9]/40 px-2 py-0.5 font-mono text-[10px] uppercase text-[#00dbe9]">
+          {data.agents.length} agents
+        </span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <StatCard label="Last 7 days" value={`$${Number(e.last_7d).toFixed(2)}`} hint={`${e.calls_7d} calls`} accent />
+        <StatCard label="Last 30 days" value={`$${Number(e.last_30d).toFixed(2)}`} hint="USDC earned" />
+        <StatCard label="All-time" value={`$${Number(e.all_time).toFixed(2)}`} hint="all rails" />
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded border border-outline-variant/30">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-surface-container-low font-mono uppercase tracking-wider text-on-surface-variant">
+            <tr>
+              <th className="px-3 py-1.5">Agent</th>
+              <th className="px-3 py-1.5">Kind</th>
+              <th className="px-3 py-1.5">Privacy</th>
+              <th className="px-3 py-1.5 text-right">Calls</th>
+              <th className="px-3 py-1.5 text-right">Earned</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.agents.map((a) => (
+              <tr key={a.id} className="border-t border-outline-variant/20 text-on-surface">
+                <td className="px-3 py-1.5 font-mono">{a.slug}</td>
+                <td className="px-3 py-1.5">{a.kind}</td>
+                <td className="px-3 py-1.5 font-mono text-[10px] text-on-surface-variant">{a.privacy_mode}</td>
+                <td className="px-3 py-1.5 text-right font-mono">{a.calls_total}</td>
+                <td className="px-3 py-1.5 text-right font-mono text-[#13ff43]">${Number(a.earned_total).toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              const r = await fetch(csvUrl, { headers: { 'x-wallet-address': walletAddress } });
+              if (!r.ok) throw new Error(`${r.status}`);
+              const blob = await r.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `seller-${data.seller_id}-audit.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            } catch (downloadErr) {
+              setErr(String((downloadErr as Error)?.message ?? downloadErr));
+            }
+          }}
+          className="rounded border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant"
+        >
+          Download CSV audit trail
+        </button>
+        <a
+          href="/seller/onboard"
+          className="rounded border border-[#00dbe9] px-3 py-1.5 text-xs text-[#00dbe9]"
+        >
+          + Spawn new agent
+        </a>
+      </div>
+    </section>
   );
 }

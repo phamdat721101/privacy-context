@@ -1,29 +1,40 @@
 'use client';
 
 /**
- * /seller/onboard — 3-step seller wizard (PRD-B).
+ * /seller/onboard — 5-step seller-first wizard (PRD-14 + 15 + 16).
  *
- * Single client component. Step 1 listing → Step 2 persona → Step 3 pricing
- * → atomic POST /v3/marketplace/seller/publish → success card with three
- * deeplinks (View listing, Add knowledge, Copy MCP snippet).
+ *   Step 1 · Listing core (title, short_description, domain, tags)
+ *   Step 2 · Seller profile (display_name, bio, identity, contact_email)
+ *   Step 3 · Privacy posture (auto-detected from connected network)
+ *   Step 4 · Sub-step picker — API · Workflow · Skill — each with its own form
+ *   Step 5 · Pricing + persona + Publish
+ *   →  Success card with "Spawn another agent" CTA (returns to Step 4 with
+ *      profile + privacy + listing pre-filled).
+ *
+ * Feature-flagged on the server side. When FEATURE_MARKETPLACE_V1_SELLER_FIRST
+ * is off, the publish endpoint accepts the v1 (kind=api, no privacy block)
+ * payload byte-identically — this wizard sends the v2 payload regardless,
+ * which the service tolerates via defaults.
  *
  * SOLID:
- *   - SRP: one component owns wizard state. Sub-components are inline
- *          functions for stepwise composition without inflating file count.
- *   - DIP: all state lives in this component; the API endpoint is the
- *          single dependency. Tests can swap fetch via msw if needed.
- *
- * Privacy: knowledge upload is intentionally NOT in this wizard. The
- * success card deeplinks to /brain (Fhenix tier) or /brain-sui/<id>
- * (Trustless tier) so the encrypt + on-chain key-wrap step is an explicit
- * post-publish gesture.
+ *  - SRP: this file owns the wizard state machine. Composers and badges
+ *    are imported; the page never reaches into their internals.
+ *  - DIP: the privacy detection algorithm comes from the SDK
+ *    (`detectPrivacyMode` via `useConnectedPrivacyMode`), not from this file.
  */
 
 import Link from 'next/link';
 import { useState } from 'react';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
+import { useConnectedPrivacyMode } from '@/hooks/useConnectedPrivacyMode';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
+import type { PrivacyMode } from '@fhe-ai-context/sdk';
+import {
+  WorkflowComposer,
+  type WorkflowDraft,
+} from './composers/WorkflowComposer';
+import { SkillComposer, type SkillDraft } from './composers/SkillComposer';
 
 const log = createLogger('seller-onboard');
 
@@ -46,23 +57,66 @@ const RAILS = [
 
 type RailId = (typeof RAILS)[number]['id'];
 
+const KINDS = [
+  {
+    id: 'api',
+    label: 'API listing',
+    desc: 'I have an HTTP API or want to wrap a third-party API as my own.',
+  },
+  {
+    id: 'workflow',
+    label: 'Workflow listing',
+    desc: 'A multi-step recipe — research → write → post → track — that composes existing tools.',
+  },
+  {
+    id: 'skill',
+    label: 'Skill listing',
+    desc: 'A single fast tool (ingest-URL, SEO-keywords) that other workflows compose.',
+  },
+] as const;
+
+type KindId = (typeof KINDS)[number]['id'];
+
 interface PublishResult {
   agent_id: string;
   brain_id: number;
+  seller_id: number;
   slug: string;
   domain: DomainId;
+  kind: KindId;
   verification_tier: 'basic' | 'verified' | 'tee_attested';
   chain: string;
+  privacy_mode: 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+  privacy_source: 'auto' | 'manual';
   listing_url: string;
   knowledge_url: string | null;
   mcp_invoke_snippet: string;
 }
 
+interface SellerProfile {
+  display_name: string;
+  bio: string;
+  contact_email: string;
+  support_url: string;
+  identity_handle: string;
+}
+
 interface FormState {
+  // Step 1 — listing core
   title: string;
   short_description: string;
   domain: DomainId;
   tags: string;
+  // Step 2 — seller profile
+  profile: SellerProfile;
+  // Step 3 — privacy override (undefined = auto-detect)
+  privacy_override: PrivacyMode | undefined;
+  // Step 4 — listing kind + per-kind drafts
+  kind: KindId;
+  workflow_draft: WorkflowDraft | null;
+  skill_draft: SkillDraft | null;
+  // Step 5 — pricing + persona (api/skill use these directly; workflow uses
+  // the composer's own pricing — these fields stay sane defaults).
   persona_system_prompt: string;
   persona_tools: string;
   pricing_amount_usdc: string;
@@ -75,12 +129,30 @@ const INITIAL: FormState = {
   short_description: '',
   domain: 'generalist',
   tags: '',
+  profile: { display_name: '', bio: '', contact_email: '', support_url: '', identity_handle: '' },
+  privacy_override: undefined,
+  kind: 'api',
+  workflow_draft: null,
+  skill_draft: null,
   persona_system_prompt: '',
   persona_tools: '',
   pricing_amount_usdc: '0.05',
   pricing_rails: ['x402'],
   accept_private_payment: false,
 };
+
+/**
+ * Read `?return=` from the current URL and validate it's an internal path.
+ * Returns null when missing, malformed, or attempting an open-redirect
+ * (anything not starting with a single `/`). PRD-17 §1b.
+ */
+function getInternalReturnPath(): string | null {
+  if (typeof window === 'undefined') return null;
+  const v = new URLSearchParams(window.location.search).get('return');
+  if (!v) return null;
+  if (!v.startsWith('/') || v.startsWith('//')) return null;
+  return v;
+}
 
 function isStepValid(s: number, f: FormState): boolean {
   if (s === 1) {
@@ -90,16 +162,26 @@ function isStepValid(s: number, f: FormState): boolean {
       DOMAINS.some((d) => d.id === f.domain)
     );
   }
-  if (s === 2) return f.persona_system_prompt.trim().length >= 10;
-  if (s === 3) {
+  if (s === 2) return f.profile.display_name.trim().length >= 2;
+  if (s === 3) return true; // privacy auto-detected; never blocks
+  if (s === 4) {
+    if (f.kind === 'api') return f.persona_system_prompt.trim().length >= 10;
+    if (f.kind === 'workflow') return (f.workflow_draft?.steps.length ?? 0) >= 1;
+    if (f.kind === 'skill') return (f.skill_draft?.persona_system_prompt.trim().length ?? 0) >= 10;
+  }
+  if (s === 5) {
     return Number(f.pricing_amount_usdc) > 0 && f.pricing_rails.length >= 1;
   }
   return false;
 }
 
+
+// ─── Main component ──────────────────────────────────────────────────────
+
 export default function SellerOnboardPage() {
   const wallet = useActiveWallet();
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const privacy = useConnectedPrivacyMode();
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
@@ -107,6 +189,9 @@ export default function SellerOnboardPage() {
 
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((s) => ({ ...s, [k]: v }));
+  }
+  function patchProfile(patch: Partial<SellerProfile>) {
+    setForm((s) => ({ ...s, profile: { ...s.profile, ...patch } }));
   }
   function toggleRail(r: RailId) {
     setForm((s) => ({
@@ -124,6 +209,24 @@ export default function SellerOnboardPage() {
     }
     setBusy(true);
     setErr(null);
+
+    // Build kind-specific publish payload. Skills/workflows reuse the same
+    // pricing+persona fields the API expects, populated from the composers
+    // when relevant.
+    const kind: KindId = form.kind;
+    const persona_system_prompt =
+      kind === 'skill' && form.skill_draft?.persona_system_prompt
+        ? form.skill_draft.persona_system_prompt
+        : form.persona_system_prompt;
+    const persona_tools =
+      kind === 'skill' && form.skill_draft?.persona_tools ? form.skill_draft.persona_tools : form.persona_tools;
+    const pricing_amount_usdc =
+      kind === 'workflow' && form.workflow_draft
+        ? form.workflow_draft.default_price_usdc
+        : kind === 'skill' && form.skill_draft
+          ? form.skill_draft.price_usdc
+          : form.pricing_amount_usdc;
+
     try {
       const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/publish`, {
         method: 'POST',
@@ -137,24 +240,46 @@ export default function SellerOnboardPage() {
             .map((t) => t.trim())
             .filter(Boolean)
             .slice(0, 10),
-          persona_system_prompt: form.persona_system_prompt.trim(),
-          persona_tools: form.persona_tools
+          persona_system_prompt: persona_system_prompt.trim() || form.title.trim(),
+          persona_tools: persona_tools
             .split(',')
             .map((t) => t.trim())
             .filter(Boolean)
             .slice(0, 10),
-          pricing_amount_usdc: form.pricing_amount_usdc,
+          pricing_amount_usdc,
           pricing_rails: form.pricing_rails,
           accept_private_payment: form.accept_private_payment,
+          kind,
+          workflow:
+            kind === 'workflow' && form.workflow_draft
+              ? {
+                  workflow_key: form.workflow_draft.workflow_key,
+                  name: form.workflow_draft.name || form.title.trim(),
+                  description: form.workflow_draft.description,
+                  steps: form.workflow_draft.steps,
+                  default_price_usdc: form.workflow_draft.default_price_usdc,
+                  author_bps: form.workflow_draft.author_bps,
+                  platform_bps: form.workflow_draft.platform_bps,
+                }
+              : undefined,
+          seller_profile: {
+            display_name: form.profile.display_name,
+            bio: form.profile.bio || undefined,
+            identity_handle: form.profile.identity_handle || undefined,
+            contact_email: form.profile.contact_email || undefined,
+            support_url: form.profile.support_url || undefined,
+          },
+          privacy: {
+            mode: privacy.detected.mode,
+            source: privacy.detected.source,
+            chain_id: privacy.chainId,
+          },
         }),
       });
       const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!r.ok) {
-        throw new Error((j?.error as string) ?? `HTTP ${r.status}`);
-      }
-      const typed = j as unknown as PublishResult;
-      setResult(typed);
-      log.info('publish:ok', { slug: typed.slug });
+      if (!r.ok) throw new Error((j?.error as string) ?? `HTTP ${r.status}`);
+      setResult(j as unknown as PublishResult);
+      log.info('publish:ok', { slug: (j as { slug?: string }).slug });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setErr(msg);
@@ -164,7 +289,21 @@ export default function SellerOnboardPage() {
     }
   }
 
-  if (result) return <SuccessCard result={result} />;
+  // "Spawn another" — keep profile + privacy + kind, reset listing fields.
+  function spawnAnother() {
+    setResult(null);
+    setForm((s) => ({
+      ...INITIAL,
+      profile: s.profile,
+      privacy_override: s.privacy_override,
+      kind: s.kind,
+    }));
+    setStep(1);
+  }
+
+  if (result) return <SuccessCard result={result} onSpawnAnother={spawnAnother} returnPath={getInternalReturnPath()} />;
+
+  const stepLabels = ['Listing', 'Profile', 'Privacy', 'Kind', 'Pricing'];
 
   return (
     <div className="mx-auto max-w-2xl space-y-7 py-6 md:py-10">
@@ -173,30 +312,31 @@ export default function SellerOnboardPage() {
           Sell on OpenX
         </span>
         <h1 className="font-headline text-3xl font-bold leading-tight md:text-4xl">
-          Publish your agent in 3 steps
+          Publish your agent in 5 steps
         </h1>
         <p className="text-sm text-on-surface-variant md:text-base">
-          Other agents pay you per query. Knowledge is encrypted in your browser; the platform
-          never sees the data.
+          One human, many agents. Privacy auto-routes from your connected wallet — Fhenix on EVM,
+          Seal + Walrus on Sui.
         </p>
       </header>
 
-      <ol role="list" className="flex gap-2 text-xs">
-        {[1, 2, 3].map((n) => {
+      <ol role="list" className="grid grid-cols-5 gap-2 text-xs">
+        {stepLabels.map((label, idx) => {
+          const n = idx + 1;
           const stateClass =
             step === n
               ? 'border-primary text-primary'
               : step > n
-              ? 'border-secondary/40 text-secondary'
-              : 'border-outline-variant/30 text-on-surface-variant';
+                ? 'border-secondary/40 text-secondary'
+                : 'border-outline-variant/30 text-on-surface-variant';
           return (
             <li
               key={n}
               aria-current={step === n ? 'step' : undefined}
-              className={`flex flex-1 items-center gap-2 rounded border px-3 py-2 ${stateClass}`}
+              className={`flex items-center gap-2 rounded border px-2 py-1.5 ${stateClass}`}
             >
               <span className="font-mono">{step > n ? '✓' : n}</span>
-              {n === 1 ? 'Listing' : n === 2 ? 'Persona' : 'Pricing'}
+              <span className="truncate">{label}</span>
             </li>
           );
         })}
@@ -206,11 +346,10 @@ export default function SellerOnboardPage() {
         onSubmit={(e) => {
           e.preventDefault();
           if (!isStepValid(step, form)) return;
-          if (step < 3) setStep((s) => (s + 1) as 1 | 2 | 3);
+          if (step < 5) setStep((s) => (s + 1) as 1 | 2 | 3 | 4 | 5);
           else submit();
         }}
         onKeyDown={(e) => {
-          // ⌘/Ctrl + Enter advances or submits.
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             (e.currentTarget.querySelector('button[type=submit]') as HTMLButtonElement | null)?.click();
@@ -219,8 +358,27 @@ export default function SellerOnboardPage() {
         className="space-y-5 rounded-xl border border-outline-variant/30 bg-surface p-5 md:p-6"
       >
         {step === 1 && <Step1 form={form} update={update} />}
-        {step === 2 && <Step2 form={form} update={update} />}
-        {step === 3 && <Step3 form={form} update={update} toggleRail={toggleRail} />}
+        {step === 2 && <Step2 profile={form.profile} patch={patchProfile} />}
+        {step === 3 && (
+          <Step3
+            tier={privacy.detected.tier}
+            reason={privacy.detected.reason}
+            override={form.privacy_override}
+            setOverride={(m) => {
+              update('privacy_override', m);
+              privacy.setOverride(m);
+            }}
+          />
+        )}
+        {step === 4 && (
+          <Step4
+            kind={form.kind}
+            setKind={(k) => update('kind', k)}
+            form={form}
+            update={update}
+          />
+        )}
+        {step === 5 && <Step5 form={form} update={update} toggleRail={toggleRail} />}
 
         {!wallet?.address && (
           <p role="alert" className="text-sm text-amber-500">
@@ -237,14 +395,14 @@ export default function SellerOnboardPage() {
           <button
             type="button"
             disabled={step === 1 || busy}
-            onClick={() => setStep((s) => (Math.max(1, s - 1) as 1 | 2 | 3))}
+            onClick={() => setStep((s) => Math.max(1, s - 1) as 1 | 2 | 3 | 4 | 5)}
             className="rounded border border-outline-variant/40 px-4 py-2 text-sm text-on-surface-variant disabled:opacity-50"
           >
             Back
           </button>
           <button
             type="submit"
-            disabled={!isStepValid(step, form) || busy || (step === 3 && !wallet?.address)}
+            disabled={!isStepValid(step, form) || busy || (step === 5 && !wallet?.address)}
             className="inline-flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy && (
@@ -252,7 +410,7 @@ export default function SellerOnboardPage() {
                 progress_activity
               </span>
             )}
-            {busy ? 'Publishing…' : step < 3 ? 'Next →' : 'Publish to marketplace'}
+            {busy ? 'Publishing…' : step < 5 ? 'Next →' : 'Publish to marketplace'}
           </button>
         </div>
       </form>
@@ -263,6 +421,7 @@ export default function SellerOnboardPage() {
     </div>
   );
 }
+
 
 // ─── Steps ───────────────────────────────────────────────────────────────
 
@@ -322,35 +481,59 @@ function Step1({
 }
 
 function Step2({
-  form,
-  update,
+  profile,
+  patch,
 }: {
-  form: FormState;
-  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+  profile: SellerProfile;
+  patch: (p: Partial<SellerProfile>) => void;
 }) {
   return (
     <>
-      <Field
-        label="System prompt"
-        hint="What this agent does, in 1–3 sentences. Buyers + concierge see this."
-      >
-        <textarea
-          value={form.persona_system_prompt}
-          onChange={(e) => update('persona_system_prompt', e.target.value)}
-          rows={6}
-          placeholder="You are a senior B2B SaaS analyst. Given a competitor URL, output a one-page brief with positioning, pricing, and content-gap analysis."
-          className="w-full resize-none rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 font-mono text-sm text-on-surface focus:border-primary/60 focus:outline-none"
+      <p className="text-xs text-on-surface-variant">
+        Your seller profile rolls up across every agent you spawn — earnings, KYA, payouts, support.
+        One profile, many agents.
+      </p>
+      <Field label="Display name" hint="2+ chars · public on every listing">
+        <input
+          value={profile.display_name}
+          onChange={(e) => patch({ display_name: e.target.value })}
+          placeholder="Acme Marketing Co · or your handle"
+          className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
           required
         />
       </Field>
-      <Field
-        label="Tools"
-        hint="comma-separated, optional · what this agent can call (e.g. web_search, fetch_url)"
-      >
+      <Field label="Bio" hint="optional · ≤500 chars">
+        <textarea
+          value={profile.bio}
+          onChange={(e) => patch({ bio: e.target.value })}
+          maxLength={500}
+          rows={2}
+          className="w-full resize-none rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
+        />
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Identity handle" hint="GitHub / Twitter / ENS">
+          <input
+            value={profile.identity_handle}
+            onChange={(e) => patch({ identity_handle: e.target.value })}
+            placeholder="@yourhandle"
+            className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
+          />
+        </Field>
+        <Field label="Contact email" hint="for fiat payout (Day-60+)">
+          <input
+            type="email"
+            value={profile.contact_email}
+            onChange={(e) => patch({ contact_email: e.target.value })}
+            className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
+          />
+        </Field>
+      </div>
+      <Field label="Support URL" hint="optional · linked from every listing">
         <input
-          value={form.persona_tools}
-          onChange={(e) => update('persona_tools', e.target.value)}
-          placeholder="web_search, fetch_url"
+          value={profile.support_url}
+          onChange={(e) => patch({ support_url: e.target.value })}
+          placeholder="https://example.com/support"
           className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
         />
       </Field>
@@ -359,6 +542,144 @@ function Step2({
 }
 
 function Step3({
+  tier,
+  reason,
+  override,
+  setOverride,
+}: {
+  tier: 'standard' | 'trustless';
+  reason: string;
+  override: PrivacyMode | undefined;
+  setOverride: (m: PrivacyMode | undefined) => void;
+}) {
+  const tierLabel =
+    tier === 'standard' ? 'Standard (Fhenix CoFHE)' : 'Trustless (Seal IBE + Walrus + MemWal)';
+  return (
+    <>
+      <div className="rounded border border-[#00dbe9]/40 bg-[color-mix(in_oklab,_#00dbe9_5%,_transparent)] p-3">
+        <p className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+          Auto-detected privacy posture
+        </p>
+        <p className="mt-1 text-sm font-semibold text-on-surface">{tierLabel}</p>
+        <p className="mt-0.5 font-mono text-[11px] text-on-surface-variant">{reason}</p>
+      </div>
+      <details className="rounded border border-outline-variant/30 bg-surface-container-low p-3">
+        <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+          Override (advanced)
+        </summary>
+        <div className="mt-2 space-y-1 text-sm text-on-surface">
+          {([
+            ['fhe', 'Standard — Fhenix CoFHE on Arbitrum'],
+            ['seal_walrus', 'Trustless — Seal IBE + Walrus + MemWal on Sui'],
+          ] as Array<[PrivacyMode, string]>).map(([mode, label]) => (
+            <label key={mode} className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="privacy-override"
+                checked={override === mode}
+                onChange={() => setOverride(mode)}
+              />
+              {label}
+            </label>
+          ))}
+          <button
+            type="button"
+            onClick={() => setOverride(undefined)}
+            className="font-mono text-[11px] text-on-surface-variant underline"
+          >
+            clear override
+          </button>
+        </div>
+      </details>
+    </>
+  );
+}
+
+function Step4({
+  kind,
+  setKind,
+  form,
+  update,
+}: {
+  kind: KindId;
+  setKind: (k: KindId) => void;
+  form: FormState;
+  update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
+}) {
+  return (
+    <>
+      <p className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+        Listing kind
+      </p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {KINDS.map((k) => {
+          const active = kind === k.id;
+          return (
+            <button
+              key={k.id}
+              type="button"
+              onClick={() => setKind(k.id)}
+              aria-pressed={active}
+              className={`rounded border p-3 text-left transition ${
+                active
+                  ? 'border-[#00dbe9] bg-[color-mix(in_oklab,_#00dbe9_5%,_transparent)]'
+                  : 'border-outline-variant/30 bg-surface-container-low hover:border-outline-variant/60'
+              }`}
+            >
+              <div className="text-sm font-semibold text-on-surface">{k.label}</div>
+              <div className="mt-0.5 text-xs text-on-surface-variant">{k.desc}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {kind === 'api' && (
+        <>
+          <Field
+            label="System prompt"
+            hint="What this agent does, in 1–3 sentences. Buyers + concierge see this."
+          >
+            <textarea
+              value={form.persona_system_prompt}
+              onChange={(e) => update('persona_system_prompt', e.target.value)}
+              rows={5}
+              placeholder="You are a senior B2B SaaS analyst. Given a competitor URL, output a one-page brief with positioning, pricing, and content-gap analysis."
+              className="w-full resize-none rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 font-mono text-sm text-on-surface focus:border-primary/60 focus:outline-none"
+              required
+            />
+          </Field>
+          <Field
+            label="Tools"
+            hint="comma-separated · what the agent can call (e.g. web_search, fetch_url)"
+          >
+            <input
+              value={form.persona_tools}
+              onChange={(e) => update('persona_tools', e.target.value)}
+              placeholder="web_search, fetch_url"
+              className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
+            />
+          </Field>
+        </>
+      )}
+
+      {kind === 'workflow' && (
+        <WorkflowComposer
+          value={form.workflow_draft}
+          onChange={(d) => update('workflow_draft', d)}
+        />
+      )}
+
+      {kind === 'skill' && (
+        <SkillComposer
+          value={form.skill_draft}
+          onChange={(d) => update('skill_draft', d)}
+        />
+      )}
+    </>
+  );
+}
+
+function Step5({
   form,
   update,
   toggleRail,
@@ -367,20 +688,38 @@ function Step3({
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   toggleRail: (r: RailId) => void;
 }) {
+  // For workflow/skill kinds, pricing came from the composer; show it as
+  // read-only here. API kind keeps the editable pricing input.
+  const fromComposer =
+    form.kind === 'workflow'
+      ? form.workflow_draft?.default_price_usdc
+      : form.kind === 'skill'
+        ? form.skill_draft?.price_usdc
+        : null;
+
   return (
     <>
-      <Field label="Price per call" hint="USDC, 0..1000">
-        <input
-          type="number"
-          step="0.01"
-          min="0.001"
-          max="1000"
-          value={form.pricing_amount_usdc}
-          onChange={(e) => update('pricing_amount_usdc', e.target.value)}
-          className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 font-mono text-on-surface focus:border-primary/60 focus:outline-none"
-          required
-        />
-      </Field>
+      {fromComposer ? (
+        <div className="rounded border border-outline-variant/30 bg-surface-container-low p-3 text-sm">
+          <p className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+            Listed price (from composer)
+          </p>
+          <p className="mt-1 font-mono text-base text-[#13ff43]">${fromComposer} USDC</p>
+        </div>
+      ) : (
+        <Field label="Price per call" hint="USDC, 0..1000">
+          <input
+            type="number"
+            step="0.01"
+            min="0.001"
+            max="1000"
+            value={form.pricing_amount_usdc}
+            onChange={(e) => update('pricing_amount_usdc', e.target.value)}
+            className="w-full rounded border border-outline-variant/40 bg-surface-container-low px-3 py-2 font-mono text-on-surface focus:border-primary/60 focus:outline-none"
+            required
+          />
+        </Field>
+      )}
       <Field label="Payment rails" hint="At least one">
         <div className="space-y-1.5">
           {RAILS.map((r) => (
@@ -407,10 +746,9 @@ function Step3({
             className="mt-1"
           />
           <span>
-            Accept <strong>confidential payment</strong> (Fhenix FHE) — buyers can pay with an
+            Accept <strong>confidential payment</strong> (Fhenix FHE) — buyers pay with an
             FHE-encrypted USDC amount via{' '}
-            <code className="font-mono text-xs">WrappedStablecoin.encryptedTransfer</code>. The
-            platform never sees the dollar amount.
+            <code className="font-mono text-xs">WrappedStablecoin.encryptedTransfer</code>.
           </span>
         </label>
       </details>
@@ -418,10 +756,19 @@ function Step3({
   );
 }
 
+
 // ─── Success card ────────────────────────────────────────────────────────
 
-function SuccessCard({ result }: { result: PublishResult }) {
-  const tierIsTrustless = result.chain.startsWith('sui');
+function SuccessCard({
+  result,
+  onSpawnAnother,
+  returnPath,
+}: {
+  result: PublishResult;
+  onSpawnAnother: () => void;
+  returnPath: string | null;
+}) {
+  const tierIsTrustless = result.privacy_mode === 'seal_walrus' || result.chain.startsWith('sui');
   return (
     <div className="mx-auto max-w-2xl space-y-6 py-8 md:py-12">
       <div className="rounded-xl border border-secondary/40 bg-secondary/5 p-6">
@@ -432,12 +779,20 @@ function SuccessCard({ result }: { result: PublishResult }) {
           <span className="font-headline text-lg font-bold">Live on the marketplace</span>
         </div>
         <p className="text-sm text-on-surface-variant">
-          Your agent <span className="font-mono text-primary">{result.slug}</span> is published.
-          Other agents can now invoke it via MCP or HTTP.
+          Your <span className="font-mono">{result.kind}</span> listing{' '}
+          <span className="font-mono text-primary">{result.slug}</span> is published. Privacy:{' '}
+          <span className="font-mono">
+            {result.privacy_mode} ({result.privacy_source})
+          </span>
+          .
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Link
-            href={`/agent/${result.brain_id}`}
+            href={
+              result.kind === 'workflow'
+                ? `/marketplace/workflow/${result.slug}`
+                : `/agent/${result.brain_id}`
+            }
             className="inline-flex items-center gap-1 rounded bg-primary px-4 py-2 text-sm text-on-primary"
           >
             <span className="material-symbols-outlined text-[16px]" aria-hidden>
@@ -456,18 +811,23 @@ function SuccessCard({ result }: { result: PublishResult }) {
               Add knowledge
             </Link>
           )}
+          <button
+            type="button"
+            onClick={onSpawnAnother}
+            className="inline-flex items-center gap-1 rounded border border-[#00dbe9] px-4 py-2 text-sm text-[#00dbe9]"
+          >
+            <span className="material-symbols-outlined text-[16px]" aria-hidden>
+              add
+            </span>
+            Spawn another agent
+          </button>
           <Link
-            href="/marketplace"
+            href={returnPath ?? '/dashboard'}
             className="inline-flex items-center gap-1 rounded border border-outline-variant/40 px-4 py-2 text-sm text-on-surface-variant"
           >
-            Browse marketplace
+            {returnPath ? `Back to ${returnPath}` : 'Go to dashboard'}
           </Link>
         </div>
-        <p className="mt-4 text-xs text-on-surface-variant">
-          {tierIsTrustless
-            ? 'Your agent currently answers using its persona only. To attach encrypted knowledge: Sui wallet → register MemWal namespace → upload. Knowledge lands on Walrus + MemWal — sovereign storage anyone can verify without OpenX.'
-            : 'Your agent currently answers using its persona only. To attach encrypted knowledge: sign a Fhenix permit (one-time, free) and upload. The platform never sees the plaintext.'}
-        </p>
       </div>
 
       <div className="rounded-xl border border-outline-variant/30 bg-surface p-5">

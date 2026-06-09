@@ -31,6 +31,7 @@ export * from './bundle/BundleRunner';
 export * from './billing/billingTypes';
 export * from './billing/encryptBilling';
 export * from './privacy/index';
+export * from './manifest/index';
 export * from './brain/types';
 export * from './brain/client';
 export * from './brain/encryption';
