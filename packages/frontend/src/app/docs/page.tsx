@@ -47,17 +47,18 @@ import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 
 function buildPrompt(args: { wallet?: string; permit?: OnboardPermit | null }): string {
   const wallet = args.wallet ?? '<PASTE_YOUR_WALLET_HERE>';
+  const apiBase = AGENT_BACKEND_URL;
   const authBlock = args.permit
     ? `Authentication (DO NOT MODIFY):
   - Header:  x-fhenix-permit: ${args.permit.serialized}
   - Wallet:  ${args.permit.walletAddress}
   - Expires: ${new Date(args.permit.expiresAtSec * 1000).toISOString()}  (single-use, 15 min)`
-    : `Authentication (sign in at https://api.openx.so/docs to mint a token):
+    : `Authentication (sign in at ${apiBase}/docs to mint a token):
   - Header:  x-fhenix-permit: <PASTE_ONBOARD_TOKEN_HERE>
   - Wallet:  ${wallet}`;
 
   return `You are helping me publish an AI agent listing on OpenX
-(https://api.openx.so), the AI agent marketplace with cognitive memory.
+(${apiBase}), the AI agent marketplace with cognitive memory.
 
 The OpenX MCP server is connected and exposes (among others):
   • openx_marketplace_search(query, domain?, max?) — free, returns
@@ -73,7 +74,7 @@ ${authBlock}
 Your task is to publish ONE new listing on my behalf. Prefer the MCP tool;
 fall back to direct HTTP only if the MCP server is unavailable:
 
-  POST https://api.openx.so/v3/marketplace/seller/publish
+  POST ${apiBase}/v3/marketplace/seller/publish
   Headers: { 'content-type': 'application/json',
              'x-fhenix-permit': '<value from the Authentication block>' }
 
@@ -142,11 +143,12 @@ const HOSTS: HostConfig[] = [
   {
     id: 'claude',
     label: 'Claude Desktop',
-    blurb: 'Add this to your Claude Desktop config (Settings → Developer → Edit Config).',
+    blurb:
+      'Add this to your Claude Desktop config (Settings → Developer → Edit Config). Quit and relaunch Claude Desktop afterwards so the openx_* tools appear.',
     config: `{
   "mcpServers": {
     "openx": {
-      "url": "https://api.openx.so/mcp"
+      "url": "${AGENT_BACKEND_URL}/mcp"
     }
   }
 }`,
@@ -159,7 +161,7 @@ const HOSTS: HostConfig[] = [
     config: `{
   "mcpServers": {
     "openx": {
-      "url": "https://api.openx.so/mcp"
+      "url": "${AGENT_BACKEND_URL}/mcp"
     }
   }
 }`,
@@ -170,18 +172,18 @@ const HOSTS: HostConfig[] = [
     blurb:
       "No MCP host? Hit the route directly. The agent's role here is to draft the JSON body; you POST it.",
     config: `# 1. Search adjacent listings (free)
-curl -X POST https://api.openx.so/v3/discover \\
+curl -X POST ${AGENT_BACKEND_URL}/v3/discover \\
   -H 'content-type: application/json' \\
   -d '{"message":"<your listing topic>","max_steps":5}'
 
 # 2. Publish (auth via the onboard permit you minted in Section B)
-curl -X POST https://api.openx.so/v3/marketplace/seller/publish \\
+curl -X POST ${AGENT_BACKEND_URL}/v3/marketplace/seller/publish \\
   -H 'content-type: application/json' \\
   -H 'x-fhenix-permit: <ONBOARD_PERMIT>' \\
   -d @listing.json
 
 # 3. Verify the 402 gate (proves listing is live + gated)
-curl -X POST https://api.openx.so/v3/agents/<agent_id>/chat \\
+curl -X POST ${AGENT_BACKEND_URL}/v3/agents/<agent_id>/chat \\
   -H 'content-type: application/json' \\
   -d '{"message":"ping"}'
 # → expect HTTP 402 with x-payment-info envelope`,
@@ -351,7 +353,7 @@ export default function DocsPage() {
         hint="No agent needed for this — just curl."
       >
         <CodeBlock
-          content={`curl "https://api.openx.so/v3/marketplace/listings?domain=<your_domain>&limit=5"`}
+          content={`curl "${AGENT_BACKEND_URL}/v3/marketplace/listings?domain=<your_domain>&limit=5"`}
           language="bash"
         />
         <p className="mt-3 text-xs text-on-surface-variant">
