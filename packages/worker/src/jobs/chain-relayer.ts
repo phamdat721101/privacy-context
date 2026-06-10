@@ -51,7 +51,18 @@ let _registry: ethers.Contract | null = null;
 let _lastAlertAt = 0;
 
 function getRelayerKey(): string | null {
-  return process.env.RELAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY || null;
+  // Fallback chain follows project convention:
+  //   1. RELAYER_PRIVATE_KEY  — explicit, for ops who want a dedicated wallet.
+  //   2. DEPLOYER_PRIVATE_KEY — already used by hardhat (`DEPLOYER_PRIVATE_KEY` in
+  //      packages/contracts/.env.example) so existing deploy infra works as-is.
+  //   3. PRIVATE_KEY          — the canonical platform-signer var used elsewhere
+  //      in this repo (api/fhe/client.ts, services/knowledge-ingest.ts, etc.).
+  return (
+    process.env.RELAYER_PRIVATE_KEY ||
+    process.env.DEPLOYER_PRIVATE_KEY ||
+    process.env.PRIVATE_KEY ||
+    null
+  );
 }
 
 function ensureSigner(): { provider: ethers.JsonRpcProvider; wallet: ethers.Wallet; registry: ethers.Contract } | null {

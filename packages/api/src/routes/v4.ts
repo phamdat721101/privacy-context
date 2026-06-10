@@ -238,7 +238,12 @@ async function collectRelayerStats() {
 
 async function buildRelayerStats() {
   const queue = await relayerStats(pool);
-  const key = process.env.RELAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
+  // Fallback chain mirrors packages/worker/src/jobs/chain-relayer.ts so the
+  // stats endpoint reports the same wallet the relayer actually uses.
+  const key =
+    process.env.RELAYER_PRIVATE_KEY ||
+    process.env.DEPLOYER_PRIVATE_KEY ||
+    process.env.PRIVATE_KEY;
   let address: string | null = null;
   let balanceEth = 0;
   if (key) {
