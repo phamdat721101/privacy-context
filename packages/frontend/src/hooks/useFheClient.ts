@@ -1,7 +1,7 @@
 'use client';
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { useWallets } from '@privy-io/react-auth';
 import { PermitUtils } from '@cofhe/sdk/permits';
+import { usePrivyEvmWallet } from './useActiveWallet';
 
 /**
  * useFheClient — singleton React hook wrapping @cofhe/sdk/web.
@@ -22,7 +22,7 @@ let _clientPromise: Promise<CofheClient> | null = null;
 let _client: CofheClient | null = null;
 
 export function useFheClient() {
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const [ready, setReady] = useState(!!_client);
   const [error, setError] = useState<string | null>(null);
   const initRef = useRef(false);
@@ -32,8 +32,8 @@ export function useFheClient() {
     if (_client) return _client;
     // Init in flight → join it instead of starting a second WASM load.
     if (_clientPromise) return _clientPromise;
-    // No wallet → caller should prompt sign-in; we don't auto-fail here.
-    if (!wallets[0]) return null;
+    // No EVM wallet → caller should prompt sign-in; we don't auto-fail here.
+    if (!evmWallet) return null;
     initRef.current = true;
 
     _clientPromise = (async () => {
@@ -47,8 +47,8 @@ export function useFheClient() {
         const config = createCofheConfig({ supportedChains: [chains.arbSepolia] });
         const client = createCofheClient(config);
 
-        const provider = await wallets[0].getEthereumProvider();
-        const account = wallets[0].address as `0x${string}`;
+        const provider = await evmWallet.getEthereumProvider();
+        const account = evmWallet.address as `0x${string}`;
         const publicClient = createPublicClient({ chain: arbitrumSepolia, transport: http() });
         const walletClient = createWalletClient({ account, chain: arbitrumSepolia, transport: custom(provider) });
 
@@ -64,13 +64,13 @@ export function useFheClient() {
     })();
 
     return _clientPromise;
-  }, [wallets]);
+  }, [evmWallet]);
 
   useEffect(() => {
-    if (wallets[0] && !_client && !initRef.current) {
+    if (evmWallet && !_client && !initRef.current) {
       init();
     }
-  }, [wallets, init]);
+  }, [evmWallet, init]);
 
   const ensurePermit = useCallback(async () => {
     const c = _client ?? (await _clientPromise);

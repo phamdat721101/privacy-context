@@ -23,8 +23,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePrivy, useWallets, type ConnectedWallet } from '@privy-io/react-auth';
+import { usePrivy, type ConnectedWallet } from '@privy-io/react-auth';
 import { useConnectWallet, useCurrentWallet, useWallets as useSuiWallets } from '@mysten/dapp-kit';
+import { usePrivyEvmWallet } from '@/hooks/useActiveWallet';
 import {
   SUPPORTED_NETWORKS,
   getNetworkById,
@@ -84,8 +85,7 @@ function classifyError(err: unknown): SwitchError {
 
 export function NetworkSwitcher() {
   const { authenticated, ready } = usePrivy();
-  const { wallets } = useWallets();
-  const evmWallet = wallets[0];
+  const evmWallet = usePrivyEvmWallet();
 
   // Sui dapp-kit hooks — present on every render but no-ops when no Sui
   // wallet extension is installed.

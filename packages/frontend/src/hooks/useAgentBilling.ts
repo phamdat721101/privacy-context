@@ -1,7 +1,6 @@
 'use client';
 import { useState } from 'react';
 import { useWriteContract, useReadContract, usePublicClient } from 'wagmi';
-import { useWallets } from '@privy-io/react-auth';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { encryptTopUp, encryptPayment, arbitrumSepolia } from '@fhe-ai-context/sdk';
@@ -10,6 +9,7 @@ import {
   PaymentTokenAbi, AgentBillingAbi,
 } from '@/lib/contracts';
 import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
+import { usePrivyEvmWallet } from './useActiveWallet';
 
 export function useBillingBalance(userAddress?: `0x${string}`, agentAddress?: `0x${string}`) {
   return useReadContract({
@@ -24,14 +24,15 @@ export function useBillingBalance(userAddress?: `0x${string}`, agentAddress?: `0
 export function useTopUpBilling() {
   const { writeContractAsync, isPending } = useWriteContract();
   const publicClient = usePublicClient();
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const [error, setError] = useState<string | null>(null);
 
   async function topUp(userAddress: `0x${string}`, agentAddress: `0x${string}`, amount: bigint) {
     setError(null);
     try {
-      const pw = wallets[0]; await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      if (!evmWallet) throw new Error('Wallet not connected');
+      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
 
       // 1. Approve billing contract to spend tokens

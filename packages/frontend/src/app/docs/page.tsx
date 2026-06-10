@@ -27,8 +27,8 @@
 
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
+import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress, usePrivyEvmWallet } from '@/hooks/useActiveWallet';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import {
@@ -194,9 +194,9 @@ curl -X POST ${AGENT_BACKEND_URL}/v3/agents/<agent_id>/chat \\
 // ─── Page ───────────────────────────────────────────────────────────────
 
 export default function DocsPage() {
-  const { authenticated, ready, user, login } = usePrivy();
-  const { wallets } = useWallets();
+  const { authenticated, ready, login } = usePrivy();
   const userAddress = usePrivyEvmAddress();
+  const evmWallet = usePrivyEvmWallet();
 
   const [permit, setPermit] = useState<OnboardPermit | null>(null);
   const [minting, setMinting] = useState(false);
@@ -210,16 +210,15 @@ export default function DocsPage() {
    * the platform-wallet-as-seller case Just Works.
    */
   const generate = useCallback(async () => {
-    if (!userAddress || !wallets.length) {
+    if (!userAddress || !evmWallet) {
       setMintError('Wallet not connected');
       return;
     }
     setMintError(null);
     setMinting(true);
     try {
-      const pw = wallets[0];
-      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const walletClient = createWalletClient({
         chain: viemArbitrumSepolia,
         transport: custom(provider),
@@ -238,7 +237,7 @@ export default function DocsPage() {
     } finally {
       setMinting(false);
     }
-  }, [userAddress, wallets]);
+  }, [userAddress, evmWallet]);
 
   const promptText = buildPrompt({ wallet: userAddress, permit });
   const expiresInMin = permit ? Math.max(0, Math.round((permit.expiresAtSec * 1000 - Date.now()) / 60000)) : 0;
@@ -338,7 +337,7 @@ export default function DocsPage() {
               <button
                 type="button"
                 onClick={generate}
-                disabled={minting || !userAddress}
+                disabled={minting || !userAddress || !evmWallet}
                 className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {minting ? 'Minting…' : 'Generate onboard token'}

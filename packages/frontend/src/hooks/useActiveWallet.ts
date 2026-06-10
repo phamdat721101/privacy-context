@@ -32,7 +32,7 @@
 
 import { useAccount } from 'wagmi';
 import { useCurrentAccount } from '@mysten/dapp-kit';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy, useWallets, type ConnectedWallet } from '@privy-io/react-auth';
 import { useNetwork } from './useNetwork';
 import { isSuiNetwork } from '@/lib/networks';
 
@@ -46,6 +46,26 @@ export interface ActiveWallet {
 }
 
 /**
+ * usePrivyEvmWallet — returns the user's currently-connected EVM
+ * `ConnectedWallet` from Privy, or `undefined` when no EVM wallet is
+ * active. The returned object exposes `.address`, `.switchChain()` and
+ * `.getEthereumProvider()` — everything a viem `WalletClient` needs.
+ *
+ * Why this exists: callers that need to *sign* (mint a permit, send a
+ * tx) used to do `useWallets()[0]` blindly. That breaks in two ways:
+ *   1. `wallets[0]` may be a *Solana* wallet, not the EVM one.
+ *   2. `wallets[]` is empty for the first few render cycles even when
+ *      a wallet is connected upstream via wagmi.
+ *
+ * Filtering by `type === 'ethereum'` resolves both. The hook is a thin
+ * primitive; SOLID-wise it owns "the EVM wallet object" exactly once.
+ */
+export function usePrivyEvmWallet(): ConnectedWallet | undefined {
+  const { wallets } = useWallets();
+  return wallets.find((w) => w.type === 'ethereum');
+}
+
+/**
  * usePrivyEvmAddress — single source of truth for "the user's EVM address,
  * regardless of how they signed in".
  *
@@ -53,7 +73,7 @@ export interface ActiveWallet {
  *   - `usePrivy().user.wallet.address` is populated only for *embedded*
  *     wallets (created when `createOnLogin: 'users-without-wallets'` fires).
  *   - `useWallets().wallets[]` lists every connected wallet — embedded or
- *     external (MetaMask, WalletConnect, Coinbase) — with `chainType` tags.
+ *     external (MetaMask, WalletConnect, Coinbase) — with a `type` field.
  *
  * Reading `user.wallet.address` alone is the bug pattern: users who signed
  * in via the `'wallet'` loginMethod see their nav pill render correctly
@@ -69,18 +89,13 @@ export interface ActiveWallet {
  *     for the EVM branch so the two hooks never diverge.
  */
 export function usePrivyEvmAddress(): `0x${string}` | undefined {
-  const { user } = usePrivy();
-  const { wallets } = useWallets();
-
-  // Prefer the actually-connected wallet (covers external wallets like
-  // MetaMask that don't populate `user.wallet`). On wallets[] entries the
-  // chain family lives on `type`; on `user.wallet` it's `chainType` —
-  // different Privy surfaces, same semantics.
-  const evmWallet = wallets.find((w) => w.type === 'ethereum');
+  const evmWallet = usePrivyEvmWallet();
   if (evmWallet?.address) return evmWallet.address as `0x${string}`;
 
-  // Fallback: Privy's session-level wallet, only when its chainType is EVM.
-  // Guards against a Solana embedded wallet leaking into the EVM branch.
+  // Fallback: Privy's session-level wallet, used only when wallets[]
+  // hasn't yet hydrated for an embedded-only session. Guards against a
+  // Solana embedded wallet leaking into the EVM branch.
+  const { user } = usePrivy();
   if (user?.wallet?.chainType === 'ethereum' && user.wallet.address) {
     return user.wallet.address as `0x${string}`;
   }

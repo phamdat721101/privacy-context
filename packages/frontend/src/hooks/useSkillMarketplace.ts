@@ -1,7 +1,6 @@
 'use client';
 import { useState } from 'react';
 import { useWriteContract, useReadContract, usePublicClient } from 'wagmi';
-import { useWallets } from '@privy-io/react-auth';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { encryptSkillListing, encryptSkillPurchase, arbitrumSepolia } from '@fhe-ai-context/sdk';
@@ -12,6 +11,7 @@ import {
   PAYMENT_TOKEN_ADDRESS, PaymentTokenAbi,
 } from '@/lib/contracts';
 import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
+import { usePrivyEvmWallet } from './useActiveWallet';
 
 export function useSkillCount() {
   return useReadContract({
@@ -44,15 +44,15 @@ export function useSaleCount(index: number) {
 export function useListSkill() {
   const { writeContractAsync, isPending } = useWriteContract();
   const publicClient = usePublicClient();
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const [error, setError] = useState<string | null>(null);
 
   async function listSkill(userAddress: `0x${string}`, basePriceUSDC: bigint, maxLicenses: number) {
     setError(null);
     try {
-      const pw = wallets[0];
-      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      if (!evmWallet) throw new Error('Wallet not connected');
+      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
 
       const inputs = await encryptSkillListing(
@@ -78,7 +78,7 @@ export function useListSkill() {
 export function usePurchaseSkill() {
   const { writeContractAsync, isPending } = useWriteContract();
   const publicClient = usePublicClient();
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const [error, setError] = useState<string | null>(null);
 
   async function purchaseSkill(
@@ -87,9 +87,9 @@ export function usePurchaseSkill() {
   ) {
     setError(null);
     try {
-      const pw = wallets[0];
-      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      if (!evmWallet) throw new Error('Wallet not connected');
+      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
 
       const inputs = await encryptSkillPurchase(

@@ -1,7 +1,6 @@
 'use client';
 import { useState } from 'react';
 import { useWriteContract, useReadContract, usePublicClient } from 'wagmi';
-import { useWallets } from '@privy-io/react-auth';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import { encryptInvoice, encryptPayment, encryptSubscription, arbitrumSepolia } from '@fhe-ai-context/sdk';
@@ -10,6 +9,7 @@ import {
   PaymentTokenAbi, PrivPayGatewayAbi,
 } from '@/lib/contracts';
 import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
+import { usePrivyEvmWallet } from './useActiveWallet';
 
 export function useTokenBalance(address?: `0x${string}`) {
   return useReadContract({
@@ -22,11 +22,11 @@ export function useTokenBalance(address?: `0x${string}`) {
 }
 
 function useWc(userAddress?: `0x${string}`) {
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   return async () => {
-    const pw = wallets[0];
-    await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-    const provider = await pw.getEthereumProvider();
+    if (!evmWallet) throw new Error('Wallet not connected');
+    await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+    const provider = await evmWallet.getEthereumProvider();
     return createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress! });
   };
 }
@@ -52,14 +52,15 @@ export function useMintTestTokens() {
 export function useApproveToken() {
   const { writeContractAsync, isPending } = useWriteContract();
   const publicClient = usePublicClient();
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const [error, setError] = useState<string | null>(null);
 
   async function approve(userAddress: `0x${string}`, spender: `0x${string}`, amount: bigint) {
     setError(null);
     try {
-      const pw = wallets[0]; await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      if (!evmWallet) throw new Error('Wallet not connected');
+      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const wc = createWalletClient({ chain: viemArbitrumSepolia, transport: custom(provider), account: userAddress });
       const enc = await encryptPayment({ amount }, arbitrumSepolia, wc);
       const hash = await writeContractAsync({

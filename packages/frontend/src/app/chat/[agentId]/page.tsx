@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
-import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
+import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress, usePrivyEvmWallet } from '@/hooks/useActiveWallet';
 import { BrowserProvider, Contract, parseUnits } from 'ethers';
 import { useChat } from '@/hooks/useChat';
 import { usePermit } from '@/hooks/usePermit';
@@ -22,7 +22,7 @@ export default function ChatAgentPage() {
   const params = useParams<{ agentId: string }>();
   const agentId = params?.agentId;
   const { authenticated, ready, user, login } = usePrivy();
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const userAddress = usePrivyEvmAddress();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [input, setInput] = useState('');
@@ -78,13 +78,12 @@ export default function ChatAgentPage() {
    * brain_access_requests row. Owner sees the row on /earnings and grants.
    */
   async function payAndAsk() {
-    if (!needsPayment?.payTo || !wallets[0] || !userAddress) return;
+    if (!needsPayment?.payTo || !evmWallet || !userAddress) return;
     setPaying(true);
     setPayError(null);
     try {
-      const pw = wallets[0];
-      await pw.switchChain(BASE_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      await evmWallet.switchChain(BASE_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const signer = await new BrowserProvider(provider).getSigner();
       const usdc = new Contract(USDC_BASE_SEPOLIA, ERC20_ABI, signer);
       const tx = await usdc.transfer(needsPayment.payTo, parseUnits(needsPayment.amountUsdc ?? '0.01', 6));

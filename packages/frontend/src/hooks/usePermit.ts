@@ -1,9 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { useWallets } from '@privy-io/react-auth';
 import { BrowserProvider, Contract } from 'ethers';
 import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
+import { usePrivyEvmWallet } from './useActiveWallet';
 import type { PermitState } from '@/types/context';
 
 const VAULT_ABI = [
@@ -28,7 +28,7 @@ export type PermitReason =
 const EMPTY: PermitState = { serializedPermit: null, permitId: null, expiresAt: null };
 
 export function usePermit(userAddress: `0x${string}` | undefined) {
-  const { wallets } = useWallets();
+  const evmWallet = usePrivyEvmWallet();
   const [permitState, setPermitState] = useState<PermitState>(EMPTY);
   const [reason, setReason] = useState<PermitReason | null>(null);
   const [loading, setLoading] = useState(false);
@@ -77,15 +77,14 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
   }, [userAddress, refresh]);
 
   async function authorize(platformWallet: `0x${string}`) {
-    if (!userAddress || !wallets.length) {
+    if (!userAddress || !evmWallet) {
       setError('Wallet not connected'); return;
     }
     setLoading(true);
     setError(null);
     try {
-      const pw = wallets[0];
-      await pw.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await pw.getEthereumProvider();
+      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
+      const provider = await evmWallet.getEthereumProvider();
       const ethersProvider = new BrowserProvider(provider);
       const signer = await ethersProvider.getSigner();
       const contract = new Contract(BRAIN_KEY_VAULT_ADDRESS, VAULT_ABI, signer);
@@ -116,11 +115,10 @@ export function usePermit(userAddress: `0x${string}` | undefined) {
   }
 
   async function revoke() {
-    if (!userAddress || !wallets.length) return;
+    if (!userAddress || !evmWallet) return;
     setLoading(true);
     try {
-      const pw = wallets[0];
-      const provider = await pw.getEthereumProvider();
+      const provider = await evmWallet.getEthereumProvider();
       const signer = await new BrowserProvider(provider).getSigner();
       const contract = new Contract(BRAIN_KEY_VAULT_ADDRESS, VAULT_ABI, signer);
       const platform = (await fetch(`${AGENT_BACKEND_URL}/platform`).then(r => r.json())).platformWallet;
