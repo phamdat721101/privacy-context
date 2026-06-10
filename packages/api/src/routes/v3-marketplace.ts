@@ -207,6 +207,43 @@ router.post('/seller/publish', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// ─── PRD-19 — gasless on-chain registration status (public read) ───────────
+//
+// Frontend dashboard polls this every 5s after a publish to flip the
+// "Live on-chain" badge. Public-by-default: returns only state + the
+// transaction hash + the registry brain id, all of which are already
+// queryable directly on Arbitrum Sepolia. No private data leaks.
+//
+// Returns {state:'none'} when no queue row exists (gasless flag was off
+// at publish time) so the frontend can render "off-chain only" without
+// a special 404 path.
+router.get('/seller/agent/:id/onchain-status', async (req: Request, res: Response) => {
+  const agentId = String(req.params.id ?? '');
+  // UUID-v4 shape check — cheap, prevents SQL probing.
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId)) {
+    return res.status(400).json({ error: 'invalid agent id' });
+  }
+  const r = await pool.query(
+    `SELECT state, tx_hash, on_chain_brain_id, attempts, last_error
+       FROM chain_ops_queue
+      WHERE agent_id = $1
+      ORDER BY id DESC
+      LIMIT 1`,
+    [agentId],
+  );
+  if (r.rowCount === 0) {
+    return res.json({ state: 'none', tx_hash: null, on_chain_brain_id: null, attempts: 0, error: null });
+  }
+  const row = r.rows[0];
+  res.json({
+    state: row.state,
+    tx_hash: row.tx_hash,
+    on_chain_brain_id: row.on_chain_brain_id !== null ? Number(row.on_chain_brain_id) : null,
+    attempts: Number(row.attempts),
+    error: row.last_error,
+  });
+});
+
 router.get('/seller/me', async (req: AuthRequest, res: Response) => {
   if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
   const owner = req.user.address.toLowerCase();

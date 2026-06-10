@@ -24,7 +24,7 @@
  */
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 import { useConnectedPrivacyMode } from '@/hooks/useConnectedPrivacyMode';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
@@ -394,7 +394,20 @@ export default function SellerOnboardPage() {
 
         {!wallet?.address && (
           <p role="alert" className="text-sm text-amber-500">
-            Connect a wallet to enable publish. The wizard works without it; submission needs auth.
+            Sign in to publish. Your account is secured automatically — no wallet, gas, or seed
+            phrase needed.
+          </p>
+        )}
+        {wallet?.address && (
+          <p className="flex items-center gap-2 text-xs text-secondary">
+            <span className="material-symbols-outlined text-[14px]" aria-hidden>
+              verified_user
+            </span>
+            <span>Account secured</span>
+            <details className="ml-auto cursor-pointer text-on-surface-variant">
+              <summary className="text-[11px] hover:text-on-surface">Advanced</summary>
+              <div className="mt-1 font-mono text-[11px]">{wallet.address}</div>
+            </details>
           </p>
         )}
         {err && (
@@ -771,6 +784,105 @@ function Step5({
 
 // ─── Success card ────────────────────────────────────────────────────────
 
+/**
+ * OnchainBadge — PRD-19. Polls /v3/marketplace/seller/agent/:id/onchain-status
+ * every 5s after a successful publish. Hidden when the seller-publish flow
+ * didn't enqueue an op (gasless flag off or non-EVM chain) so non-EVM
+ * sellers don't see a perpetual ⏳.
+ */
+function OnchainBadge({ agentId }: { agentId: string }) {
+  const [state, setState] = useState<{
+    state: 'none' | 'pending' | 'claimed' | 'confirmed' | 'failed';
+    tx_hash: string | null;
+    on_chain_brain_id: number | null;
+  } | null>(null);
+
+  // Poll every 5s until terminal (confirmed/failed/none); stop on unmount.
+  useEffectPoll(
+    async () => {
+      try {
+        const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/agent/${agentId}/onchain-status`);
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          state: 'none' | 'pending' | 'claimed' | 'confirmed' | 'failed';
+          tx_hash: string | null;
+          on_chain_brain_id: number | null;
+        };
+        setState(j);
+        return j.state === 'confirmed' || j.state === 'failed' || j.state === 'none';
+      } catch {
+        return false;
+      }
+    },
+    5_000,
+    [agentId],
+  );
+
+  if (!state || state.state === 'none') return null;
+
+  if (state.state === 'confirmed' && state.tx_hash) {
+    const explorer = `https://sepolia.arbiscan.io/tx/${state.tx_hash}`;
+    return (
+      <p className="mt-3 flex items-center gap-2 text-xs text-secondary">
+        <span className="material-symbols-outlined text-[14px]" aria-hidden>
+          verified
+        </span>
+        <span>
+          Live on-chain · brain #{state.on_chain_brain_id} ·{' '}
+          <a href={explorer} target="_blank" rel="noreferrer" className="underline">
+            view on Arbiscan
+          </a>
+        </span>
+      </p>
+    );
+  }
+
+  if (state.state === 'failed') {
+    return (
+      <p className="mt-3 flex items-center gap-2 text-xs text-amber-500">
+        <span className="material-symbols-outlined text-[14px]" aria-hidden>
+          schedule
+        </span>
+        <span>On-chain registration deferred — we&rsquo;ll retry. Listing is live off-chain.</span>
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-3 flex items-center gap-2 text-xs text-on-surface-variant">
+      <span className="material-symbols-outlined animate-spin text-[14px]" aria-hidden>
+        progress_activity
+      </span>
+      <span>Live on-chain in ~30s…</span>
+    </p>
+  );
+}
+
+/**
+ * Tiny effect-poll helper, inlined to avoid a new file. SRP: poll a fn
+ * until it returns true, then stop. Cleans up on unmount.
+ */
+function useEffectPoll(
+  fn: () => Promise<boolean | void>,
+  intervalMs: number,
+  deps: React.DependencyList,
+): void {
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      const done = await fn();
+      if (done === true) return;
+      if (!stop) setTimeout(tick, intervalMs);
+    };
+    void tick();
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
 function SuccessCard({
   result,
   onSpawnAnother,
@@ -798,6 +910,7 @@ function SuccessCard({
           </span>
           .
         </p>
+        <OnchainBadge agentId={result.agent_id} />
         <div className="mt-4 flex flex-wrap gap-3">
           <Link
             href={

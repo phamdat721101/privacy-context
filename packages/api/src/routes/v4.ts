@@ -24,6 +24,7 @@ import * as ledger from '../services/paidCallLedger';
 import { logger } from '../lib';
 import { refreshKpiGauges } from '../lib/observability';
 import { pool } from '../db';
+import { relayerStats } from '../services/chainOpsQueue';
 import type { AuthRequest } from '../middleware/auth';
 
 // Local ABI fragments — inlined to avoid a workspace cross-package dep just for
@@ -209,16 +210,56 @@ v4.get('/admin/stats', async (req: Request, res: Response) => {
 
   try {
     const values = await refreshKpiGauges(pool);
+    const relayer = await collectRelayerStats();
     res.json({
       generated_at: new Date().toISOString(),
       feature_fhe_pay: process.env.FEATURE_FHE_PAY === 'true',
+      feature_gasless_onboard: process.env.FEATURE_GASLESS_ONBOARD === 'true',
       free_preview_limit: ledger.FREE_PREVIEW_LIMIT,
       metrics: values,
+      relayer,
     });
   } catch (e) {
     logger.warn({ err: (e as Error).message }, 'v4:admin:stats:failed');
     res.status(503).json({ error: 'kpi_refresh_failed' });
   }
 });
+
+// PRD-19 — relayer health snapshot. Cached 60s so a tight admin-poll
+// loop doesn't hammer the RPC. Returns balance in ETH + queue depth +
+// failure counters + p50 confirmation latency.
+let _relayerCache: { ts: number; data: Awaited<ReturnType<typeof buildRelayerStats>> } | null = null;
+async function collectRelayerStats() {
+  if (_relayerCache && Date.now() - _relayerCache.ts < 60_000) return _relayerCache.data;
+  const data = await buildRelayerStats();
+  _relayerCache = { ts: Date.now(), data };
+  return data;
+}
+
+async function buildRelayerStats() {
+  const queue = await relayerStats(pool);
+  const key = process.env.RELAYER_PRIVATE_KEY || process.env.DEPLOYER_PRIVATE_KEY;
+  let address: string | null = null;
+  let balanceEth = 0;
+  if (key) {
+    try {
+      const wallet = new ethers.Wallet(key);
+      address = wallet.address;
+      const bal = await getProvider().getBalance(address);
+      balanceEth = Number(ethers.formatEther(bal));
+    } catch {
+      /* leave address/balanceEth at defaults */
+    }
+  }
+  return {
+    address,
+    balance_eth: balanceEth,
+    balance_low: balanceEth > 0 && balanceEth < 0.005,
+    pending: queue.pending,
+    claimed: queue.claimed,
+    failed_24h: queue.failed_24h,
+    p50_latency_sec: queue.p50_latency_sec,
+  };
+}
 
 export default v4;

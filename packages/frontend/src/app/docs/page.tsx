@@ -259,6 +259,30 @@ export default function DocsPage() {
         </p>
       </header>
 
+      {/* PRD-19 — non-crypto sign-in callout (sits above the MCP path so
+          first-time visitors see the wallet-free option first). */}
+      <div className="rounded-xl border border-secondary/30 bg-secondary/5 p-5">
+        <div className="mb-2 flex items-center gap-2 text-secondary">
+          <span className="material-symbols-outlined" aria-hidden>
+            mail
+          </span>
+          <span className="font-headline text-base font-bold">No crypto wallet? Use email.</span>
+        </div>
+        <p className="text-sm text-on-surface-variant">
+          Sign in with email or Google — your account is secured automatically and the platform
+          covers gas on Arbitrum Sepolia. No seed phrase, no faucet, no network switch.
+        </p>
+        <Link
+          href="/seller/onboard"
+          className="mt-3 inline-flex items-center gap-1 rounded bg-secondary px-3 py-1.5 text-xs text-on-secondary"
+        >
+          <span className="material-symbols-outlined text-[14px]" aria-hidden>
+            arrow_forward
+          </span>
+          Open the wallet-free wizard
+        </Link>
+      </div>
+
       <Section
         letter="A"
         title="Connect the OpenX MCP server"

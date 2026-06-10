@@ -81,9 +81,15 @@ app.use("/v3/marketplace", auth, agentKya, v3MarketplaceRouter);
 
 // v4 API — private-payment surface (T5/PRD-B). Flag-gated for byte-identical
 // rollback. Off → 404; on → /v4/billing/* + /v4/settlement/* + /v4/admin/stats.
-if (process.env.FEATURE_FHE_PAY === 'true') {
+if (process.env.FEATURE_FHE_PAY === 'true' || process.env.FEATURE_GASLESS_ONBOARD === 'true') {
   app.use('/v4', auth, v4Router);
-  logger.info({ flag: 'FEATURE_FHE_PAY' }, 'v4:mounted');
+  logger.info(
+    {
+      fhe_pay: process.env.FEATURE_FHE_PAY === 'true',
+      gasless_onboard: process.env.FEATURE_GASLESS_ONBOARD === 'true',
+    },
+    'v4:mounted',
+  );
 }
 
 // /api/v1 — PUBLIC, x402-paywalled brain endpoints. NO parent auth — the

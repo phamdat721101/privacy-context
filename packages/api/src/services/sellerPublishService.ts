@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { pool } from '../db';
 import { consumeOnboardJti } from '../fhe/permits';
+import { enqueueCreateBrain } from './chainOpsQueue';
 import { indexAgent } from './discoveryService';
 
 /**
@@ -481,6 +482,26 @@ export async function publish(
       ],
     );
     const agentId = agentRes.rows[0].id as string;
+
+    // §5 PRD-19 — gasless on-chain registration. Enqueue a `create_brain`
+    // op for the chain-relayer worker to drain. Gated by feature flag +
+    // privacy_mode='fhe' + EVM-side chain so we only touch chain when a
+    // registry is actually deployed. The enqueue runs INSIDE the publish
+    // TX so it commits atomically with brain/agent INSERTs and the jti
+    // consume — there is no window where a row exists in agents without
+    // a matching queue row (or vice-versa).
+    if (
+      process.env.FEATURE_GASLESS_ONBOARD === 'true' &&
+      privacy.mode === 'fhe' &&
+      (chain === 'arbitrum-sepolia' || chain === 'fhenix' || chain === 'base-sepolia')
+    ) {
+      await enqueueCreateBrain(client, {
+        agentId,
+        sellerAddress: owner,
+        chain,
+        brainId,
+      });
+    }
 
     await client.query('COMMIT');
 

@@ -49,6 +49,11 @@ const PUBLIC_PATHS: RegExp[] = [
   // /listings. One regex covers both, same shape as the /memory rules
   // a few lines below.
   /^(?:\/marketplace)?\/listings$/,
+  // /v3/marketplace/seller/agent/:id/onchain-status (PRD-19) — read-only
+  // status of the gasless on-chain registration. The frontend dashboard
+  // polls this every 5s; both the tx hash and the brain id are already
+  // public on Arbitrum Sepolia, so no auth context is required.
+  /^(?:\/marketplace)?\/seller\/agent\/[^/]+\/onchain-status$/,
   // /v3/marketplace/workflows — public workflow listing catalog (PRD-15).
   /^(?:\/marketplace)?\/workflows$/,
   // /v3/marketplace/workflows/:slug — public workflow detail page.
