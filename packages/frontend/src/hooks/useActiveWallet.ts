@@ -89,13 +89,17 @@ export function usePrivyEvmWallet(): ConnectedWallet | undefined {
  *     for the EVM branch so the two hooks never diverge.
  */
 export function usePrivyEvmAddress(): `0x${string}` | undefined {
+  // All hooks must be called unconditionally on every render — Rules of
+  // Hooks. Putting `usePrivy()` after an early-return crashes the whole
+  // app the moment the early-return path stops firing.
   const evmWallet = usePrivyEvmWallet();
+  const { user } = usePrivy();
+
   if (evmWallet?.address) return evmWallet.address as `0x${string}`;
 
   // Fallback: Privy's session-level wallet, used only when wallets[]
   // hasn't yet hydrated for an embedded-only session. Guards against a
   // Solana embedded wallet leaking into the EVM branch.
-  const { user } = usePrivy();
   if (user?.wallet?.chainType === 'ethereum' && user.wallet.address) {
     return user.wallet.address as `0x${string}`;
   }
