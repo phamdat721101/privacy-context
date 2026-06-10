@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { useCurrentAccount } from '@mysten/dapp-kit';
 import { usePermit } from '@/hooks/usePermit';
 import { usePrivacyDisclosure } from '@/hooks/useEncryptedBalance';
@@ -34,7 +35,7 @@ const CONTRACTS = [
  */
 export default function SettingsPage() {
   const { authenticated, ready, user, login, logout } = usePrivy();
-  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+  const userAddress = usePrivyEvmAddress();
   const { permitState, reason, authorize, revoke, loading, error } = usePermit(userAddress);
   const disclosure = usePrivacyDisclosure();
   const { tier } = useTier();

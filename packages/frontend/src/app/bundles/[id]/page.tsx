@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { useParams } from 'next/navigation';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
@@ -34,7 +35,7 @@ export default function BundlePage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id);
   const { user, login, authenticated } = usePrivy();
-  const wallet = user?.wallet?.address;
+  const wallet = usePrivyEvmAddress();
 
   const [manifest, setManifest] = useState<BundleManifest | null>(null);
   const [verify, setVerify] = useState<{ ok: boolean; reason?: string } | null>(null);

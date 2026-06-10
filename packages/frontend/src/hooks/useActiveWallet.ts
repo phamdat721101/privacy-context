@@ -32,7 +32,7 @@
 
 import { useAccount } from 'wagmi';
 import { useCurrentAccount } from '@mysten/dapp-kit';
-import { usePrivy } from '@privy-io/react-auth';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { useNetwork } from './useNetwork';
 import { isSuiNetwork } from '@/lib/networks';
 
@@ -45,24 +45,61 @@ export interface ActiveWallet {
   isReady: boolean;
 }
 
+/**
+ * usePrivyEvmAddress — single source of truth for "the user's EVM address,
+ * regardless of how they signed in".
+ *
+ * Privy exposes a connected wallet via two surfaces that don't always agree:
+ *   - `usePrivy().user.wallet.address` is populated only for *embedded*
+ *     wallets (created when `createOnLogin: 'users-without-wallets'` fires).
+ *   - `useWallets().wallets[]` lists every connected wallet — embedded or
+ *     external (MetaMask, WalletConnect, Coinbase) — with `chainType` tags.
+ *
+ * Reading `user.wallet.address` alone is the bug pattern: users who signed
+ * in via the `'wallet'` loginMethod see their nav pill render correctly
+ * (because `useActiveWallet` already falls back through wagmi's
+ * `useAccount()`), but any page that bypasses this hook reads `undefined`
+ * and renders "wallet not connected" while the user clearly is connected.
+ *
+ * SOLID:
+ *   - SRP: one hook, one job — return an EVM address or `undefined`.
+ *   - DIP: pages depend on this hook; no page reaches into Privy's user
+ *     object directly to derive a wallet address.
+ *   - I3: the resolution rule lives here. `useActiveWallet` consumes it
+ *     for the EVM branch so the two hooks never diverge.
+ */
+export function usePrivyEvmAddress(): `0x${string}` | undefined {
+  const { user } = usePrivy();
+  const { wallets } = useWallets();
+
+  // Prefer the actually-connected wallet (covers external wallets like
+  // MetaMask that don't populate `user.wallet`). On wallets[] entries the
+  // chain family lives on `type`; on `user.wallet` it's `chainType` —
+  // different Privy surfaces, same semantics.
+  const evmWallet = wallets.find((w) => w.type === 'ethereum');
+  if (evmWallet?.address) return evmWallet.address as `0x${string}`;
+
+  // Fallback: Privy's session-level wallet, only when its chainType is EVM.
+  // Guards against a Solana embedded wallet leaking into the EVM branch.
+  if (user?.wallet?.chainType === 'ethereum' && user.wallet.address) {
+    return user.wallet.address as `0x${string}`;
+  }
+  return undefined;
+}
+
 export function useActiveWallet(): ActiveWallet {
   const { network, ready } = useNetwork();
   const evm = useAccount();
   const sui = useCurrentAccount();
-  const { user } = usePrivy();
   const onSui = isSuiNetwork(network);
 
   // EVM address resolution: prefer wagmi (already authenticated to the active
-  // chain), fall back to the Privy session wallet (always present after
-  // login, same source the nav pill uses). The fallback covers the window
-  // after a Sui→EVM network switch where wagmi's connector has not yet
-  // hydrated. Guarded by `chainType === 'ethereum'` so a Solana embedded
-  // wallet never leaks into the EVM branch.
-  const privyEvmAddress =
-    user?.wallet?.chainType === 'ethereum'
-      ? (user.wallet.address as string | undefined)
-      : undefined;
-  const evmAddress = evm.address ?? privyEvmAddress;
+  // chain), then fall back to any connected Privy wallet (embedded OR
+  // external). The fallback covers the window after a Sui→EVM network
+  // switch where wagmi's connector has not yet hydrated and the case where
+  // the user signed in with an external wallet that wagmi has not picked up.
+  const privyEvm = usePrivyEvmAddress();
+  const evmAddress = evm.address ?? privyEvm;
 
   return {
     address: onSui ? sui?.address : evmAddress,

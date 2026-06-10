@@ -18,6 +18,7 @@
 import { useEffect, useRef } from 'react';
 import { useCurrentAccount, useSignPersonalMessage } from '@mysten/dapp-kit';
 import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from './useActiveWallet';
 import { useNetwork } from './useNetwork';
 import { isSuiNetwork } from '@/lib/networks';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
@@ -32,7 +33,7 @@ export function useAutoLinkSui() {
   // Privy's canonical address — works for embedded + external wallets.
   // (Earlier draft used `useWallets()[0]?.address` which is empty for
   // email-login users with embedded wallets only.)
-  const evmAddress = user?.wallet?.address;
+  const evmAddress = usePrivyEvmAddress();
   const suiAccount = useCurrentAccount();
   const { mutateAsync: signMessage } = useSignPersonalMessage();
 

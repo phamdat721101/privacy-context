@@ -26,6 +26,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { useCurrentAccount, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
@@ -63,10 +64,10 @@ const POLICY_DURATION_MS = 30n * 24n * 60n * 60n * 1000n;
 export default function BrainSuiNewPage() {
   const { network } = useNetwork();
   const { authenticated, login, user } = usePrivy();
-  // Use Privy's canonical user.wallet.address — works for both embedded
-  // (email login) and external (MetaMask) wallets. `useWallets()[0]` only
-  // returns external wallets and would silently fail for email-login users.
-  const evmAddress = user?.wallet?.address as `0x${string}` | undefined;
+  // Resolve the EVM address via the shared hook so this page agrees with
+  // the nav pill regardless of how the user signed in (embedded vs.
+  // external wallet). See useActiveWallet.ts::usePrivyEvmAddress.
+  const evmAddress = usePrivyEvmAddress();
   const suiAccount = useCurrentAccount();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
   const router = useRouter();

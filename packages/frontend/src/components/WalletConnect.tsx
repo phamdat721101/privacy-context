@@ -1,9 +1,11 @@
 'use client';
 import { useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 
 export function WalletConnect() {
   const { ready, authenticated, login, logout, user } = usePrivy();
+  const privyEvmAddress = usePrivyEvmAddress();
   const [copied, setCopied] = useState(false);
 
   function copyAddress(addr: string) {
@@ -24,7 +26,7 @@ export function WalletConnect() {
   }
 
   if (authenticated) {
-    const addr = user?.wallet?.address;
+    const addr = privyEvmAddress;
     return (
       <div className="flex items-center gap-2">
         <button

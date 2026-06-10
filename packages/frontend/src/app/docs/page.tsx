@@ -28,6 +28,7 @@
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { createWalletClient, custom } from 'viem';
 import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
 import {
@@ -195,7 +196,7 @@ curl -X POST ${AGENT_BACKEND_URL}/v3/agents/<agent_id>/chat \\
 export default function DocsPage() {
   const { authenticated, ready, user, login } = usePrivy();
   const { wallets } = useWallets();
-  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+  const userAddress = usePrivyEvmAddress();
 
   const [permit, setPermit] = useState<OnboardPermit | null>(null);
   const [minting, setMinting] = useState(false);

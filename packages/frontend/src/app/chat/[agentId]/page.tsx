@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { BrowserProvider, Contract, parseUnits } from 'ethers';
 import { useChat } from '@/hooks/useChat';
 import { usePermit } from '@/hooks/usePermit';
@@ -22,7 +23,7 @@ export default function ChatAgentPage() {
   const agentId = params?.agentId;
   const { authenticated, ready, user, login } = usePrivy();
   const { wallets } = useWallets();
-  const userAddress = user?.wallet?.address as `0x${string}` | undefined;
+  const userAddress = usePrivyEvmAddress();
   const [agent, setAgent] = useState<Agent | null>(null);
   const [input, setInput] = useState('');
   const [mode, setMode] = useState<'learn' | 'store'>('learn');

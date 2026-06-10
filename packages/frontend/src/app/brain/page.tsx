@@ -15,6 +15,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { useCognitive } from '@/lib/cognitive';
 import { EpisodeLane, FactLane, SkillLane } from '@/components/CognitiveLanes';
 import { BrainActivityFeed } from '@/components/BrainActivityFeed';
@@ -25,7 +26,7 @@ const HINT_KEY = 'openx:brain-explainer-dismissed';
 
 export default function BrainPage() {
   const { user, authenticated, login } = usePrivy();
-  const addr = user?.wallet?.address;
+  const addr = usePrivyEvmAddress();
   const cognitive = useCognitive(authenticated && addr ? addr : undefined);
   const [lane, setLane] = useState<Lane>('episodes');
   const [explainerDismissed, setExplainerDismissed] = useState(true); // hydrate-safe
