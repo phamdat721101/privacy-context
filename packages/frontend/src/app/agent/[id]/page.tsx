@@ -542,7 +542,7 @@ function TryIt({ agent }: { agent: Agent }) {
   }
 
   return (
-    <div className="space-y-3 rounded-xl border border-tertiary/30 bg-tertiary/5 p-5">
+    <div id="run-task" className="space-y-3 rounded-xl border border-tertiary/30 bg-tertiary/5 p-5 scroll-mt-24">
       <div className="flex items-center justify-between">
         <h2 className="font-headline text-base font-semibold">Run a task</h2>
         <span className="rounded-full border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 font-mono text-[9px] uppercase text-tertiary">
@@ -765,13 +765,13 @@ function Quickstart({ agent, agentJson }: { agent: Agent; agentJson: AgentJson |
         <Row label="pay to" value={`${payTo.slice(0, 6)}…${payTo.slice(-4)}`} mono />
       </div>
       <div className="space-y-2 border-t border-outline-variant/20 pt-3">
-        <Link
-          href={`/chat/${agent.id}`}
-          className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-2 text-sm font-medium text-on-primary"
+        <a
+          href="#run-task"
+          className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-2 text-sm font-medium text-on-primary hover:bg-primary/90"
         >
-          <span className="material-symbols-outlined text-[16px]">chat</span>
-          Open in chat
-        </Link>
+          <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+          Run a task
+        </a>
         <CopyButton value={curl} label="Copy curl" full />
       </div>
     </div>
@@ -793,13 +793,13 @@ function DraftSidebar({ agent, snap }: { agent: Agent; snap: AgentCognitiveSnaps
           Run the publish wizard to mint a paid x402 endpoint.
         </div>
       </div>
-      <Link
-        href={`/chat/${agent.id}`}
+      <a
+        href="#run-task"
         className="flex w-full items-center justify-center gap-2 rounded-full bg-primary py-3 font-medium text-on-primary transition-colors hover:bg-primary/90"
       >
-        <span className="material-symbols-outlined text-[18px]">chat</span>
-        Chat
-      </Link>
+        <span className="material-symbols-outlined text-[18px]">play_arrow</span>
+        Run a task
+      </a>
       <div className="space-y-2 border-t border-outline-variant/20 pt-4 text-xs text-on-surface-variant">
         <div className="flex items-center justify-between">
           <span>Episodes recorded</span>
