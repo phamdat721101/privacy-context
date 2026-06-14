@@ -420,17 +420,123 @@ router.post('/seller/agent/:id/restore', async (req: AuthRequest, res: Response)
 router.post('/seller/archive-all', async (req: AuthRequest, res: Response) => {
   if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
   const owner = req.user.address.toLowerCase();
-  const r = await pool.query(
-    `UPDATE agents
-        SET archived_at = now(), published = false
-      WHERE LOWER(owner_address) = $1 AND archived_at IS NULL`,
-    [owner],
-  );
+  // Brain-keyed semantics: a "Hide all" hides every assistant the wallet
+  // owns — both v2 marketplace agents (archive the agent row) AND v1
+  // legacy brains without an agents row (flip brains.published=false).
+  // One owner, two parallel UPDATEs in one transaction.
+  const client = await pool.connect();
+  let archived_count = 0;
+  let unpublished_brains = 0;
+  try {
+    await client.query('BEGIN');
+    const a = await client.query(
+      `UPDATE agents
+          SET archived_at = now(), published = false
+        WHERE LOWER(owner_address) = $1 AND archived_at IS NULL`,
+      [owner],
+    );
+    archived_count = a.rowCount ?? 0;
+    const b = await client.query(
+      `UPDATE brains
+          SET published = false
+        WHERE LOWER(owner_address) = $1 AND published = true`,
+      [owner],
+    );
+    unpublished_brains = b.rowCount ?? 0;
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
   logger.info(
-    { wallet: owner, archived_count: r.rowCount, action: 'archive-all' },
+    { wallet: owner, archived_count, unpublished_brains, action: 'archive-all' },
     'marketplace:agent:archive-all',
   );
-  res.json({ ok: true, archived_count: r.rowCount ?? 0 });
+  res.json({ ok: true, archived_count, unpublished_brains });
+});
+
+// ─── PRD-22 — brain-keyed Hide flow ──────────────────────────────────────
+//
+// A "brain" is the user's mental model of an assistant. Hide should flip
+// `brains.published = false` and cascade-archive any agents wrapping that
+// brain. Restore is the inverse. Works uniformly for both v1 brains
+// (no agent row) and v2 marketplace listings (with agent row).
+//
+// SOLID: one transaction, two UPDATEs scoped by ownership in the WHERE
+// clause. Wrong-owner returns 0 rows updated → 404, no separate fetch.
+
+const BRAIN_ID_RE = /^[1-9][0-9]{0,9}$/;
+
+router.delete('/seller/brain/:brainId', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const brainId = String(req.params.brainId ?? '');
+  if (!BRAIN_ID_RE.test(brainId)) return res.status(400).json({ error: 'invalid brain id' });
+  const owner = req.user.address.toLowerCase();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const b = await client.query(
+      `UPDATE brains SET published = false
+        WHERE id = $1 AND LOWER(owner_address) = $2 AND published = true
+        RETURNING id`,
+      [brainId, owner],
+    );
+    if (b.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'assistant not found or already hidden' });
+    }
+    await client.query(
+      `UPDATE agents
+          SET archived_at = now(), published = false
+        WHERE brain_id = $1 AND LOWER(owner_address) = $2 AND archived_at IS NULL`,
+      [brainId, owner],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  logger.info({ wallet: owner, brainId, action: 'hide-brain' }, 'marketplace:brain:hidden');
+  res.json({ ok: true, hidden_at: new Date().toISOString() });
+});
+
+router.post('/seller/brain/:brainId/restore', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const brainId = String(req.params.brainId ?? '');
+  if (!BRAIN_ID_RE.test(brainId)) return res.status(400).json({ error: 'invalid brain id' });
+  const owner = req.user.address.toLowerCase();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const b = await client.query(
+      `UPDATE brains SET published = true
+        WHERE id = $1 AND LOWER(owner_address) = $2 AND published = false
+        RETURNING id`,
+      [brainId, owner],
+    );
+    if (b.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'assistant not found or already active' });
+    }
+    await client.query(
+      `UPDATE agents
+          SET archived_at = NULL, published = true
+        WHERE brain_id = $1 AND LOWER(owner_address) = $2 AND archived_at IS NOT NULL`,
+      [brainId, owner],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  logger.info({ wallet: owner, brainId, action: 'restore-brain' }, 'marketplace:brain:restored');
+  res.json({ ok: true, restored: true });
 });
 
 // ─── PRD-21 §4 — buyer task history (auth-derived; no :address in URL) ───

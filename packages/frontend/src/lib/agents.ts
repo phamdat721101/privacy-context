@@ -199,11 +199,50 @@ export async function getAgentCognitiveSnapshot(
   return r.json() as Promise<AgentCognitiveSnapshot>;
 }
 
-// ─── PRD-21 — Studio archive + buyer task history helpers ────────────────
+// ─── PRD-21/22 — Studio Hide flow + buyer task history helpers ──────────
+//
+// Brain-keyed (PRD-22): archiveBrain / restoreBrain operate on a brain id
+// and cascade to any agents row wrapping that brain. Works uniformly for
+// v1 legacy brains AND v2 marketplace listings — the brain is the user's
+// mental model of "an assistant".
+//
+// Agent-keyed (PRD-21, kept for back-compat): archiveAgent / restoreAgent
+// operate on an agent UUID. Used by smoke tests; UI now goes through the
+// brain-keyed flow.
+
+export async function archiveBrain(
+  brainId: number | string,
+  walletAddress: string,
+): Promise<{ ok: true; hidden_at: string }> {
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/marketplace/seller/brain/${encodeURIComponent(String(brainId))}`,
+    { method: 'DELETE', headers: { 'x-wallet-address': walletAddress } },
+  );
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string })?.error ?? `hide failed: ${r.status}`);
+  }
+  return r.json() as Promise<{ ok: true; hidden_at: string }>;
+}
+
+export async function restoreBrain(
+  brainId: number | string,
+  walletAddress: string,
+): Promise<{ ok: true; restored: true }> {
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/marketplace/seller/brain/${encodeURIComponent(String(brainId))}/restore`,
+    { method: 'POST', headers: { 'x-wallet-address': walletAddress } },
+  );
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string })?.error ?? `restore failed: ${r.status}`);
+  }
+  return r.json() as Promise<{ ok: true; restored: true }>;
+}
 
 /**
- * Soft-archive a single agent. Buyer receipts in `paid_calls` are
- * preserved (the agents row stays). Returns `archived_at` ISO timestamp.
+ * Soft-archive a single agent (legacy v2 path). Buyer receipts in
+ * `paid_calls` are preserved (the agents row stays).
  */
 export async function archiveAgent(
   agentId: string,

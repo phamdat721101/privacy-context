@@ -4,8 +4,8 @@ import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import {
   listMyAgents,
-  archiveAgent,
-  restoreAgent,
+  archiveBrain,
+  restoreBrain,
   archiveAllMyAgents,
   listMyTasks,
   type Agent,
@@ -16,13 +16,16 @@ import { PermitManager } from '@/components/PermitManager';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 
-/** Hidden agent (post-archive) row. The seller dashboard returns these
- *  in `archived_agents`. Title comes from the joined `brains.title`. */
+/** Hidden assistant row. Combines two sources:
+ *  - dashboard.archived_agents (v2 listings with rich metadata)
+ *  - brains.published=false (legacy v1 brains; archived_at may be null)
+ *  brain_id is the stable primary key for Hide/Restore actions. */
 interface ArchivedAgent {
-  id: string;
+  brain_id: number;
+  id: string | null;
   slug: string | null;
   title: string;
-  archived_at: string;
+  archived_at: string | null;
 }
 
 type StudioTab = 'creator' | 'user';
@@ -74,7 +77,7 @@ export default function StudioPage() {
         // Match by brain_id (numeric, stable across v1 brains and v2
         // marketplace listings). The dashboard endpoint returns brain_id +
         // agent UUID for every agent owned by the wallet — so every brain
-        // surfaces with a Hide-able v3AgentId, including legacy v1 rows.
+        // surfaces with v3AgentId metadata where one exists.
         const dashAgents = (dash?.agents ?? []) as Array<{
           id?: string;
           brain_id?: number;
@@ -86,18 +89,16 @@ export default function StudioPage() {
         const dashByBrainId = new Map(
           dashAgents.filter((a) => a.brain_id != null).map((a) => [Number(a.brain_id), a]),
         );
-        // PRD-22 — exclude brains whose agent is archived. Without this,
-        // /brains/mine repopulates the active list on every re-fetch and
-        // the user sees hidden assistants reappear immediately after
-        // "Hide all". The dashboard's archived_agents is the source of
-        // truth — cheaper than a server-side LEFT JOIN.
+        // PRD-22 — brain is the source of truth. A brain is "hidden" when
+        // brains.published=false OR any agent wrapping it is archived.
+        // Either signal moves the row out of the active list.
         const archivedBrainIds = new Set(
           ((dash?.archived_agents ?? []) as Array<{ brain_id?: number }>)
             .filter((a) => a.brain_id != null)
             .map((a) => Number(a.brain_id)),
         );
         const merged = brainAgents
-          .filter((a) => !archivedBrainIds.has(a.id))
+          .filter((a) => a.published !== false && !archivedBrainIds.has(a.id))
           .map((a) => {
             const m = dashByBrainId.get(a.id);
             return m
@@ -110,8 +111,28 @@ export default function StudioPage() {
                 })
               : a;
           });
+        // Hidden = (a) brains with archived agents (rich metadata via dash)
+        //       + (b) brains where published=false but no archived agent
+        //         (legacy v1 brains hidden via archive-all). Both restore
+        //         through the same brain-keyed endpoint.
+        const dashArchived = (dash?.archived_agents ?? []) as ArchivedAgent[];
+        const dashArchivedByBrainId = new Map(
+          dashArchived.filter((a) => a.brain_id != null).map((a) => [Number(a.brain_id), a]),
+        );
+        const hiddenBrains: ArchivedAgent[] = brainAgents
+          .filter((a) => a.published === false || archivedBrainIds.has(a.id))
+          .map((a) => {
+            const m = dashArchivedByBrainId.get(a.id);
+            return {
+              brain_id: a.id,
+              id: m?.id ?? null,
+              slug: m?.slug ?? null,
+              title: a.title || (m?.title ?? `Brain #${a.id}`),
+              archived_at: m?.archived_at ?? null,
+            };
+          });
         setAgents(merged);
-        setArchivedAgents((dash?.archived_agents ?? []) as ArchivedAgent[]);
+        setArchivedAgents(hiddenBrains);
       })
       .finally(() => setLoading(false));
   }, [userAddress]);
@@ -138,10 +159,11 @@ export default function StudioPage() {
     window.history.replaceState({}, '', `/studio${params.toString() ? '?' + params.toString() : ''}`);
   }
 
-  // ─── PRD-21 — soft archive / restore handlers ──────────────────────────
+  // ─── PRD-22 — brain-keyed soft archive / restore handlers ─────────────
   // Optimistic UI: move the row between active + hidden lists immediately;
-  // re-fetch on failure (rare).
-  async function onHide(agentId: string, title: string) {
+  // both v1 legacy brains (no agent row) and v2 marketplace listings
+  // resolve through the same brain-keyed endpoint pair.
+  async function onHide(brainId: number, title: string) {
     if (!userAddress) return;
     const proceed = window.confirm(
       `Hide "${title}"? Buyer receipts stay visible. You can restore any time from the Hidden section below.`,
@@ -149,15 +171,16 @@ export default function StudioPage() {
     if (!proceed) return;
     setStatus(`Hiding "${title}"…`);
     try {
-      const res = await archiveAgent(agentId, userAddress);
-      const hidden = agents.find((a) => a.v3AgentId === agentId);
-      setAgents((prev) => prev.filter((a) => a.v3AgentId !== agentId));
+      await archiveBrain(brainId, userAddress);
+      const hidden = agents.find((a) => a.id === brainId);
+      setAgents((prev) => prev.filter((a) => a.id !== brainId));
       setArchivedAgents((prev) => [
         {
-          id: agentId,
+          brain_id: brainId,
+          id: hidden?.v3AgentId ?? null,
           slug: hidden?.slug ?? null,
           title: hidden?.title ?? title,
-          archived_at: res.archived_at,
+          archived_at: new Date().toISOString(),
         },
         ...prev,
       ]);
@@ -167,16 +190,15 @@ export default function StudioPage() {
     }
   }
 
-  async function onRestore(agentId: string, title: string) {
+  async function onRestore(brainId: number, title: string) {
     if (!userAddress) return;
     setStatus(`Restoring "${title}"…`);
     try {
-      await restoreAgent(agentId, userAddress);
-      setArchivedAgents((prev) => prev.filter((a) => a.id !== agentId));
-      // Re-fetch to pick up the live agent row (brain id, pricing, etc.)
-      // — cheap; one indexed query.
+      await restoreBrain(brainId, userAddress);
+      setArchivedAgents((prev) => prev.filter((a) => a.brain_id !== brainId));
+      // Re-fetch to pick up the live brain row + (if any) agent metadata.
       const fresh = await listMyAgents(userAddress);
-      setAgents(fresh);
+      setAgents(fresh.filter((a) => a.published !== false));
       setStatus(`✓ Restored "${title}"`);
     } catch (err: any) {
       setStatus(err?.message ?? 'Restore failed');
@@ -194,8 +216,9 @@ export default function StudioPage() {
     try {
       const r = await archiveAllMyAgents(userAddress);
       setArchivedAgents((prev) => [
-        ...agents.map((a) => ({
-          id: (a.v3AgentId ?? String(a.id)) as string,
+        ...agents.map<ArchivedAgent>((a) => ({
+          brain_id: a.id,
+          id: a.v3AgentId ?? null,
           slug: a.slug ?? null,
           title: a.title,
           archived_at: new Date().toISOString(),
@@ -203,7 +226,8 @@ export default function StudioPage() {
         ...prev,
       ]);
       setAgents([]);
-      setStatus(`✓ Hid ${r.archived_count} assistants`);
+      const total = (r.archived_count ?? 0) + ((r as { unpublished_brains?: number }).unpublished_brains ?? 0);
+      setStatus(`✓ Hid ${total} assistants`);
     } catch (err: any) {
       setStatus(err?.message ?? 'Hide-all failed');
     }
@@ -389,19 +413,17 @@ export default function StudioPage() {
                             className="hidden"
                           />
                         </label>
-                        {a.v3AgentId && (
-                          <button
-                            type="button"
-                            onClick={() => onHide(a.v3AgentId!, a.title)}
-                            title="Hide this assistant from the marketplace. Receipts are preserved; you can restore any time."
-                            className="rounded-full border border-outline-variant/40 px-2 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-error/40 hover:text-error"
-                          >
-                            <span className="material-symbols-outlined text-[16px]" aria-hidden>
-                              visibility_off
-                            </span>
-                            <span className="sr-only">Hide</span>
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => onHide(a.id, a.title)}
+                          title="Hide this assistant from the marketplace. Receipts are preserved; you can restore any time."
+                          className="rounded-full border border-outline-variant/40 px-2 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-error/40 hover:text-error"
+                        >
+                          <span className="material-symbols-outlined text-[16px]" aria-hidden>
+                            visibility_off
+                          </span>
+                          <span className="sr-only">Hide</span>
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -429,7 +451,7 @@ export default function StudioPage() {
                     <ul className="space-y-2">
                       {archivedAgents.map((a) => (
                         <li
-                          key={a.id}
+                          key={a.brain_id}
                           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-outline-variant/20 bg-surface px-4 py-2.5"
                         >
                           <div className="min-w-0 flex-1">
@@ -441,7 +463,7 @@ export default function StudioPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => onRestore(a.id, a.title)}
+                            onClick={() => onRestore(a.brain_id, a.title)}
                             className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs text-primary hover:bg-primary/20"
                           >
                             Restore
