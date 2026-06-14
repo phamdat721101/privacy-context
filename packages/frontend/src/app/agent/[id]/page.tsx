@@ -492,10 +492,18 @@ function TryIt({ agent }: { agent: Agent }) {
   const [err, setErr] = useState<string | null>(null);
   const [retryAfterSec, setRetryAfterSec] = useState<number | null>(null);
 
-  if (!agent.v3AgentId) return null;
+  // Note: v3AgentId may be missing for legacy v1 brains. We still render
+  // the HireBox so creators see + use the surface; the submit handler
+  // surfaces a clear "publish first" message when there's no agent UUID
+  // to call /try with.
+  const canSubmit = !!agent.v3AgentId;
 
   async function send() {
     if ((!q.trim() && !file) || busy) return;
+    if (!canSubmit) {
+      setErr('This assistant is a draft. Open the publish wizard from Studio to enable task running.');
+      return;
+    }
     setBusy(true);
     setErr(null);
     setResp(null);

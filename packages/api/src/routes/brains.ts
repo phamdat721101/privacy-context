@@ -188,12 +188,12 @@ router.get('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Brain not found' });
   }
   try {
-    // PRD-22 — public detail returns 404 when ANY agent of this brain is
-    // archived, so stale share-links don't reveal hidden assistants. The
-    // owner sees their own archived brains via /brains/mine + Studio's
-    // Hidden section, not via this public route.
+    // PRD-22 — public detail returns 404 when the brain is unpublished
+    // OR has any archived agent. Keeps stale share-links from leaking
+    // hidden assistants. Owners view their own draft brains via Studio's
+    // listMyAgents (`/brains/mine`), not via this public route.
     const { rows } = await pool.query(
-      `SELECT * FROM brains WHERE id = $1 AND ${ACTIVE_BRAIN_FILTER}`,
+      `SELECT * FROM brains WHERE id = $1 AND published = true AND ${ACTIVE_BRAIN_FILTER}`,
       [id],
     );
     if (!rows[0]) return res.status(404).json({ error: 'Brain not found' });
