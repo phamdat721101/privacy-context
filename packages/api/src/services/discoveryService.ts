@@ -32,7 +32,7 @@ import { llmChat } from './chat';
 
 export interface DiscoverInput {
   message: string;
-  preferred_rail?: 'x402' | 'mpp' | 'sui_usdc';
+  preferred_rail?: 'x402' | 'mpp';
   max_steps?: number;
   /** PRD-15: when set, restrict the corpus to a single listing kind. */
   kind?: 'api' | 'workflow' | 'skill' | 'brain';
@@ -91,7 +91,6 @@ const STOP = new Set([
 
 const MAX_CORPUS = 50;
 const CORPUS_TTL_MS = 60_000;
-const AGENT_INDEX_NAMESPACE = 'openx-agent-index';
 
 let corpusCache: { rows: AgentDoc[]; expiresAt: number } | null = null;
 
@@ -117,117 +116,13 @@ async function loadCorpus(): Promise<AgentDoc[]> {
             a.workflow_ref
        FROM agents a
   LEFT JOIN brains b ON b.id = a.brain_id
-      WHERE a.published = true
+      WHERE a.published = true AND a.archived_at IS NULL
    ORDER BY a.created_at DESC
       LIMIT ${MAX_CORPUS}`,
   );
   corpusCache = { rows: r.rows as AgentDoc[], expiresAt: now + CORPUS_TTL_MS };
   return corpusCache.rows;
 }
-// ─── MemWal agent-index (PRD-17 §4) ───────────────────────────────────────
-// Single global namespace `openx-agent-index`. Each published agent is one
-// L1 memory record; the text body is the searchable corpus, prefixed with
-// `[id=<uuid>]` so recall hits can be hydrated from Postgres in a single
-// IN-list batch (Postgres stays the authoritative metadata store).
-//
-// SOLID:
-//   - SRP: two private helpers, one for write and one for read. Lazy
-//          singleton adapter; null when env not configured (dev path).
-//   - DIP: caller passes plain projections; this module owns the MemWal
-//          dependency edge.
-//   - OCP: adding a new search field = update IndexableAgent + indexText().
-
-import type { OpenXMemWalAdapter as MemWalAdapterT } from '@fhe-ai-context/sdk';
-
-let memwalAdapter: MemWalAdapterT | null | undefined;
-
-async function getAgentIndex(): Promise<MemWalAdapterT | null> {
-  if (memwalAdapter !== undefined) return memwalAdapter;
-  if (process.env.MEMWAL_PEERDEP_ENABLED !== 'true') {
-    memwalAdapter = null;
-    return null;
-  }
-  try {
-    const { OpenXMemWalAdapter } = await import('@fhe-ai-context/sdk');
-    memwalAdapter = await OpenXMemWalAdapter.create({
-      network: (process.env.MEMWAL_NETWORK ?? 'testnet') as 'testnet' | 'mainnet',
-      walletAddress: process.env.MEMWAL_OPERATOR_WALLET ?? '',
-      accountId: process.env.MEMWAL_OPERATOR_ACCOUNT_ID ?? '',
-      delegateKeys: (process.env.MEMWAL_OPERATOR_DELEGATE_KEYS ?? '')
-        .split(',').map((k) => k.trim()).filter(Boolean),
-      namespace: AGENT_INDEX_NAMESPACE,
-    });
-    return memwalAdapter;
-  } catch {
-    memwalAdapter = null;
-    return null;
-  }
-}
-
-export interface IndexableAgent {
-  agent_id: string;
-  slug: string;
-  title?: string | null;
-  short_description?: string | null;
-  domain?: string | null;
-  kind?: string | null;
-  tags?: string[] | null;
-  persona_system_prompt?: string | null;
-}
-
-function indexText(a: IndexableAgent): string {
-  const parts = [
-    a.title ?? '',
-    a.short_description ?? '',
-    a.persona_system_prompt ?? '',
-    (a.tags ?? []).join(' '),
-    a.domain ?? '',
-    a.kind ?? '',
-  ].filter(Boolean);
-  return `[id=${a.agent_id}] ${parts.join(' | ')}`;
-}
-
-const ID_PREFIX_RE = /^\[id=([0-9a-f-]+)\]/i;
-
-/** Best-effort write — never throws. Caller treats failure as a soft warning. */
-export async function indexAgent(a: IndexableAgent): Promise<void> {
-  try {
-    const adapter = await getAgentIndex();
-    if (!adapter) return;
-    await adapter.remember(indexText(a), AGENT_INDEX_NAMESPACE);
-  } catch {
-    /* swallow — DB row already committed; MemWal best-effort */
-  }
-}
-
-/** Recall + hydrate. Returns null when MemWal is disabled. */
-async function recallAgentsFromMemwal(query: string, limit: number): Promise<AgentDoc[] | null> {
-  const adapter = await getAgentIndex();
-  if (!adapter) return null;
-  try {
-    const r = await adapter.recall(query, { namespace: AGENT_INDEX_NAMESPACE, limit });
-    const ids = r.results
-      .map((h: { text: string }) => ID_PREFIX_RE.exec(h.text)?.[1])
-      .filter((x: string | undefined): x is string => Boolean(x));
-    if (ids.length === 0) return [];
-    const rows = await pool.query(
-      `SELECT a.id, a.brain_id, a.owner_address, a.chain, a.persona, a.pricing,
-              b.title       AS brain_title,
-              b.description AS brain_description,
-              b.tags        AS brain_tags,
-              a.domain, a.short_description, a.kind, a.workflow_ref
-         FROM agents a
-    LEFT JOIN brains b ON b.id = a.brain_id
-        WHERE a.id = ANY($1::uuid[]) AND a.published = true`,
-      [ids],
-    );
-    const byId = new Map(rows.rows.map((row: AgentDoc) => [row.id, row]));
-    return ids.map((id) => byId.get(id)).filter((x: AgentDoc | undefined): x is AgentDoc => Boolean(x));
-  } catch {
-    return null;
-  }
-}
-
 
 /** Public projection used as the search document. Buyers see the brain
  *  title/description first, so those have to be searchable. */
@@ -367,10 +262,10 @@ async function rankWithLLM(
 
 function pickRail(
   pricing: Record<string, string | null>,
-  preferred?: 'x402' | 'mpp' | 'sui_usdc',
-): 'x402' | 'mpp' | 'sui_usdc' | null {
+  preferred?: 'x402' | 'mpp',
+): 'x402' | 'mpp' | null {
   if (preferred && pricing[preferred]) return preferred;
-  const order: Array<'x402' | 'mpp' | 'sui_usdc'> = ['x402', 'mpp', 'sui_usdc'];
+  const order: Array<'x402' | 'mpp'> = ['x402', 'mpp'];
   for (const r of order) if (pricing[r]) return r;
   return null;
 }
@@ -380,12 +275,10 @@ export async function discover(input: DiscoverInput, baseUrl: string): Promise<D
   const message = String(input.message ?? '').trim();
   if (!message) return { candidates: [], bundle: null };
 
-  // PRD-17 §4 — prefer MemWal-indexed corpus when available (single switch
-  // point: getCorpus). Falls back to the cached Postgres TF-IDF corpus when
-  // MemWal is disabled or returns nothing usable. Both paths produce the
-  // same `AgentDoc[]` shape so downstream ranking is unchanged.
-  const memwalHits = await recallAgentsFromMemwal(message, MAX_CORPUS);
-  const corpus = memwalHits && memwalHits.length > 0 ? memwalHits : await loadCorpus();
+  // Single Postgres TF-IDF corpus post-Sui-removal. The MemWal indexer
+  // path that PRD-17 §4 introduced is gone with the Sui surface; we keep
+  // the cached corpus + LLM rerank pipeline as the canonical search path.
+  const corpus = await loadCorpus();
   if (corpus.length === 0) return { candidates: [], bundle: null };
 
   // PRD-15 — `kind` filter narrows the corpus before ranking. Empty after
@@ -437,7 +330,7 @@ export function __resetCorpusCacheForTests() {
 
 /**
  * searchAgents — keyword-only fast path. Used by /v3/agents/search.
- * Reuses MemWal recall + Postgres fallback; no LLM, no bundle.
+ * Postgres TF-IDF over the cached corpus; no LLM, no bundle.
  */
 export interface SearchAgentInput {
   q: string;
@@ -457,7 +350,7 @@ export interface SearchAgentResult {
     chain: string;
     pricing: Record<string, string | null>;
   }>;
-  source: 'memwal' | 'postgres';
+  source: 'postgres';
 }
 
 export async function searchAgents(input: SearchAgentInput): Promise<SearchAgentResult> {
@@ -465,25 +358,18 @@ export async function searchAgents(input: SearchAgentInput): Promise<SearchAgent
   const limit = Math.min(Math.max(Number(input.limit ?? 10), 1), 25);
   if (!q) return { candidates: [], source: 'postgres' };
 
-  let rows: AgentDoc[] | null = await recallAgentsFromMemwal(q, limit);
-  let source: 'memwal' | 'postgres' = 'memwal';
-  if (!rows || rows.length === 0) {
-    const corpus = await loadCorpus();
-    const filtered = input.kind ? corpus.filter((a) => (a.kind ?? 'api') === input.kind) : corpus;
-    rows = rankWithTfidf(q, filtered, limit).map((r) => r.agent);
-    source = 'postgres';
-  } else if (input.kind) {
-    rows = rows.filter((a) => (a.kind ?? 'api') === input.kind);
-  }
+  const corpus = await loadCorpus();
+  const filtered = input.kind ? corpus.filter((a) => (a.kind ?? 'api') === input.kind) : corpus;
+  const rows = rankWithTfidf(q, filtered, limit).map((r) => r.agent);
 
   const ids = rows.slice(0, limit).map((r) => r.id);
-  if (ids.length === 0) return { candidates: [], source };
+  if (ids.length === 0) return { candidates: [], source: 'postgres' };
   const meta = await pool.query(
     `SELECT a.id AS agent_id, a.slug, a.domain, a.kind, a.privacy_mode, a.chain, a.pricing,
             a.short_description, b.title
        FROM agents a
        JOIN brains b ON b.id = a.brain_id
-      WHERE a.id = ANY($1::uuid[]) AND a.published = true`,
+      WHERE a.id = ANY($1::uuid[]) AND a.published = true AND a.archived_at IS NULL`,
     [ids],
   );
   const byId = new Map(meta.rows.map((row) => [row.agent_id, row]));
@@ -491,6 +377,6 @@ export async function searchAgents(input: SearchAgentInput): Promise<SearchAgent
     candidates: ids
       .map((id) => byId.get(id))
       .filter((x): x is Record<string, unknown> => Boolean(x)) as SearchAgentResult['candidates'],
-    source,
+    source: 'postgres',
   };
 }

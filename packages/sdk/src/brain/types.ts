@@ -12,26 +12,24 @@
 export type ChainKey =
   | 'arbitrum-sepolia'
   | 'arbitrum-mainnet'
-  | 'base-sepolia'
-  | 'sui-testnet'
-  | 'sui-mainnet';
+  | 'base-sepolia';
 
 /** Provider abstraction. Used by the factory to pick an implementation. */
-export type ChainProvider = 'fhenix' | 'sui';
+export type ChainProvider = 'fhenix';
 
 /** Subscription duration tier (existing). */
 export type Tier = 'week' | 'month' | 'quarter';
 
 /**
- * Human-facing chain tier (per docs/UNIFIED_FLOW_SPEC.md). Internally maps to
- * a `ChainProvider`. Humans see the tier; agents see the provider directly.
+ * Human-facing chain tier. Single tier post-Sui-removal: 'standard' (Fhenix
+ * CoFHE on Arbitrum). Type kept as a single-value union so existing UI badges
+ * and config keys compile byte-identically.
  */
-export type ChainTier = 'standard' | 'trustless';
+export type ChainTier = 'standard';
 
 /** Canonical mapping from chain tier (human surface) to provider (chain surface). */
 export const CHAIN_TIER_TO_PROVIDER: Record<ChainTier, ChainProvider> = {
   standard: 'fhenix',
-  trustless: 'sui',
 };
 export type ChatMode = 'learn' | 'store';
 

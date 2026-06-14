@@ -59,7 +59,7 @@ router.get('/listings', async (req: Request, res: Response) => {
       : null;
 
   const params: Array<string | number> = [limit, offset];
-  let where = `WHERE a.published = true`;
+  let where = `WHERE a.published = true AND a.archived_at IS NULL`;
   if (domain) {
     params.push(domain);
     where += ` AND a.domain = $${params.length}`;
@@ -103,7 +103,7 @@ router.get('/workflows', async (req: Request, res: Response) => {
        LEFT JOIN cognitive_workflows cw
               ON cw.author_addr = a.owner_address
              AND cw.workflow_key = a.workflow_ref
-      WHERE a.published = true AND a.kind = 'workflow'
+      WHERE a.published = true AND a.archived_at IS NULL AND a.kind = 'workflow'
    ORDER BY a.created_at DESC
       LIMIT $1 OFFSET $2`,
     [limit, offset],
@@ -125,7 +125,7 @@ router.get('/workflows/:slug', async (req: Request, res: Response) => {
        LEFT JOIN cognitive_workflows cw
               ON cw.author_addr = a.owner_address
              AND cw.workflow_key = a.workflow_ref
-      WHERE a.published = true AND a.kind = 'workflow' AND a.slug = $1
+      WHERE a.published = true AND a.archived_at IS NULL AND a.kind = 'workflow' AND a.slug = $1
       LIMIT 1`,
     [slug],
   );
@@ -150,26 +150,25 @@ router.get('/workflows/:slug/recent', async (req: Request, res: Response) => {
   res.json({ runs: r.rows });
 });
 
-// POST /workflows/:slug/run — auth + paymentGate-gated. Resolves slug to a
-// cognitive_workflows.id and delegates to the existing executor route. The
-// indirection lets MCP hosts call by slug (stable) instead of internal id.
+// POST /workflows/:slug/run — auth-gated. Phase 2 wires execution into the
+// existing v1Public/x402 paywall; for now the route returns a structured
+// 503 so callers (UI + MCP) get a deterministic envelope instead of a
+// silent 404.
 router.post('/workflows/:slug/run', async (req: AuthRequest, res: Response) => {
   if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
   const slug = String(req.params.slug ?? '').toLowerCase();
   const r = await pool.query(
-    `SELECT cw.id AS workflow_id
+    `SELECT a.id AS agent_id
        FROM agents a
-       JOIN cognitive_workflows cw
-              ON cw.author_addr = a.owner_address
-             AND cw.workflow_key = a.workflow_ref
       WHERE a.slug = $1 AND a.published = true AND a.kind = 'workflow'
       LIMIT 1`,
     [slug],
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'workflow not found' });
-  const workflowId = r.rows[0].workflow_id;
-  // Forward to the existing executor — preserves auth/pay flow + receipts.
-  res.redirect(307, `/v3/workflows/${workflowId}/execute`);
+  res.status(503).json({
+    error: 'workflow execution coming soon',
+    hint: 'Workflows can be published and listed today; execution lands in Phase 2.',
+  });
 });
 
 // ─── Auth-gated seller surface (PRD-14) ────────────────────────────────────
@@ -291,7 +290,7 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
   if (sellerRow.rowCount === 0) return res.json({ seller: null, agents: [], earnings: null });
   const sellerId = sellerRow.rows[0].id;
 
-  const [agents, earnings] = await Promise.all([
+  const [agents, archived, earnings] = await Promise.all([
     pool.query(
       `SELECT a.id, a.slug, a.kind, a.domain, a.verification_tier, a.privacy_mode,
               a.created_at,
@@ -299,9 +298,23 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
               COUNT(pc.id)::int                      AS calls_total
          FROM agents a
          LEFT JOIN paid_calls pc ON pc.agent_id = a.id
-        WHERE a.seller_id = $1
+        WHERE a.seller_id = $1 AND a.archived_at IS NULL
      GROUP BY a.id
      ORDER BY a.created_at DESC`,
+      [sellerId],
+    ),
+    pool.query(
+      `SELECT a.id, a.slug, a.kind, a.domain, a.verification_tier, a.privacy_mode,
+              a.created_at, a.archived_at,
+              COALESCE(SUM(pc.amount_usdc), 0)::text AS earned_total,
+              COUNT(pc.id)::int                      AS calls_total,
+              b.title AS title
+         FROM agents a
+         JOIN brains b ON b.id = a.brain_id
+         LEFT JOIN paid_calls pc ON pc.agent_id = a.id
+        WHERE a.seller_id = $1 AND a.archived_at IS NOT NULL
+     GROUP BY a.id, b.title
+     ORDER BY a.archived_at DESC`,
       [sellerId],
     ),
     pool.query(
@@ -320,6 +333,7 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
   res.json({
     seller_id: sellerId,
     agents: agents.rows,
+    archived_agents: archived.rows,
     earnings: earnings.rows[0] ?? { last_7d: '0', last_30d: '0', all_time: '0', calls_7d: 0 },
   });
 });
@@ -348,6 +362,109 @@ router.get('/seller/dashboard.csv', async (req: AuthRequest, res: Response) => {
     );
   }
   res.end();
+});
+
+// ─── PRD-21 — soft archive + restore + buyer task history ───────────────
+//
+// Archive is a marketplace-visibility flag, not a hard delete. Buyer
+// receipts in `paid_calls` (FK to `agents.id` ON DELETE CASCADE) keep
+// resolving because the row stays. Restore is one UPDATE.
+//
+// Ownership is enforced inline in the WHERE clause — `id = $1 AND
+// owner_address = $2` — so a wrong-owner DELETE returns 0 rows updated
+// → 404, with no separate fetch+check round trip.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+router.delete('/seller/agent/:id', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const id = String(req.params.id ?? '');
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'invalid agent id' });
+  const owner = req.user.address.toLowerCase();
+  const r = await pool.query(
+    `UPDATE agents
+        SET archived_at = now(), published = false
+      WHERE id = $1 AND LOWER(owner_address) = $2 AND archived_at IS NULL
+      RETURNING id, archived_at`,
+    [id, owner],
+  );
+  if (r.rowCount === 0) {
+    return res.status(404).json({ error: 'agent not found or already hidden' });
+  }
+  logger.info({ wallet: owner, agentId: id, action: 'archive' }, 'marketplace:agent:archived');
+  res.json({ ok: true, archived_at: r.rows[0].archived_at });
+});
+
+router.post('/seller/agent/:id/restore', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const id = String(req.params.id ?? '');
+  if (!UUID_RE.test(id)) return res.status(400).json({ error: 'invalid agent id' });
+  const owner = req.user.address.toLowerCase();
+  const r = await pool.query(
+    `UPDATE agents
+        SET archived_at = NULL, published = true
+      WHERE id = $1 AND LOWER(owner_address) = $2 AND archived_at IS NOT NULL
+      RETURNING id`,
+    [id, owner],
+  );
+  if (r.rowCount === 0) {
+    return res.status(404).json({ error: 'agent not found or already active' });
+  }
+  logger.info({ wallet: owner, agentId: id, action: 'restore' }, 'marketplace:agent:restored');
+  res.json({ ok: true, restored: true });
+});
+
+router.post('/seller/archive-all', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const owner = req.user.address.toLowerCase();
+  const r = await pool.query(
+    `UPDATE agents
+        SET archived_at = now(), published = false
+      WHERE LOWER(owner_address) = $1 AND archived_at IS NULL`,
+    [owner],
+  );
+  logger.info(
+    { wallet: owner, archived_count: r.rowCount, action: 'archive-all' },
+    'marketplace:agent:archive-all',
+  );
+  res.json({ ok: true, archived_count: r.rowCount ?? 0 });
+});
+
+// ─── PRD-21 §4 — buyer task history (auth-derived; no :address in URL) ───
+
+router.get('/buyer/me/tasks', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  const buyer = req.user.address.toLowerCase();
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 100);
+  const offset = Math.max(Number(req.query.offset ?? 0), 0);
+
+  const [tasks, totals] = await Promise.all([
+    pool.query(
+      `SELECT pc.id, pc.slug, pc.amount_usdc, pc.tx_hash, pc.network, pc.method, pc.created_at,
+              a.id AS agent_id, COALESCE(b.title, a.slug) AS agent_title
+         FROM paid_calls pc
+         JOIN agents a ON a.id = pc.agent_id
+    LEFT JOIN brains b ON b.id = a.brain_id
+        WHERE pc.buyer = $1
+     ORDER BY pc.created_at DESC
+        LIMIT $2 OFFSET $3`,
+      [buyer, limit, offset],
+    ),
+    pool.query(
+      `SELECT COUNT(*)::int AS task_count,
+              COALESCE(SUM(amount_usdc), 0)::text AS total_spent_usdc
+         FROM paid_calls WHERE buyer = $1`,
+      [buyer],
+    ),
+  ]);
+
+  res.json({
+    tasks: tasks.rows,
+    task_count: totals.rows[0]?.task_count ?? 0,
+    total_spent_usdc: totals.rows[0]?.total_spent_usdc ?? '0',
+    limit,
+    offset,
+  });
 });
 
 export default router;

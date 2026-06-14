@@ -3,7 +3,7 @@
 /**
  * /brain/new — Tier-aware new-brain entry page.
  *
- * Step 1: tier picker (Standard vs Trustless) — see `TierPicker.tsx`.
+ * Step 1: privacy info card — see `TierPicker.tsx`.
  * Step 2: hand off to the existing publish flow (`/studio/publish` or
  * `/launch`), with `?tier=…` baked into the URL by `useTier`.
  *

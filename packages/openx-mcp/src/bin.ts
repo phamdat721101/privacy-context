@@ -30,7 +30,6 @@
 import { OpenXClient, OpenXMcpServer } from '@fhe-ai-context/sdk';
 
 const openx = new OpenXClient({
-  tier: 'trustless',
   apiUrl: process.env.OPENX_API_URL ?? 'http://localhost:3001',
   walletAddress: process.env.OPENX_API_KEY ?? '0xanon',
   brainId: process.env.OPENX_BRAIN_ID,
@@ -41,12 +40,7 @@ const server = new OpenXMcpServer(openx, {
   payTo: process.env.OPENX_PLATFORM_PAYTO ?? '',
   pricePerCall: process.env.OPENX_PRICE_PER_QUERY ?? '0.01',
   publicUrl: process.env.OPENX_MCP_PUBLIC_URL ?? 'https://api.openx.so/mcp',
-  authMode: parseAuthMode(process.env.OPENX_MCP_AUTH_MODE),
 });
-
-function parseAuthMode(v: string | undefined): 'openx-bound' | 'memwal-direct' | 'hybrid' {
-  return v === 'memwal-direct' || v === 'hybrid' ? v : 'openx-bound';
-}
 
 // JSON-RPC over stdio: each newline-delimited JSON line is one message.
 // Notifications (no id) are written as no-ops to satisfy the protocol.

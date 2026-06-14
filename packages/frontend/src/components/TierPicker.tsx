@@ -1,108 +1,53 @@
 'use client';
 
 /**
- * TierPicker — explicit Standard vs Trustless tier picker for /brain/new.
+ * TierPicker — single-tier post-Sui-removal.
  *
- * Renders two cards: Standard (Fhenix on Arbitrum) and Trustless (Sui +
- * Walrus + SEAL + Phala TEE). User selection persists via the existing
- * `useTier` hook (URL ?tier=… + localStorage).
+ * Renders one informational card describing the privacy stack (Fhenix CoFHE
+ * + AES-256-GCM client-side). Kept as a component so existing call sites
+ * (`/brain/new`) compile; the multi-tier picker UI is gone.
  *
- * Trade-offs surfaced to the user (per `gap-analysis-and-build-plan.md` §2
- * 5-anchor matrix): cost/year, sovereignty proof availability, ecosystem,
- * proof primitive. No marketing copy — facts only.
- *
- * SOLID: Single Responsibility — this component renders + selects. The
- * downstream publish wizard reads `useTier()` to branch its server calls;
- * this component knows nothing about the publish flow itself.
+ * SOLID: SRP — render the privacy promise. No state, no side effects.
  */
 
-import { useTier, type Tier } from '@/hooks/useTier';
+import { useEffect } from 'react';
+import type { Tier } from '@/hooks/useTier';
 
-interface TierFacts {
-  id: Tier;
-  name: string;
-  chain: string;
-  storage: string;
-  cost: string;
-  proof: string;
-  payment: string;
-  ecosystem: string;
-  badge?: string;
-}
+const FACTS = {
+  name: 'Encrypted by default',
+  storage: 'Encrypted at rest in Postgres + AES-256-GCM',
+  cost: 'Fixed per-task pricing — no subscriptions',
+  proof: 'Privacy lock held in a smart contract you can revoke any time',
+  payment: 'Pay $0.50–$5 per task',
+  ecosystem: 'Works with Claude, Cursor, Codex, custom AI assistants',
+};
 
-const TIERS: TierFacts[] = [
-  {
-    id: 'standard',
-    name: 'Standard',
-    chain: 'Arbitrum (Fhenix CoFHE)',
-    storage: 'Postgres + AES-256-GCM',
-    cost: '~$0.115/GB/mo',
-    proof: 'On-chain FHE-wrapped key (BrainKeyVaultV2)',
-    payment: 'x402 + USDC on Base Sepolia',
-    ecosystem: 'EVM agents, ERC-8004 KYA',
-  },
-  {
-    id: 'trustless',
-    name: 'Trustless',
-    chain: 'Sui + Walrus + SEAL',
-    storage: 'Walrus Quilt blobs (decentralized)',
-    cost: '~$0.028/year forever',
-    proof: 'Sui Move policy + sovereignty-proof endpoint',
-    payment: 'Sui-USDC native (1-tx settle)',
-    ecosystem: 'Sui agents, MemWal-compatible verbs',
-    badge: 'Recommended for new brains',
-  },
-];
-
-export function TierPicker({
-  onPick,
-}: {
-  /** Called with the tier the user just selected. */
-  onPick?: (tier: Tier) => void;
-}) {
-  const { tier: current, setTier } = useTier();
-
-  const select = (t: Tier) => {
-    setTier(t);
-    onPick?.(t);
-  };
-
+export function TierPicker({ onPick }: { onPick?: (tier: Tier) => void }) {
+  // Auto-select standard once on mount — keeps callers (e.g. publish wizard)
+  // that expect a tier selection compiling. Effect avoids the SSR `router.push`
+  // crash that synchronous onPick caused during static prerender.
+  useEffect(() => {
+    if (onPick) onPick('standard');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {TIERS.map((t) => {
-        const selected = current === t.id;
-        return (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => select(t.id)}
-            aria-pressed={selected}
-            className={[
-              'text-left rounded-2xl border p-5 transition focus:outline-none',
-              selected
-                ? 'border-blue-500 bg-blue-50 shadow ring-2 ring-blue-300'
-                : 'border-gray-200 bg-white hover:border-gray-400',
-            ].join(' ')}
-          >
-            <div className="flex items-baseline justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">{t.name}</h3>
-              {t.badge ? (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
-                  {t.badge}
-                </span>
-              ) : null}
-            </div>
-            <p className="mt-1 text-sm text-gray-500">{t.chain}</p>
-            <dl className="mt-4 space-y-2 text-sm">
-              <Row k="Storage" v={t.storage} />
-              <Row k="Cost" v={t.cost} />
-              <Row k="Trust proof" v={t.proof} />
-              <Row k="Payment" v={t.payment} />
-              <Row k="Ecosystem" v={t.ecosystem} />
-            </dl>
-          </button>
-        );
-      })}
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-lg font-semibold text-gray-900">{FACTS.name}</h3>
+        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900">
+          Default
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-gray-500">
+        Your knowledge pack stays encrypted end-to-end. Only paid users can read answers.
+      </p>
+      <dl className="mt-4 space-y-2 text-sm">
+        <Row k="Storage" v={FACTS.storage} />
+        <Row k="Pricing" v={FACTS.cost} />
+        <Row k="Privacy" v={FACTS.proof} />
+        <Row k="Payment" v={FACTS.payment} />
+        <Row k="Works with" v={FACTS.ecosystem} />
+      </dl>
     </div>
   );
 }

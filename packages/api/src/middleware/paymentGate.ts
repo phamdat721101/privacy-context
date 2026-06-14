@@ -7,13 +7,13 @@ import { logger } from '../lib';
 
 // Local subset of @fhe-brain/shared types — kept here to avoid a workspace
 // cross-package dep just for three type aliases. Source of truth: packages/shared/src/types.ts.
-type Rail = 'x402' | 'mpp' | 'sui_usdc';
-interface AgentPricing { x402: string | null; mpp: string | null; sui_usdc: string | null }
+type Rail = 'x402' | 'mpp';
+interface AgentPricing { x402: string | null; mpp: string | null }
 interface AgentRecord {
   id: string;
   brain_id: number;
   owner_address: string;
-  chain: 'fhenix' | 'sui';
+  chain: 'fhenix';
   persona: { system_prompt: string; tools: string[]; model: string };
   pricing: AgentPricing;
   kya_required: boolean;
@@ -74,7 +74,6 @@ function verifyChallenge(token: string): ChallengeBody | null {
 const RAIL_TO_METHOD: Record<Rail, string> = {
   x402: 'exact',          // x402 "exact" scheme name
   mpp: 'tempo',           // MPP method name (Tempo USDC variant)
-  sui_usdc: 'sui-usdc',
 };
 
 function emit402(res: Response, agent: AgentRecord, endpoint: string): void {
@@ -82,7 +81,7 @@ function emit402(res: Response, agent: AgentRecord, endpoint: string): void {
   const expires_at = Date.now() + 5 * 60 * 1000;
   const offers: { rail: Rail; amount: string }[] = [];
 
-  for (const rail of ['x402', 'mpp', 'sui_usdc'] as Rail[]) {
+  for (const rail of ['x402', 'mpp'] as Rail[]) {
     const amount = (agent.pricing as AgentPricing)[rail];
     if (!amount || amount === '0') continue;
     const id = signChallenge({ rail, amount_usdc: amount, endpoint, expires_at });

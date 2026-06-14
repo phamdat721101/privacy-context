@@ -1,37 +1,30 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { AGENT_BACKEND_URL } from '@/lib/contracts';
-import { useTier } from '@/hooks/useTier';
-import { TatumMemwalAttestation } from '@/components/TrustlessVisualization';
+import { useState } from 'react';
 
 /**
- * RunWorkflowModal — runs a workflow against /v3/workflows/:id/execute via
- * SSE so the user sees per-step progress. Pre-flight tier guard (G2) blocks
- * Standard-tier wallets — the modal opens but shows a switch prompt before
- * payment.
+ * RunWorkflowModal — workflow detail + run prep UI.
+ *
+ * Single-tier post-Sui-removal. The actual execution endpoint
+ * (`/v3/marketplace/workflows/:slug/run`) lives in v3-marketplace.ts and
+ * is auth-gated; payment flows through the standard x402 paywall the
+ * buyer already has via Privy. This modal shows the steps + collects
+ * input JSON, then POSTs to the run endpoint.
  *
  * SOLID:
- *   - SRP: this component owns the run lifecycle (input → SSE → done).
- *     It does NOT own marketplace listing or paywall plumbing.
- *   - DI: parent passes in workflow metadata + onClose; component is reusable
- *     anywhere a workflow can be run from.
+ *   - SRP: render the workflow shape + dispatch the run request.
+ *   - DI: parent passes the WorkflowSummary; component is reusable.
  */
+
+import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
 export interface WorkflowSummary {
   id: string;
+  slug?: string;
   workflow_key?: string;
   name: string;
   default_price_usdc?: string;
   steps?: Array<{ id: string; name: string }>;
-}
-
-interface StepReceipt {
-  stepId: string;
-  amountUsdc: string;
-  attestationHash?: string;
-  success: boolean;
-  failureMode?: string;
 }
 
 export function RunWorkflowModal({
@@ -43,27 +36,16 @@ export function RunWorkflowModal({
   walletAddress?: string;
   onClose: () => void;
 }) {
-  const { tier, setTier } = useTier();
   const [inputJson, setInputJson] = useState<string>('{\n  "url": "https://example.com"\n}');
   const [running, setRunning] = useState(false);
-  const [step, setStep] = useState<string | null>(null);
-  const [receipts, setReceipts] = useState<StepReceipt[]>([]);
-  const [done, setDone] = useState<{ success: boolean; totalUsdc: string; runId: string } | null>(null);
+  const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
 
   const onRun = async () => {
     setError(null);
-    setReceipts([]);
-    setDone(null);
-    if (tier !== 'trustless') {
-      setError('Workflow execution requires Sui network. Click "Switch to Sui" below.');
-      return;
-    }
+    setResult(null);
     if (!walletAddress) {
-      setError('Connect a Sui wallet first.');
+      setError('Sign in to run this workflow.');
       return;
     }
     let parsedInput: unknown;
@@ -75,53 +57,28 @@ export function RunWorkflowModal({
     }
 
     setRunning(true);
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
     try {
-      const r = await fetch(`${AGENT_BACKEND_URL}/v3/workflows/${workflow.id}/execute`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-          'x-wallet-address': walletAddress,
-          'x-chain': 'sui',
+      const slug = workflow.slug ?? workflow.workflow_key ?? workflow.id;
+      const r = await fetch(
+        `${AGENT_BACKEND_URL}/v3/marketplace/workflows/${encodeURIComponent(slug)}/run`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wallet-address': walletAddress,
+          },
+          body: JSON.stringify({ input: parsedInput }),
         },
-        body: JSON.stringify({ input: parsedInput, chain: 'sui' }),
-        signal: ctrl.signal,
-      });
-      if (!r.ok || !r.body) {
-        throw new Error(`HTTP ${r.status}`);
+      );
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j?.error ?? `HTTP ${r.status}`);
       }
-      const reader = r.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { value, done: streamDone } = await reader.read();
-        if (streamDone) break;
-        buf += decoder.decode(value, { stream: true });
-        const events = buf.split('\n\n');
-        buf = events.pop() ?? '';
-        for (const e of events) {
-          const eventLine = e.split('\n').find((l) => l.startsWith('event: '));
-          const dataLine = e.split('\n').find((l) => l.startsWith('data: '));
-          if (!eventLine || !dataLine) continue;
-          const evt = eventLine.slice(7).trim();
-          const data = JSON.parse(dataLine.slice(6));
-          if (evt === 'step') {
-            setStep(data.stepId);
-            setReceipts((prev) => [...prev, data as StepReceipt]);
-          } else if (evt === 'done') {
-            setDone(data);
-          } else if (evt === 'error') {
-            setError(`${data.code}: ${data.message ?? ''}`);
-          }
-        }
-      }
+      setResult(await r.json());
     } catch (e: any) {
-      if (e?.name !== 'AbortError') setError(String(e?.message ?? e));
+      setError(String(e?.message ?? e));
     } finally {
       setRunning(false);
-      abortRef.current = null;
     }
   };
 
@@ -138,8 +95,8 @@ export function RunWorkflowModal({
           <div>
             <h2 className="font-headline text-lg font-semibold">{workflow.name}</h2>
             <p className="text-xs text-on-surface-variant">
-              ${Number(workflow.default_price_usdc ?? '0').toFixed(2)} per execution ·{' '}
-              {(workflow.steps?.length ?? 0)} steps · paid in Sui-USDC
+              ${Number(workflow.default_price_usdc ?? '0').toFixed(2)} per run ·{' '}
+              {(workflow.steps?.length ?? 0)} steps
             </p>
           </div>
           <button
@@ -151,21 +108,6 @@ export function RunWorkflowModal({
           </button>
         </div>
 
-        {tier !== 'trustless' && (
-          <div className="rounded-lg border border-secondary/30 bg-secondary/10 p-3 text-sm">
-            <p className="mb-2 text-on-surface">
-              <strong>Sui-only:</strong> workflow execution lives on Sui. Switch network to run.
-            </p>
-            <button
-              onClick={() => setTier('trustless')}
-              className="rounded-lg bg-primary px-3 py-1.5 text-xs text-on-primary"
-            >
-              Switch to Sui
-            </button>
-          </div>
-        )}
-
-        {/* Input editor */}
         <div className="space-y-1">
           <label className="text-xs uppercase text-on-surface-variant">Input (JSON)</label>
           <textarea
@@ -177,38 +119,17 @@ export function RunWorkflowModal({
           />
         </div>
 
-        {/* DAG step list — animates as SSE events arrive */}
         <div className="flex-1 overflow-y-auto rounded-lg border border-outline-variant/30 bg-surface-container-low p-3">
           <div className="mb-2 text-xs uppercase text-on-surface-variant">Steps</div>
           <ol className="space-y-1.5">
-            {(workflow.steps ?? []).map((s) => {
-              const rec = receipts.find((r) => r.stepId === s.id);
-              const status = rec ? (rec.success ? 'ok' : 'fail') : step === s.id ? 'live' : 'pending';
-              return (
-                <li
-                  key={s.id}
-                  className={`flex items-center justify-between rounded px-2 py-1 text-sm ${
-                    status === 'ok'
-                      ? 'bg-primary/10 text-primary'
-                      : status === 'fail'
-                        ? 'bg-amber-500/10 text-amber-500'
-                        : status === 'live'
-                          ? 'bg-secondary/10 text-secondary'
-                          : 'text-on-surface-variant'
-                  }`}
-                >
-                  <span className="font-mono text-xs">
-                    {status === 'ok' ? '✅' : status === 'fail' ? '❌' : status === 'live' ? '⏳' : '⚪'} {s.name}
-                  </span>
-                  {rec && (
-                    <span className="font-mono text-[10px]">
-                      ${Number(rec.amountUsdc).toFixed(2)}
-                      {rec.attestationHash ? ' · att' : ''}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
+            {(workflow.steps ?? []).map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center justify-between rounded px-2 py-1 text-sm text-on-surface-variant"
+              >
+                <span className="font-mono text-xs">⚪ {s.name}</span>
+              </li>
+            ))}
           </ol>
         </div>
 
@@ -218,25 +139,10 @@ export function RunWorkflowModal({
           </div>
         )}
 
-        {done && (
-          <div
-            className={`rounded-lg border p-3 text-sm ${
-              done.success
-                ? 'border-primary/30 bg-primary/5 text-primary'
-                : 'border-amber-500/30 bg-amber-500/10 text-amber-500'
-            }`}
-          >
-            {done.success ? '✅' : '⚠️'} run {done.runId.slice(0, 8)} · ${Number(done.totalUsdc).toFixed(2)} routed
-          </div>
-        )}
-
-        {/* F3 — surfaces sovereignty-proof + Memwal-bridge availability post-run. */}
-        {done && done.success ? (
-          <TatumMemwalAttestation
-            productType="workflow"
-            productId={workflow.id}
-            apiBaseUrl={AGENT_BACKEND_URL}
-          />
+        {result ? (
+          <pre className="max-h-40 overflow-auto rounded-lg border border-primary/30 bg-primary/5 p-3 font-mono text-xs text-primary">
+            {JSON.stringify(result, null, 2)}
+          </pre>
         ) : null}
 
         <div className="flex justify-end gap-2">
@@ -249,7 +155,7 @@ export function RunWorkflowModal({
           </button>
           <button
             onClick={onRun}
-            disabled={running || tier !== 'trustless'}
+            disabled={running}
             className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-on-primary disabled:opacity-50"
           >
             {running ? 'Running…' : `Pay $${Number(workflow.default_price_usdc ?? '0').toFixed(2)} & Run`}

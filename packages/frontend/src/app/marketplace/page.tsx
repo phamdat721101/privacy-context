@@ -4,30 +4,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AgentCard } from '@/components/AgentCard';
 import { MarketplaceCard, type MarketplaceCardType } from '@/components/MarketplaceCard';
-import { MemWalBrainCard, type MemWalBrainSummary } from '@/components/MemWalBrainCard';
-import { SwitchToSuiPrompt } from '@/components/RequireSuiNetwork';
 import { listAgents, type Agent } from '@/lib/agents';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
-import { useNetwork } from '@/hooks/useNetwork';
-import { isSuiNetwork } from '@/lib/networks';
 
 const log = createLogger('marketplace');
 
-interface SuiProduct {
+interface WorkflowProduct {
   id: string;
   workflow_key?: string;
-  skill_key?: string;
-  trace_key?: string;
   name: string;
   description?: string;
   default_price_usdc?: string;
-  default_license_price_usdc?: string;
   steps?: unknown[];
   runs?: number;
-  invocations?: number;
-  licenses_sold?: number;
-  sui_object_id?: string;
 }
 
 interface DiscoverBundle {
@@ -43,14 +33,9 @@ interface DiscoverResult {
 
 export default function MarketplacePage() {
   const router = useRouter();
-  const [activeType, setActiveType] = useState<'all' | MarketplaceCardType | 'memwal'>('all');
+  const [activeType, setActiveType] = useState<'all' | MarketplaceCardType>('all');
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [workflows, setWorkflows] = useState<SuiProduct[]>([]);
-  const [skills, setSkills] = useState<SuiProduct[]>([]);
-  const [reflective, setReflective] = useState<SuiProduct[]>([]);
-  const [memwalBrains, setMemwalBrains] = useState<MemWalBrainSummary[]>([]);
-  const { network } = useNetwork();
-  const onSui = isSuiNetwork(network);
+  const [workflows, setWorkflows] = useState<WorkflowProduct[]>([]);
   const [search, setSearch] = useState('');
   const [activeTag, setActiveTag] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,42 +49,24 @@ export default function MarketplacePage() {
   // Read ?type= from the URL once on mount (client-only; no SSR involvement).
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const t = new URLSearchParams(window.location.search).get('type') as MarketplaceCardType | 'memwal' | null;
-    if (t && ['brain', 'skill', 'workflow', 'reflective', 'memwal'].includes(t)) setActiveType(t);
+    const t = new URLSearchParams(window.location.search).get('type') as MarketplaceCardType | null;
+    if (t && ['brain', 'skill', 'workflow'].includes(t)) setActiveType(t);
   }, []);
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
       listAgents().catch(() => []),
-      // Sui-native product types — fetch in parallel; tolerate 404 / older API.
-      fetch(`${AGENT_BACKEND_URL}/v3/workflows?published=true`)
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(`${AGENT_BACKEND_URL}/v3/skills?published=true`)
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(`${AGENT_BACKEND_URL}/v3/reflective`)
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
+      fetch(`${AGENT_BACKEND_URL}/v3/marketplace/workflows`)
+        .then((r) => (r.ok ? r.json() : { listings: [] }))
+        .then((j) => (j.listings ?? j) as WorkflowProduct[])
+        .catch(() => [] as WorkflowProduct[]),
     ])
-      .then(([a, wf, sk, ref]) => {
+      .then(([a, wf]) => {
         setAgents(a);
-        setWorkflows(wf as SuiProduct[]);
-        setSkills(sk as SuiProduct[]);
-        setReflective(ref as SuiProduct[]);
+        setWorkflows(wf);
       })
       .finally(() => setLoading(false));
-  }, []);
-
-  // Fetch MemWal-tier brains independently — always-public catalog endpoint,
-  // safe to call regardless of network. We render the result only when the
-  // user is on Sui (G1).
-  useEffect(() => {
-    fetch(`${AGENT_BACKEND_URL}/v3/memory/marketplace`)
-      .then((r) => (r.ok ? r.json() : { brains: [] }))
-      .then((j) => setMemwalBrains((j.brains ?? []) as MemWalBrainSummary[]))
-      .catch(() => setMemwalBrains([]));
   }, []);
 
   // Top-10 most-frequent tags, used as filter chips.
@@ -130,7 +97,7 @@ export default function MarketplacePage() {
       <div className="space-y-2">
         <h1 className="font-headline text-3xl font-bold">Marketplace</h1>
         <p className="text-on-surface-variant">
-          Browse encrypted AI agents. Every answer is cryptographically verified.
+          Browse end-to-end encrypted AI assistants. Pay per task — no subscriptions.
         </p>
       </div>
 
@@ -165,7 +132,7 @@ export default function MarketplacePage() {
           <input
             value={discoverMsg}
             onChange={(e) => setDiscoverMsg(e.target.value)}
-            placeholder="I need to audit a Solidity FHE contract and write a one-pager."
+            placeholder="Translate this NDA to Vietnamese."
             className="flex-1 rounded-lg border border-outline-variant/40 bg-surface px-3 py-2 text-on-surface focus:border-primary/60 focus:outline-none"
             onKeyDown={async (e) => {
               if (e.key !== 'Enter' || !discoverMsg.trim() || discoverBusy) return;
@@ -239,16 +206,14 @@ export default function MarketplacePage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search agents, capabilities, tags..."
+          placeholder="Search assistants, tasks, or topics…"
           className="w-full rounded-full border border-outline-variant/40 bg-surface py-3 pl-10 pr-4 text-on-surface placeholder:text-on-surface-variant focus:border-primary/60 focus:outline-none"
         />
       </div>
 
-      {/* Type filter — tri-marketplace product types (G1: Sui-only types still listed
-          for discovery; click triggers SwitchToSuiPrompt when on Standard tier).
-          'memwal' is the new MemWal-tier filter (PRD-08); only meaningful on Sui. */}
+      {/* Type filter — brain (FHE) and workflow surfaces. */}
       <div className="flex flex-wrap items-center gap-2">
-        {(['all', 'brain', 'skill', 'workflow', 'reflective', 'memwal'] as const).map((t) => (
+        {(['all', 'brain', 'workflow'] as const).map((t) => (
           <button
             key={t}
             onClick={() => {
@@ -324,53 +289,10 @@ export default function MarketplacePage() {
                 meta={{
                   stepCount: Array.isArray(w.steps) ? w.steps.length : 7,
                   runs: w.runs ?? 0,
-                  suiObjectId: w.sui_object_id,
                 }}
               />
             ))}
-          {(activeType === 'all' || activeType === 'skill') &&
-            skills.map((s) => (
-              <MarketplaceCard
-                key={`sk-${s.id}`}
-                type="skill"
-                id={s.id}
-                title={s.name}
-                description={s.description}
-                priceUsdc={s.default_price_usdc ?? '0'}
-                meta={{ suiObjectId: s.sui_object_id }}
-              />
-            ))}
-          {(activeType === 'all' || activeType === 'reflective') &&
-            reflective.map((r) => (
-              <MarketplaceCard
-                key={`ref-${r.id}`}
-                type="reflective"
-                id={r.id}
-                title={r.name ?? `Reflective trace ${r.trace_key}`}
-                description={r.description ?? 'Agent metacognition license'}
-                priceUsdc={r.default_license_price_usdc ?? '5.00'}
-                meta={{ licensesSold: r.licenses_sold ?? 0, suiObjectId: r.sui_object_id }}
-              />
-            ))}
-          {/* MemWal-tier brains (PRD-08). Cards are rendered for everyone but
-              clicking through paid query enforces Sui via requireSuiWallet. */}
-          {(activeType === 'all' || activeType === 'memwal') &&
-            memwalBrains.map((b) => <MemWalBrainCard key={`mw-${b.sui_object_id}`} brain={b} />)}
         </div>
-      )}
-
-      {/* Empty state when MemWal tab is active but user isn't on Sui — the
-          server still returns brains, but paid query would fail closed. */}
-      {activeType === 'memwal' && !onSui && (
-        <div className="mt-6">
-          <SwitchToSuiPrompt />
-        </div>
-      )}
-      {activeType === 'memwal' && onSui && memwalBrains.length === 0 && !loading && (
-        <p className="py-8 text-center text-sm text-on-surface-variant">
-          No MemWal-tier brains published yet. Publish from{' '}
-          <a href="/train" className="text-primary hover:underline">/train</a>.
-        </p>
       )}
     </div>
   );

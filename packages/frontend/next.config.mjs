@@ -2,24 +2,10 @@
 const config = {
   reactStrictMode: true,
   experimental: {
-    // Packages that must be loaded natively by Node (not bundled by webpack):
-    //   - @cofhe/sdk        — WASM resolves from node_modules
-    //   - @mysten-incubation/memwal — optional peer dep, gated at runtime by
-    //     MEMWAL_PEERDEP_ENABLED; webpack must not try to resolve it at build
-    //     time (G4 isolation lives in packages/sdk/src/memwal/adapter.ts).
-    serverComponentsExternalPackages: ['@cofhe/sdk', '@mysten-incubation/memwal'],
+    // @cofhe/sdk WASM resolves from node_modules — must not be webpack-bundled.
+    serverComponentsExternalPackages: ['@cofhe/sdk'],
   },
-  webpack: (config, { webpack, isServer }) => {
-    // Client bundle: the MemWal peer dep is server-only. Tell webpack the
-    // request resolves to nothing so the optional `await import(...)` in the
-    // SDK simply rejects at runtime — the SDK's try/catch already handles it.
-    if (!isServer) {
-      config.plugins.push(
-        new webpack.IgnorePlugin({
-          resourceRegExp: /^@mysten-incubation\/memwal$/,
-        }),
-      );
-    }
+  webpack: (config) => {
     // Stub the React Native storage module pulled in by @metamask/sdk → @wagmi/connectors.
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -36,10 +22,6 @@ const config = {
   },
   // Legacy → openx URL map. All temporary (308) so search engines don't
   // freeze a stale redirect once the rewrite settles.
-  // NOTE: /brain is intentionally NOT in this list — it now hosts the
-  //       Cognitive Memory v1 surface (L1/L2/L3, Fhenix-encrypted, Postgres-
-  //       backed). The old "/brain → /studio" alias was a different feature
-  //       and has been retired. Do not re-add it.
   async redirects() {
     return [
       { source: '/onboard', destination: '/docs', permanent: false },
@@ -48,7 +30,6 @@ const config = {
       { source: '/zama-demo', destination: '/', permanent: false },
       { source: '/catalog', destination: '/marketplace', permanent: false },
       { source: '/settings-v2', destination: '/settings', permanent: false },
-      // /memory was the old Arkiv Memory Tier — now retired; route bookmarks to /brain.
       { source: '/memory', destination: '/brain', permanent: false },
       // Bare /chat with no agent goes back to discovery.
       { source: '/chat', destination: '/marketplace', permanent: false },

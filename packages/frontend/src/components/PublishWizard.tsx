@@ -23,7 +23,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
-import { CIRCLE_FAUCET_URL, isValidEvmOrSuiAddress } from '@/lib/networks';
+import { CIRCLE_FAUCET_URL, isValidWalletAddress } from '@/lib/networks';
 import { useUsdcBalance } from '@/hooks/useUsdcBalance';
 
 interface BrainSummary {
@@ -38,7 +38,7 @@ interface WizardConfig {
   brainId: number;
   slug: string;
   priceUsdc: string;     // decimal string e.g. "0.01"
-  network: 'arbitrum-sepolia' | 'sui-testnet' | 'sui-mainnet';
+  network: 'arbitrum-sepolia';
   method: 'exact' | 'fherc20';
   acceptPrivate: boolean;
   payTo: `0x${string}`;
@@ -63,8 +63,6 @@ const SLUG_RE = /^[a-z0-9-]{3,30}$/;
 // page, etc.). Adding a rail = one entry; no other UI needs editing.
 const NETWORK_LABEL: Record<WizardConfig['network'], string> = {
   'arbitrum-sepolia': 'Arbitrum Sepolia',
-  'sui-testnet': 'Sui Testnet',
-  'sui-mainnet': 'Sui Mainnet',
 };
 
 async function checkSlugAvailable(slug: string, walletAddress?: string): Promise<{ available: boolean; reason?: string }> {
@@ -89,10 +87,6 @@ function UsdcFaucetBanner({
   network: WizardConfig['network'];
 }) {
   const { display, isLow, loading } = useUsdcBalance(address);
-  // Banner is EVM-tier (Circle USDC + the Circle faucet are Arbitrum-only).
-  // On Sui networks the seller will receive Sui USDC, so this banner is
-  // irrelevant — short-circuit. EVM behavior unchanged.
-  if (network !== 'arbitrum-sepolia') return null;
   if (loading || !isLow) return null;
   return (
     <div
@@ -133,13 +127,8 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
   const [brainId, setBrainId] = useState<number>(initialBrainId || brains[0]?.id || 0);
   const [slug, setSlug] = useState('');
   const [priceUsdc, setPriceUsdc] = useState('0.01');
-  // Payment network — auto-seeded from the seller's pay-to address format
-  // (Sui addresses are 64 hex chars, EVM are 40). Sellers can override
-  // with the dropdown in Step 2 to choose a different testnet/mainnet
-  // settlement chain. SOLID: one swap-point for adding rails.
-  const [network, setNetwork] = useState<WizardConfig['network']>(
-    /^0x[0-9a-fA-F]{64}$/.test(defaultPayTo) ? 'sui-testnet' : 'arbitrum-sepolia',
-  );
+  // Payment network — single chain post-Sui-removal.
+  const [network, setNetwork] = useState<WizardConfig['network']>('arbitrum-sepolia');
   const [acceptPrivate, setAcceptPrivate] = useState(false);
   const [payTo, setPayTo] = useState<string>(defaultPayTo);
   const [agentPrompt, setAgentPrompt] = useState('');
@@ -169,7 +158,7 @@ export function PublishWizard({ brains, defaultPayTo, onPublish }: WizardProps) 
   }, [slug, step]);
 
   const selectedBrain = useMemo(() => brains.find((b) => b.id === brainId), [brains, brainId]);
-  const canShip = !!selectedBrain && SLUG_RE.test(slug) && slugStatus?.available && Number(priceUsdc) > 0 && isValidEvmOrSuiAddress(payTo);
+  const canShip = !!selectedBrain && SLUG_RE.test(slug) && slugStatus?.available && Number(priceUsdc) > 0 && isValidWalletAddress(payTo);
 
   async function handleShip() {
     if (!canShip || !selectedBrain) return;
@@ -373,7 +362,7 @@ function Step2(props: {
       : 'Try another';
   const slugOk = props.slugStatus?.available === true;
   const priceOk = Number(props.priceUsdc) > 0 && Number(props.priceUsdc) <= 100;
-  const payToOk = isValidEvmOrSuiAddress(props.payTo);
+  const payToOk = isValidWalletAddress(props.payTo);
   const canNext = slugOk && priceOk && payToOk;
 
   return (

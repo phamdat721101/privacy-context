@@ -10,9 +10,8 @@
  *   ├ Sample outputs (last 3 anonymized runs)                    ┤
  *   └ Reviews + ratings (placeholder)                            ┘
  *
- * Trust narrative: PrivacyBadge in the header signals which substrate
- * runs the workflow (Fhenix vs Seal+Walrus). RunWorkflowModal handles
- * the Sui-only execution path (already shipped).
+ * Trust narrative: PrivacyBadge in the header signals the encryption
+ * substrate. RunWorkflowModal handles the execution path.
  *
  * SOLID:
  *  - SRP: this page composes; fetching is one effect, modal is reused.

@@ -51,11 +51,10 @@ npx -y @openx/mcp
 |---|:-:|---|
 | `openx_brain_search` | free | Semantic search across published brains |
 | `openx_brain_remember` | free | Store text in caller-owned brain |
-| `openx_brain_recall` | **paid** | Retrieve memories from a target brain |
 | `openx_brain_ask` | **paid** | LLM-answered query with TEE attestation |
-| `openx_brain_publish` | free | Publish a brain to the catalog |
-| `openx_brain_cost` | free | Walrus storage cost in USD + WAL |
-| `openx_brain_restore` | free | Sovereignty proof from Walrus alone |
+| `openx_marketplace_search` | free | Search the marketplace, ranked candidates |
+| `openx_agent_invoke` | **paid** | Invoke a published marketplace agent |
+| `openx_seller_publish` | free | Publish a new agent listing (onboard permit required) |
 
 Paid tools return a `-32402` JSON-RPC error with an x402 `paymentRequired`
 envelope. Hosts that handle x402 will pay-then-retry automatically.

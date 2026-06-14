@@ -23,20 +23,18 @@ export interface BrainCardProps {
   /** Truncated owner address, e.g. "0xAb3...c0d". */
   ownerAddress?: string;
   /** Internal chain hint; rendered as a small badge in the corner. */
-  chain?: 'fhenix' | 'sui';
-  /** Tier label shown to humans. Trumps the raw `chain` if provided. */
-  tier?: 'standard' | 'trustless';
+  chain?: 'fhenix';
+  /** Tier label shown to humans. */
+  tier?: 'standard';
   onOpen?: () => void;
 }
 
 const TIER_LABEL: Record<NonNullable<BrainCardProps['tier']>, string> = {
   standard: 'Standard',
-  trustless: 'Trustless',
 };
 
 const CHAIN_LABEL: Record<NonNullable<BrainCardProps['chain']>, string> = {
   fhenix: 'Standard',
-  sui: 'Trustless',
 };
 
 export const BrainCard: React.FC<BrainCardProps> = ({
@@ -134,7 +132,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({
 
 // ---------- ChainTierPicker -------------------------------------------------
 
-export type Tier = 'standard' | 'trustless';
+export type Tier = 'standard';
 
 export interface ChainTierPickerProps {
   value?: Tier;
@@ -143,27 +141,18 @@ export interface ChainTierPickerProps {
 
 const TIER_DETAIL: Record<Tier, { headline: string; sub: string; bullets: string[] }> = {
   standard: {
-    headline: 'Standard',
-    sub: 'Faster · Lower fees',
+    headline: 'Encrypted by default',
+    sub: 'Fhenix CoFHE on Arbitrum',
     bullets: [
-      'Fhenix CoFHE on Arbitrum',
-      'Encrypted keys, plaintext inference',
-      'Best when you trust the platform a little',
-    ],
-  },
-  trustless: {
-    headline: 'Trustless',
-    sub: 'Mainnet · Threshold · TEE-attested',
-    bullets: [
-      'Seal IBE + threshold key servers on Sui',
-      'Walrus encrypted blob storage',
-      'Phala TEE inference with attestation',
+      'AES-256-GCM client-side',
+      'Key wrapped on-chain (BrainKeyVaultV2)',
+      'Pay-per-use, no subscriptions',
     ],
   },
 };
 
 export const ChainTierPicker: React.FC<ChainTierPickerProps> = ({ value, onChange }) => (
-  <div role="radiogroup" aria-label="Privacy tier" className="grid gap-3 sm:grid-cols-2">
+  <div role="radiogroup" aria-label="Privacy tier" className="grid gap-3">
     {(Object.keys(TIER_DETAIL) as Tier[]).map((tier) => {
       const info = TIER_DETAIL[tier];
       const selected = value === tier;
@@ -268,7 +257,7 @@ export const MigrationStepper: React.FC<MigrationStepperProps> = ({ current, fai
 export interface WalletPillProps {
   /** Full address; rendered truncated. */
   address: string;
-  chain?: 'fhenix' | 'sui';
+  chain?: 'fhenix';
   onCopy?: () => void;
 }
 
@@ -284,7 +273,7 @@ export const WalletPill: React.FC<WalletPillProps> = ({ address, chain, onCopy }
     className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-container px-3 py-1 text-xs text-on-surface hover:bg-surface-container-high"
   >
     <span className="font-mono">{truncate(address)}</span>
-    {chain && <Badge tone="default">{chain === 'fhenix' ? 'Standard' : 'Trustless'}</Badge>}
+    {chain && <Badge tone="default">Standard</Badge>}
   </button>
 );
 

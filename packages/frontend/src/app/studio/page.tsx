@@ -1,23 +1,37 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
-import { listMyAgents, type Agent } from '@/lib/agents';
+import {
+  listMyAgents,
+  archiveAgent,
+  restoreAgent,
+  archiveAllMyAgents,
+  listMyTasks,
+  type Agent,
+  type BuyerTask,
+} from '@/lib/agents';
 import { usePermit } from '@/hooks/usePermit';
 import { PermitManager } from '@/components/PermitManager';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
-import { useNetwork } from '@/hooks/useNetwork';
-import { isSuiNetwork } from '@/lib/networks';
+
+/** Hidden agent (post-archive) row. The seller dashboard returns these
+ *  in `archived_agents`. Title comes from the joined `brains.title`. */
+interface ArchivedAgent {
+  id: string;
+  slug: string | null;
+  title: string;
+  archived_at: string;
+}
+
+type StudioTab = 'creator' | 'user';
 
 export default function StudioPage() {
   const { authenticated, ready, login } = usePrivy();
-  // Active wallet — Sui address on Sui networks, EVM address otherwise.
-  // Stamping the agent with the ACTIVE wallet (rather than Privy's EVM
-  // wallet) is what makes /studio identity-coherent across networks: the
-  // ownership chip on the agent detail page matches the connected wallet
-  // pill in the header. agents.owner_address is TEXT (no length cap),
-  // so a 66-char Sui address stores cleanly without a schema change.
+  // Active wallet — single-tier post-Sui-removal (Privy EVM only). Stamping
+  // the agent with the ACTIVE wallet keeps /studio identity-coherent:
+  // ownership chip on the detail page matches the header pill.
   const { address } = useActiveWallet();
   const userAddress = address as `0x${string}` | undefined;
   const {
@@ -28,17 +42,16 @@ export default function StudioPage() {
     loading: permitLoading,
     error: permitError,
   } = usePermit(userAddress);
-  // Permit gate is EVM-only — it authorizes Fhenix CoFHE to decrypt the
-  // brain's AES key. The Sui trustless tier uses Seal IBE-wrapping at the
-  // brain level instead, so there's no platform-wide permit. Treat Sui as
-  // permit-equivalent: the creator UI renders directly, PermitManager
-  // never mounts, and EVM-tier behavior is byte-identical (G5).
-  const { network } = useNetwork();
-  const onSui = isSuiNetwork(network);
-  const hasPermit = onSui || !!permitState.serializedPermit;
+  // Permit gate authorizes Fhenix CoFHE to decrypt the brain's AES key.
+  // Single chain post-Sui-removal — no chain dispatch.
+  const hasPermit = !!permitState.serializedPermit;
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [archivedAgents, setArchivedAgents] = useState<ArchivedAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
+  // Tab state — URL-driven via ?tab=creator|user. Defaults are role-aware
+  // (set after first dashboard fetch resolves so we know if user is a creator).
+  const [tab, setTab] = useState<StudioTab>('creator');
 
   useEffect(() => {
     if (!userAddress) return;
@@ -64,6 +77,7 @@ export default function StudioPage() {
         // row — listMyAgents already returns the brain side; we fold the
         // v2-only fields (slug, kind, earnings) onto it where present.
         const dashAgents = (dash?.agents ?? []) as Array<{
+          id?: string;
           slug?: string;
           kind?: string;
           earned_total?: string;
@@ -72,12 +86,113 @@ export default function StudioPage() {
         const dashBySlug = new Map(dashAgents.filter((a) => a.slug).map((a) => [a.slug as string, a]));
         const merged = brainAgents.map((a) => {
           const m = a.slug ? dashBySlug.get(a.slug) : undefined;
-          return m ? Object.assign({}, a, { _kind: m.kind, _earned: m.earned_total, _calls: m.calls_total }) : a;
+          return m
+            ? Object.assign({}, a, {
+                _kind: m.kind,
+                _earned: m.earned_total,
+                _calls: m.calls_total,
+                v3AgentId: m.id ?? a.v3AgentId,
+              })
+            : a;
         });
         setAgents(merged);
+        setArchivedAgents((dash?.archived_agents ?? []) as ArchivedAgent[]);
       })
       .finally(() => setLoading(false));
   }, [userAddress]);
+
+  // Tab routing — read ?tab= once on mount; default to 'user' when the
+  // wallet owns nothing (active or hidden). Sellers default to 'creator'.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'creator' || t === 'user') {
+      setTab(t);
+      return;
+    }
+    if (!loading && agents.length === 0 && archivedAgents.length === 0) {
+      setTab('user');
+    }
+  }, [loading, agents.length, archivedAgents.length]);
+
+  function selectTab(next: StudioTab) {
+    setTab(next);
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (next === 'creator') params.delete('tab'); else params.set('tab', next);
+    window.history.replaceState({}, '', `/studio${params.toString() ? '?' + params.toString() : ''}`);
+  }
+
+  // ─── PRD-21 — soft archive / restore handlers ──────────────────────────
+  // Optimistic UI: move the row between active + hidden lists immediately;
+  // re-fetch on failure (rare).
+  async function onHide(agentId: string, title: string) {
+    if (!userAddress) return;
+    const proceed = window.confirm(
+      `Hide "${title}"? Buyer receipts stay visible. You can restore any time from the Hidden section below.`,
+    );
+    if (!proceed) return;
+    setStatus(`Hiding "${title}"…`);
+    try {
+      const res = await archiveAgent(agentId, userAddress);
+      const hidden = agents.find((a) => a.v3AgentId === agentId);
+      setAgents((prev) => prev.filter((a) => a.v3AgentId !== agentId));
+      setArchivedAgents((prev) => [
+        {
+          id: agentId,
+          slug: hidden?.slug ?? null,
+          title: hidden?.title ?? title,
+          archived_at: res.archived_at,
+        },
+        ...prev,
+      ]);
+      setStatus(`✓ Hid "${title}"`);
+    } catch (err: any) {
+      setStatus(err?.message ?? 'Hide failed');
+    }
+  }
+
+  async function onRestore(agentId: string, title: string) {
+    if (!userAddress) return;
+    setStatus(`Restoring "${title}"…`);
+    try {
+      await restoreAgent(agentId, userAddress);
+      setArchivedAgents((prev) => prev.filter((a) => a.id !== agentId));
+      // Re-fetch to pick up the live agent row (brain id, pricing, etc.)
+      // — cheap; one indexed query.
+      const fresh = await listMyAgents(userAddress);
+      setAgents(fresh);
+      setStatus(`✓ Restored "${title}"`);
+    } catch (err: any) {
+      setStatus(err?.message ?? 'Restore failed');
+    }
+  }
+
+  async function onHideAll() {
+    if (!userAddress) return;
+    if (agents.length === 0) return;
+    const proceed = window.confirm(
+      `Hide all ${agents.length} of your assistants? Buyer receipts stay visible. You can restore individual assistants any time.`,
+    );
+    if (!proceed) return;
+    setStatus('Hiding all assistants…');
+    try {
+      const r = await archiveAllMyAgents(userAddress);
+      setArchivedAgents((prev) => [
+        ...agents.map((a) => ({
+          id: (a.v3AgentId ?? String(a.id)) as string,
+          slug: a.slug ?? null,
+          title: a.title,
+          archived_at: new Date().toISOString(),
+        })),
+        ...prev,
+      ]);
+      setAgents([]);
+      setStatus(`✓ Hid ${r.archived_count} assistants`);
+    } catch (err: any) {
+      setStatus(err?.message ?? 'Hide-all failed');
+    }
+  }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>, agentId: number) {
     const file = e.target.files?.[0];
@@ -134,107 +249,343 @@ export default function StudioPage() {
           + New agent
         </Link>
       </div>
-      <EarningsTile userAddress={userAddress} agents={agents} />
+      {/* Tab strip — Creator | User. URL-driven via ?tab=user|creator. */}
+      <div className="flex gap-1 border-b border-outline-variant/30">
+        {(['creator', 'user'] as const).map((t) => {
+          const active = tab === t;
+          const label = t === 'creator' ? 'Creator' : 'User';
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => selectTab(t)}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? 'border-b-2 border-primary text-primary'
+                  : 'text-on-surface-variant hover:text-on-surface'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
 
-      {!hasPermit ? (
-        // Onboarding gate: login → permit → create. The PermitManager is the
-        // only deliberate step between authenticated wallet and creator UI.
-        // After authorize() succeeds, usePermit refreshes and this branch flips
-        // to the creator UI on the next render.
-        <PermitManager
-          permitState={permitState}
-          authorize={authorize}
-          revoke={revoke}
-          loading={permitLoading}
-          error={permitError}
-          reason={reason}
-        />
-      ) : (
+      {tab === 'creator' && (
         <>
-          {/* Create-new — unified with /seller/onboard (PRD-17 §1). The studio
-              listing below shows every agent the connected wallet owns, fed
-              by both `listMyAgents` (v1 brains) and the seller dashboard
-              (v2 marketplace listings). */}
-          <section className="rounded-xl border border-dashed border-outline-variant/30 bg-surface p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="font-headline text-lg font-semibold">Create a new agent</h2>
-                <p className="text-sm text-on-surface-variant">
-                  One human, many agents. Privacy auto-detects from your connected wallet.
-                </p>
-              </div>
-              <Link
-                href="/seller/onboard?return=/studio"
-                className="rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-on-primary hover:opacity-90"
-              >
-                Open the publish wizard →
-              </Link>
-            </div>
-          </section>
+          <EarningsTile userAddress={userAddress} agents={agents} />
 
-      {/* Agent list */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-headline text-lg font-semibold">My agents ({agents.length})</h2>
-          {status && <span className="text-xs text-on-surface-variant">{status}</span>}
-        </div>
-
-        {loading ? (
-          <div className="py-12 text-center text-on-surface-variant">Loading…</div>
-        ) : agents.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center">
-            <p className="text-on-surface-variant">You haven&apos;t created an agent yet.</p>
-            <p className="mt-2 text-xs text-on-surface-variant">
-              Use the form above to create your first one.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {agents.map((a) => (
-              <div
-                key={a.id}
-                className="encryption-glow flex items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface p-4"
-              >
-                <Link href={`/studio/${a.id}`} className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-primary">smart_toy</span>
-                    <div className="min-w-0">
-                      <div className="truncate font-headline font-semibold">{a.title}</div>
-                      <div className="font-mono text-[11px] text-on-surface-variant">
-                        {a.published ? '✓ Published' : '🔒 Private draft'}
-                      </div>
-                    </div>
+          {!hasPermit ? (
+            // Onboarding gate: login → permit → create. The PermitManager is
+            // the only deliberate step between authenticated wallet and
+            // creator UI.
+            <PermitManager
+              permitState={permitState}
+              authorize={authorize}
+              revoke={revoke}
+              loading={permitLoading}
+              error={permitError}
+              reason={reason}
+            />
+          ) : (
+            <>
+              {/* Create-new — unified with /seller/onboard. */}
+              <section className="rounded-xl border border-dashed border-outline-variant/30 bg-surface p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-headline text-lg font-semibold">Create a new assistant</h2>
+                    <p className="text-sm text-on-surface-variant">
+                      One human, many assistants. End-to-end encrypted by default.
+                    </p>
                   </div>
-                </Link>
-                {a.slug && (
                   <Link
-                    href={`/agent/${a.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    title="Open public bundle page (what AI buyers see)"
-                    className="rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-secondary transition-colors hover:bg-secondary/20"
+                    href="/seller/onboard?return=/studio"
+                    className="rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-on-primary hover:opacity-90"
                   >
-                    public ↗
+                    Open the publish wizard →
                   </Link>
+                </div>
+              </section>
+
+              {/* Active agent list */}
+              <section className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="font-headline text-lg font-semibold">
+                    My assistants ({agents.length})
+                  </h2>
+                  <div className="flex items-center gap-3">
+                    {status && <span className="text-xs text-on-surface-variant">{status}</span>}
+                    {agents.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={onHideAll}
+                        className="text-xs text-on-surface-variant underline-offset-2 hover:text-error hover:underline"
+                      >
+                        Hide all my assistants
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {loading ? (
+                  <div className="py-12 text-center text-on-surface-variant">Loading…</div>
+                ) : agents.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center">
+                    <p className="text-on-surface-variant">You haven&apos;t created an assistant yet.</p>
+                    <p className="mt-2 text-xs text-on-surface-variant">
+                      Use the form above to create your first one.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {agents.map((a) => (
+                      <div
+                        key={a.id}
+                        className="encryption-glow flex items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface p-4"
+                      >
+                        <Link href={`/studio/${a.id}`} className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-primary">smart_toy</span>
+                            <div className="min-w-0">
+                              <div className="truncate font-headline font-semibold">{a.title}</div>
+                              <div className="font-mono text-[11px] text-on-surface-variant">
+                                {a.published ? '✓ Published' : '🔒 Private draft'}
+                              </div>
+                            </div>
+                          </div>
+                        </Link>
+                        {a.slug && (
+                          <Link
+                            href={`/agent/${a.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open public detail page (what users see)"
+                            className="rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-secondary transition-colors hover:bg-secondary/20"
+                          >
+                            public ↗
+                          </Link>
+                        )}
+                        <label className="cursor-pointer rounded-full border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary">
+                          Upload
+                          <input
+                            type="file"
+                            accept=".txt,.md,.csv"
+                            onChange={(e) => handleUpload(e, a.id)}
+                            className="hidden"
+                          />
+                        </label>
+                        {a.v3AgentId && (
+                          <button
+                            type="button"
+                            onClick={() => onHide(a.v3AgentId!, a.title)}
+                            title="Hide this assistant from the marketplace. Receipts are preserved; you can restore any time."
+                            className="rounded-full border border-outline-variant/40 px-2 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-error/40 hover:text-error"
+                          >
+                            <span className="material-symbols-outlined text-[16px]" aria-hidden>
+                              visibility_off
+                            </span>
+                            <span className="sr-only">Hide</span>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 )}
-                <label className="cursor-pointer rounded-full border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary">
-                  Upload
-                  <input
-                    type="file"
-                    accept=".txt,.md,.csv"
-                    onChange={(e) => handleUpload(e, a.id)}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              </section>
+
+              {/* Hidden assistants — collapsible. Always rendered (even when
+                  empty) so creators learn the affordance exists. */}
+              <details className="rounded-xl border border-outline-variant/30 bg-surface-container-low">
+                <summary className="cursor-pointer px-5 py-3 text-sm font-medium text-on-surface-variant">
+                  Hidden assistants ({archivedAgents.length})
+                </summary>
+                <div className="border-t border-outline-variant/20 p-5">
+                  {archivedAgents.length === 0 ? (
+                    <p className="text-sm text-on-surface-variant">
+                      Nothing hidden. Use the
+                      {' '}
+                      <span className="material-symbols-outlined align-middle text-[14px]" aria-hidden>
+                        visibility_off
+                      </span>
+                      {' '}
+                      icon on any assistant above to hide it. You can restore any time.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {archivedAgents.map((a) => (
+                        <li
+                          key={a.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-outline-variant/20 bg-surface px-4 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium text-on-surface">{a.title}</div>
+                            <div className="font-mono text-[11px] text-on-surface-variant">
+                              hidden{a.archived_at ? ` ${new Date(a.archived_at).toLocaleDateString()}` : ''}
+                              {a.slug ? ` · ${a.slug}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onRestore(a.id, a.title)}
+                            className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs text-primary hover:bg-primary/20"
+                          >
+                            Restore
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </details>
+            </>
+          )}
         </>
+      )}
+
+      {tab === 'user' && <UserTabBody walletAddress={userAddress} />}
+    </div>
+  );
+}
+
+// ─── PRD-21 — UserTabBody (buyer task history) ────────────────────────────
+//
+// Renders the connected wallet's full receipt history. Auth-derived: the
+// endpoint takes no `:address`, only `req.user.address`, so a stale tab
+// can't surface someone else's tasks.
+
+function UserTabBody({ walletAddress }: { walletAddress: `0x${string}` | undefined }) {
+  const [data, setData] = useState<{
+    tasks: BuyerTask[];
+    task_count: number;
+    total_spent_usdc: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!walletAddress) return;
+    setLoading(true);
+    listMyTasks(walletAddress, { limit: 100 })
+      .then((r) => setData(r))
+      .catch((e) => setErr(e?.message ?? String(e)))
+      .finally(() => setLoading(false));
+  }, [walletAddress]);
+
+  if (!walletAddress) {
+    return (
+      <p className="py-12 text-center text-sm text-on-surface-variant">Sign in to view your tasks.</p>
+    );
+  }
+
+  if (loading && !data) {
+    return <div className="py-12 text-center text-on-surface-variant">Loading your tasks…</div>;
+  }
+
+  if (err) {
+    return (
+      <p role="alert" className="text-sm text-amber-500">
+        Couldn&apos;t load tasks ({err}).
+      </p>
+    );
+  }
+
+  const totalSpent = Number(data?.total_spent_usdc ?? '0');
+  const taskCount = data?.task_count ?? 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <KpiCard label="Total spent" value={`$${totalSpent.toFixed(2)}`} hint="all-time" />
+        <KpiCard label="Tasks completed" value={String(taskCount)} hint={taskCount === 1 ? 'task' : 'tasks'} />
+      </div>
+
+      {taskCount === 0 ? (
+        <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center">
+          <p className="text-on-surface-variant">You haven&apos;t hired any assistants yet.</p>
+          <Link href="/marketplace" className="mt-2 inline-block text-sm text-primary hover:underline">
+            Browse the marketplace →
+          </Link>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-outline-variant/30">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-surface-container-low text-xs uppercase text-on-surface-variant">
+              <tr>
+                <th className="px-4 py-2">Assistant</th>
+                <th className="px-4 py-2">When</th>
+                <th className="px-4 py-2 text-right">Paid</th>
+                <th className="px-4 py-2">Receipt</th>
+                <th className="px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.tasks ?? []).map((t) => (
+                <tr key={t.id} className="border-t border-outline-variant/20">
+                  <td className="px-4 py-3">
+                    <Link href={`/agent/${t.agent_id}`} className="text-primary hover:underline">
+                      {t.agent_title}
+                    </Link>
+                    <div className="font-mono text-[10px] text-on-surface-variant">/{t.slug}</div>
+                  </td>
+                  <td className="px-4 py-3 text-on-surface-variant" title={t.created_at}>
+                    {relTime(t.created_at)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono">
+                    ${Number(t.amount_usdc).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <a
+                      href={receiptUrl(t.network, t.tx_hash)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      View receipt ↗
+                    </a>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      href={`/agent/${t.agent_id}`}
+                      className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs text-primary hover:bg-primary/20"
+                    >
+                      Use again
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
+}
+
+function KpiCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-xl border border-outline-variant/30 bg-surface p-4">
+      <div className="font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">{label}</div>
+      <div className="mt-1 font-headline text-2xl font-semibold text-on-surface">{value}</div>
+      {hint && <div className="mt-1 text-xs text-on-surface-variant">{hint}</div>}
+    </div>
+  );
+}
+
+function relTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return iso;
+  const delta = Math.max(0, Date.now() - t);
+  if (delta < 60_000) return 'just now';
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m ago`;
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h ago`;
+  if (delta < 7 * 86_400_000) return `${Math.floor(delta / 86_400_000)}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function receiptUrl(network: string, txHash: string): string {
+  if (!txHash || txHash.startsWith('mock-') || txHash.startsWith('free-')) return '#';
+  if (network === 'base-sepolia') return `https://sepolia.basescan.org/tx/${txHash}`;
+  return `https://sepolia.arbiscan.io/tx/${txHash}`;
 }
 
 // ─── EarningsTile ──────────────────────────────────────────────────────────

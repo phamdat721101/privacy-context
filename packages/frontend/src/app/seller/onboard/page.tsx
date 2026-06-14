@@ -51,7 +51,6 @@ type DomainId = (typeof DOMAINS)[number]['id'];
 
 const RAILS = [
   { id: 'x402', label: 'x402 USDC (default — fastest, public)' },
-  { id: 'sui_usdc', label: 'Sui USDC' },
   { id: 'mpp', label: 'MPP voucher' },
 ] as const;
 
@@ -86,7 +85,7 @@ interface PublishResult {
   kind: KindId;
   verification_tier: 'basic' | 'verified' | 'tee_attested';
   chain: string;
-  privacy_mode: 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+  privacy_mode: 'fhe' | 'metadata-only' | 'off';
   privacy_source: 'auto' | 'manual';
   listing_url: string;
   knowledge_url: string | null;
@@ -315,8 +314,7 @@ export default function SellerOnboardPage() {
           Publish your agent in 5 steps
         </h1>
         <p className="text-sm text-on-surface-variant md:text-base">
-          One human, many agents. Privacy auto-routes from your connected wallet — Fhenix on EVM,
-          Seal + Walrus on Sui.
+          One human, many agents. Knowledge stays end-to-end encrypted with Fhenix on Arbitrum.
         </p>
         {/* PRD-18 — symmetric callout to /docs Section E. Sellers who prefer
             an MCP-driven workflow can mint a single-use Fhenix permit at /docs
@@ -572,13 +570,12 @@ function Step3({
   override,
   setOverride,
 }: {
-  tier: 'standard' | 'trustless';
+  tier: 'standard';
   reason: string;
   override: PrivacyMode | undefined;
   setOverride: (m: PrivacyMode | undefined) => void;
 }) {
-  const tierLabel =
-    tier === 'standard' ? 'Standard (Fhenix CoFHE)' : 'Trustless (Seal IBE + Walrus + MemWal)';
+  const tierLabel = 'Standard (Fhenix CoFHE)';
   return (
     <>
       <div className="rounded border border-[#00dbe9]/40 bg-[color-mix(in_oklab,_#00dbe9_5%,_transparent)] p-3">
@@ -595,7 +592,6 @@ function Step3({
         <div className="mt-2 space-y-1 text-sm text-on-surface">
           {([
             ['fhe', 'Standard — Fhenix CoFHE on Arbitrum'],
-            ['seal_walrus', 'Trustless — Seal IBE + Walrus + MemWal on Sui'],
           ] as Array<[PrivacyMode, string]>).map(([mode, label]) => (
             <label key={mode} className="flex items-center gap-2">
               <input
@@ -892,7 +888,7 @@ function SuccessCard({
   onSpawnAnother: () => void;
   returnPath: string | null;
 }) {
-  const tierIsTrustless = result.privacy_mode === 'seal_walrus' || result.chain.startsWith('sui');
+  // Single-tier post-Sui-removal — no trustless branch.
   return (
     <div className="mx-auto max-w-2xl space-y-6 py-8 md:py-12">
       <div className="rounded-xl border border-secondary/40 bg-secondary/5 p-6">
@@ -931,7 +927,7 @@ function SuccessCard({
               className="inline-flex items-center gap-1 rounded border border-outline-variant/40 px-4 py-2 text-sm text-on-surface"
             >
               <span className="material-symbols-outlined text-[16px]" aria-hidden>
-                {tierIsTrustless ? 'cloud' : 'enhanced_encryption'}
+                enhanced_encryption
               </span>
               Add knowledge
             </Link>

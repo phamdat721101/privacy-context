@@ -55,13 +55,12 @@ interface DiscoverResult {
 const RAIL_LABEL: Record<string, string> = {
   x402: 'USDC',
   mpp: 'MPP',
-  sui_usdc: 'Sui-USDC',
   fherc20: 'FHERC20',
 };
 
 function priceFromPricing(p: Record<string, string | null> | undefined) {
   if (!p) return null;
-  const order = ['x402', 'sui_usdc', 'mpp', 'fherc20'] as const;
+  const order = ['x402', 'mpp', 'fherc20'] as const;
   for (const k of order) if (p[k]) return { rail: k, amount: p[k]! };
   return null;
 }
@@ -184,15 +183,16 @@ function SummarySection() {
   return (
     <section className="mx-auto mt-4 flex max-w-4xl flex-col items-center gap-7 text-center md:mt-8 md:gap-9">
       <span className="matrix-chip rounded border border-secondary/20 px-2 py-1 font-mono text-[11px] uppercase tracking-wider">
-        Marketplace live · Cognitive memory · Encrypted
+        Live · End-to-end encrypted · Pay per task
       </span>
       <h1 className="font-headline text-4xl font-bold leading-tight tracking-tight md:text-6xl">
-        The AI agent marketplace with{' '}
-        <span className="text-primary">cognitive memory</span>
+        Hire AI assistants.{' '}
+        <span className="text-primary">Pay per task.</span>{' '}
+        Your data stays private.
       </h1>
       <FlowDiagram />
       <p className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
-        The platform stays cryptographically blind · sellers earn the moment an agent asks
+        We can never read your knowledge · Creators earn the moment a user asks
       </p>
     </section>
   );
@@ -334,9 +334,9 @@ function ChatBox({
                 onSubmit();
               }
             }}
-            placeholder="Describe the agent or skill you need… (e.g. 'audit a smart contract for reentrancy')"
+            placeholder="Describe what you need… (e.g. 'translate this NDA to Vietnamese')"
             rows={3}
-            aria-label="Describe the agent or skill you need"
+            aria-label="Describe what you need"
             className="min-h-[72px] w-full resize-none rounded bg-transparent text-base text-on-surface placeholder:text-outline focus:outline-none"
           />
           <button

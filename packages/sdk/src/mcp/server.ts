@@ -22,9 +22,8 @@ export const MCP_PROTOCOL_VERSION = '2025-11-25';
 export const JSONRPC_PAYMENT_REQUIRED = -32402;
 
 /**
- * OpenX MCP gateway error codes (PRD-09b §9). Adding a code = one entry here +
- * one row in `MCP_ERROR_FROM_HTTP` below. Tools that throw an Error with a
- * matching `code` field (set by `memwalFetch`) are auto-translated.
+ * OpenX MCP gateway error codes. Adding a code = one entry here + one row in
+ * `MCP_ERROR_FROM_HTTP` below.
  */
 export const OpenXMcpErrorCode = {
   AuthRequired: -32000,
@@ -39,20 +38,7 @@ export const OpenXMcpErrorCode = {
   CompatMismatch: -32009,
 } as const;
 
-/** Map OpenXMemWal* error codes (from `memwalFetch` JSON envelope) → JSON-RPC. */
-const MCP_ERROR_FROM_MEMWAL: Record<string, number> = {
-  OPENX_MEMWAL_UPSTREAM_MISSING: OpenXMcpErrorCode.Upstream503,
-  OPENX_MEMWAL_COMPATIBILITY_MISMATCH: OpenXMcpErrorCode.CompatMismatch,
-  OPENX_MEMWAL_PAYMENT_DENIED: OpenXMcpErrorCode.PaymentDenied,
-  OPENX_MEMWAL_RATE_LIMIT: OpenXMcpErrorCode.RateLimit,
-  OPENX_MEMWAL_ACCOUNT_FROZEN: OpenXMcpErrorCode.AccountFrozen,
-  OPENX_MEMWAL_NO_ACCESS: OpenXMcpErrorCode.AccountFrozen,
-  OPENX_MEMWAL_STORAGE_QUOTA: OpenXMcpErrorCode.StorageQuota,
-  OPENX_MEMWAL_INVALID_CONFIG: OpenXMcpErrorCode.InvalidInput,
-  OPENX_MEMWAL_UPSTREAM_ERROR: OpenXMcpErrorCode.Upstream503,
-};
-
-/** Map raw HTTP status codes (from `memwalFetch`) → JSON-RPC. */
+/** Map raw HTTP status codes (from API helpers) → JSON-RPC. */
 const MCP_ERROR_FROM_HTTP: Record<number, number> = {
   400: OpenXMcpErrorCode.InvalidInput,
   401: OpenXMcpErrorCode.Upstream401,
@@ -65,20 +51,17 @@ const MCP_ERROR_FROM_HTTP: Record<number, number> = {
 };
 
 /**
- * Translate any thrown error into a JSON-RPC code + message. Three layers,
- * checked in order: explicit MemWal code → HTTP status → generic -32603.
+ * Translate any thrown error into a JSON-RPC code + message. Two layers:
+ * HTTP status → MCP error code, with a generic -32603 fallback.
  */
 function jsonRpcCodeFor(e: unknown): { code: number; message: string; data?: unknown } {
   const ex = e as { code?: string; status?: number; message?: string; retryAfterMs?: number };
-  if (ex?.code && MCP_ERROR_FROM_MEMWAL[ex.code] !== undefined) {
+  if (typeof ex?.status === 'number' && MCP_ERROR_FROM_HTTP[ex.status] !== undefined) {
     return {
-      code: MCP_ERROR_FROM_MEMWAL[ex.code],
-      message: ex.message ?? ex.code,
+      code: MCP_ERROR_FROM_HTTP[ex.status],
+      message: ex.message ?? `HTTP ${ex.status}`,
       data: ex.retryAfterMs != null ? { retry_after_ms: ex.retryAfterMs } : undefined,
     };
-  }
-  if (typeof ex?.status === 'number' && MCP_ERROR_FROM_HTTP[ex.status] !== undefined) {
-    return { code: MCP_ERROR_FROM_HTTP[ex.status], message: ex.message ?? `HTTP ${ex.status}` };
   }
   return { code: -32603, message: `Internal error: ${ex?.message ?? String(e)}` };
 }
@@ -108,23 +91,6 @@ export interface McpServerConfig {
   pricePerCall: string;
   /** Public URL the buyer should retry against after paying. */
   publicUrl: string;
-  /**
-   * Auth-mode selector (PRD-09 §5). Default = `openx-bound`.
-   *  - `openx-bound`   → all MemWal calls route through OpenX API.
-   *                      Operator pool holds delegate keys; buyer never
-   *                      sees them. Best for hosted clients.
-   *  - `memwal-direct` → tools call MemWal relayer directly using the
-   *                      user's `~/.memwal/credentials.json`. Bypasses
-   *                      OpenX entirely; suits power users.
-   *  - `hybrid`        → tool-prefix routing: `memwal_*` direct,
-   *                      `openx_memwal_*` through OpenX bearer.
-   *
-   * The current MemWal tool handlers always go through OpenX API — that
-   * is the authoritative `openx-bound` path. `memwal-direct` and `hybrid`
-   * are surfaced as configuration today; the in-tool routing branch lands
-   * in T22 once the credentials-file lifecycle (T23 wizard) is wired.
-   */
-  authMode?: 'openx-bound' | 'memwal-direct' | 'hybrid';
 }
 
 export class OpenXMcpServer {
@@ -184,7 +150,7 @@ export class OpenXMcpServer {
 
     if (tool.paid && !meta.payment) {
       const envelope: PaymentEnvelope = {
-        rail: 'sui_usdc',
+        rail: 'x402',
         amount_usdc: this.cfg.pricePerCall,
         pay_to: this.cfg.payTo,
         endpoint: this.cfg.publicUrl,

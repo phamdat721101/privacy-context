@@ -3,11 +3,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
-import { useCurrentAccount } from '@mysten/dapp-kit';
 import { usePermit } from '@/hooks/usePermit';
 import { usePrivacyDisclosure } from '@/hooks/useEncryptedBalance';
-import { useTier } from '@/hooks/useTier';
-import { useNetwork } from '@/hooks/useNetwork';
 import { PermitManager } from '@/components/PermitManager';
 import {
   AGENT_BACKEND_URL,
@@ -23,24 +20,17 @@ const CONTRACTS = [
 ];
 
 /**
- * Settings — wallet, encryption, contracts.
+ * Settings — account, encryption, contracts.
  *
- * Tier-aware composition: this page is the *only* place that decides which
- * encryption panel to render. `PermitManager` stays EVM/Fhenix-specific
- * (SRP); a Sui binding card is rendered inline for the trustless tier.
- * Adding a third tier later = one more branch here, nothing else.
- *
- * Subscriptions removed per docs/USP_BRIEF.md (sellers don't subscribe; buyers
- * pay per call via x402 on /v2/inference).
+ * Single-tier post-Sui-removal: every brain is encrypted with Fhenix CoFHE
+ * on Arbitrum. The PermitManager handles the encryption authorization;
+ * the contracts panel surfaces the on-chain addresses for the curious.
  */
 export default function SettingsPage() {
-  const { authenticated, ready, user, login, logout } = usePrivy();
+  const { authenticated, ready, login, logout } = usePrivy();
   const userAddress = usePrivyEvmAddress();
   const { permitState, reason, authorize, revoke, loading, error } = usePermit(userAddress);
   const disclosure = usePrivacyDisclosure();
-  const { tier } = useTier();
-  const { network } = useNetwork();
-  const suiAccount = useCurrentAccount();
 
   if (!ready) return null;
   if (!authenticated) {
@@ -58,18 +48,14 @@ export default function SettingsPage() {
     <div className="space-y-8">
       <div className="space-y-2">
         <h1 className="font-headline text-3xl font-bold">Settings</h1>
-        <p className="text-on-surface-variant">
-          {tier === 'trustless'
-            ? 'Trustless tier (Sui × Walrus × Tatum). Encryption + identity binding.'
-            : 'Encryption and contract addresses.'}
-        </p>
+        <p className="text-on-surface-variant">Account, encryption authorization, and on-chain receipts.</p>
       </div>
 
       <section className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-6">
-        <h2 className="font-headline text-lg font-semibold">Wallet</h2>
+        <h2 className="font-headline text-lg font-semibold">Account</h2>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-mono text-xs text-on-surface-variant">EVM address</div>
+            <div className="font-mono text-xs text-on-surface-variant">Address</div>
             <div className="truncate font-mono text-sm">{userAddress}</div>
           </div>
           <button
@@ -79,120 +65,22 @@ export default function SettingsPage() {
             Sign out
           </button>
         </div>
-        {tier === 'trustless' && (
-          <div className="border-t border-outline-variant/20 pt-3">
-            <p className="font-mono text-[11px] uppercase tracking-widest text-outline">MemWal account</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Link
-                href="/account/memwal"
-                className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs text-primary hover:bg-primary/20"
-              >
-                Manage account →
-              </Link>
-              <Link
-                href="/account/memwal/billing"
-                className="rounded-lg border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant hover:border-primary/40"
-              >
-                Billing →
-              </Link>
-            </div>
-            <div className="mt-3 font-mono text-xs text-on-surface-variant">Sui address</div>
-            <div className="truncate font-mono text-sm">
-              {suiAccount?.address ?? <span className="text-on-surface-variant">— not connected. Click “Connect Sui” in the top bar.</span>}
-            </div>
-            {/* MCP onboarding — promoted out of the public nav into Settings.
-                This is a seller-onboarding step, not a daily-use surface, so
-                living here matches its actual frequency-of-use. */}
-            <div className="mt-5 rounded-lg border border-secondary/30 bg-secondary/5 p-4">
-              <div className="flex items-start gap-3">
-                <span className="material-symbols-outlined text-secondary">cable</span>
-                <div className="flex-1">
-                  <p className="font-headline text-sm font-semibold">Onboard your agent to MCP clients</p>
-                  <p className="mt-1 text-xs text-on-surface-variant">
-                    Generate a personalized <code className="rounded bg-surface px-1 font-mono">mcp.json</code>
-                    for Cursor, Claude Desktop, Codex, Continue, or Windsurf.
-                    Once added, the host can call your published agents as paid MCP tools.
-                  </p>
-                  <Link
-                    href="/connect-mcp"
-                    className="mt-3 inline-flex items-center gap-1 rounded-full bg-secondary px-4 py-1.5 text-xs font-medium text-on-secondary hover:opacity-90"
-                  >
-                    Open MCP setup →
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </section>
 
       <MyActivitySection wallet={userAddress} />
 
       <section className="space-y-3">
         <h2 className="font-headline text-lg font-semibold">Encryption</h2>
-        {tier === 'trustless' ? (
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-5 space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                <span
-                  className="material-symbols-outlined text-primary"
-                  style={{ fontVariationSettings: "'FILL' 1" }}
-                >
-                  hub
-                </span>
-              </div>
-              <div>
-                <p className="font-semibold text-on-surface">Sui Trustless Tier Active</p>
-                <p className="text-xs text-on-surface-variant">
-                  AES-256-GCM in browser → SEAL IBE wrap → Walrus Quilt blob → Sui Move policy.
-                  Tatum mirrors the on-chain ownership event.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg bg-surface-container-low px-3 py-2 text-xs text-on-surface-variant">
-              <span className="material-symbols-outlined text-[14px]">link</span>
-              <span className="font-mono">
-                {suiAccount
-                  ? `Bound to Sui ${suiAccount.address.slice(0, 8)}…${suiAccount.address.slice(-6)}`
-                  : 'Sui wallet not connected — binding pending'}
-              </span>
-              {suiAccount && (
-                <a
-                  href={`${network.blockExplorer}&query=${suiAccount.address}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto text-primary hover:underline"
-                >
-                  View ↗
-                </a>
-              )}
-            </div>
-            <p className="text-xs text-on-surface-variant">
-              No platform-side decryption keys. The trustless tier does not require an FHE permit;
-              your Sui wallet authorizes Walrus reads via SEAL.
-            </p>
-            <Link
-              href="/brain-sui/new"
-              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-            >
-              Publish a trustless brain →
-            </Link>
-          </div>
-        ) : (
-          <PermitManager
-            permitState={permitState}
-            authorize={authorize}
-            revoke={revoke}
-            loading={loading}
-            error={error}
-            reason={reason}
-          />
-        )}
+        <PermitManager
+          permitState={permitState}
+          authorize={authorize}
+          revoke={revoke}
+          loading={loading}
+          error={error}
+          reason={reason}
+        />
       </section>
 
-      {/* T6/PRD-C: progressive-disclosure toggle. Off (default) → chat is
-          byte-identical to today. On → settlement IDs + FHE handles render
-          next to each assistant message. */}
       <section className="space-y-3">
         <h2 className="font-headline text-lg font-semibold">Privacy disclosure</h2>
         <label className="flex items-center justify-between gap-4 rounded-xl border border-outline-variant/30 bg-surface p-4">
@@ -212,14 +100,7 @@ export default function SettingsPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-headline text-lg font-semibold">
-          {tier === 'trustless' ? 'Standard-tier contracts (Arbitrum Sepolia)' : 'Contracts (Arbitrum Sepolia)'}
-        </h2>
-        {tier === 'trustless' && (
-          <p className="text-xs text-on-surface-variant">
-            Listed for reference — these contracts are inactive on the trustless tier.
-          </p>
-        )}
+        <h2 className="font-headline text-lg font-semibold">Contracts (Arbitrum Sepolia)</h2>
         <div className="overflow-hidden rounded-xl border border-outline-variant/30 bg-surface">
           <table className="w-full text-sm">
             <thead className="bg-surface-container-high text-left font-mono text-[10px] uppercase text-on-surface-variant">
@@ -233,9 +114,7 @@ export default function SettingsPage() {
               {CONTRACTS.map((c) => (
                 <tr key={c.name} className="border-t border-outline-variant/20">
                   <td className="px-4 py-3 font-medium">{c.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">
-                    {c.address || '—'}
-                  </td>
+                  <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">{c.address || '—'}</td>
                   <td className="px-4 py-3 text-right">
                     {c.address && (
                       <Link
@@ -259,15 +138,6 @@ export default function SettingsPage() {
 }
 
 // ─── My activity — re-homed dashboard widget ────────────────────────────
-//
-// Per IA cleanup: the global /dashboard page is no longer in nav; instead
-// the user-specific cash-flow surface lives here, on /settings. The full
-// aggregate dashboard is still reachable via the "View full dashboard →"
-// deeplink for cross-account view.
-//
-// Data source: the existing wallet-auth-gated /brains/earnings/:wallet
-// endpoint. No new API. SOLID: SRP (one component, one job — surface
-// per-user activity).
 
 interface EarningsResponse {
   wallet: string;
@@ -309,7 +179,8 @@ function MyActivitySection({ wallet }: { wallet: string | undefined }) {
         <div>
           <h2 className="font-headline text-lg font-semibold">My activity</h2>
           <p className="text-sm text-on-surface-variant">
-            Cash-flow from your published brains. Live counts from <code className="font-mono text-xs">paid_calls</code>.
+            Cash-flow from your published brains. Live counts from{' '}
+            <code className="font-mono text-xs">paid_calls</code>.
           </p>
         </div>
         <Link

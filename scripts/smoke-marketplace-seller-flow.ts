@@ -196,6 +196,59 @@ async function main(): Promise<void> {
     );
   }
 
+  // ─── PRD-21 — soft archive + restore + buyer task history ──────────────
+  // Archive the agent → assert listings count drops and re-fetch shows it
+  // in `archived_agents`. Restore → assert it re-appears in listings.
+  console.log('  ── PRD-21 archive/restore ──');
+  const beforeArchive = await http('/v3/marketplace/listings?limit=100');
+  const beforeCount = (beforeArchive.body.listings as any[]).length;
+
+  const archived = await http(`/v3/marketplace/seller/agent/${r.agent_id}`, {
+    method: 'DELETE',
+    headers: { 'x-wallet-address': WALLET },
+  });
+  assert(archived.body?.ok && archived.body?.archived_at, 'archive did not return archived_at');
+  console.log(`  ✓ archived agent_id=${r.agent_id}`);
+
+  const afterArchive = await http('/v3/marketplace/listings?limit=100');
+  const afterCount = (afterArchive.body.listings as any[]).length;
+  assert(afterCount === beforeCount - 1, `listings count did not drop (before=${beforeCount}, after=${afterCount})`);
+  console.log(`  ✓ /listings dropped ${r.slug} (${beforeCount} → ${afterCount})`);
+
+  const dash = await http('/v3/marketplace/seller/dashboard', {
+    headers: { 'x-wallet-address': WALLET },
+  });
+  const inHidden = (dash.body.archived_agents as any[]).some((a) => a.id === r.agent_id);
+  assert(inHidden, 'archived agent not in seller dashboard archived_agents');
+  console.log(`  ✓ /seller/dashboard.archived_agents contains the hidden agent`);
+
+  const restored = await http(`/v3/marketplace/seller/agent/${r.agent_id}/restore`, {
+    method: 'POST',
+    headers: { 'x-wallet-address': WALLET },
+  });
+  assert(restored.body?.restored === true, 'restore did not return restored:true');
+  console.log(`  ✓ restored agent_id=${r.agent_id}`);
+
+  const afterRestore = await http('/v3/marketplace/listings?limit=100');
+  const restoredCount = (afterRestore.body.listings as any[]).length;
+  assert(
+    restoredCount === beforeCount,
+    `listings count after restore != before (before=${beforeCount}, after=${restoredCount})`,
+  );
+  console.log(`  ✓ /listings recovered ${r.slug} after restore (${restoredCount} rows)`);
+
+  // Buyer tasks endpoint — empty for the seller wallet (it never paid for
+  // its own agent), but the endpoint must respond 200 with a valid shape.
+  const tasks = await http('/v3/marketplace/buyer/me/tasks', {
+    headers: { 'x-wallet-address': WALLET },
+  });
+  assert(Array.isArray(tasks.body?.tasks), 'buyer tasks did not return tasks array');
+  assert(typeof tasks.body?.task_count === 'number', 'buyer tasks did not return task_count');
+  assert(typeof tasks.body?.total_spent_usdc === 'string', 'buyer tasks did not return total_spent_usdc');
+  console.log(
+    `  ✓ /buyer/me/tasks: ${tasks.body.task_count} tasks, $${tasks.body.total_spent_usdc} spent (seller wallet)`,
+  );
+
   console.log('== smoke:marketplace-seller-flow PASS ==');
 }
 

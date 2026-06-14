@@ -5,12 +5,16 @@
  * `paid` triggers the `-32402 Payment Required` envelope in the dispatch layer
  * (see `server.ts`). `_meta` annotations are echoed verbatim to the client so
  * agent hosts can introspect price + KYA-tier requirements without calling.
+ *
+ * Post-Sui: every tool is Fhenix-tier. MemWal/Walrus/Sui-specific tools (the
+ * `memwal_*`, `openx_memwal_*`, `openx_brain_restore`, `openx_brain_cost`
+ * trustless tools) are removed.
  */
 
 import type { OpenXClient, MemoryId } from '../openx';
 
 export interface PaymentEnvelope {
-  rail: 'sui_usdc';
+  rail: 'x402';
   amount_usdc: string;
   pay_to: string;
   endpoint: string;
@@ -41,200 +45,53 @@ const tStr = { type: 'string' };
 const tInt = { type: 'integer' };
 
 export const TOOLS: ToolDef[] = [
+  // ─── Brain primitives — direct OpenXClient methods ─────────────────────
   {
     name: 'openx_brain_search',
     description: 'Semantic search across published OpenX brains. Free.',
     paid: false,
-    inputSchema: { type: 'object', properties: { query: tStr, topK: tInt }, required: ['query'] },
-    handler: async ({ openx, args }) => openx.recall(args.query as string, { topK: args.topK as number }),
+    inputSchema: {
+      type: 'object',
+      properties: { query: tStr, topK: tInt },
+      required: ['query'],
+    },
+    handler: async ({ openx, args }) =>
+      openx.recall(args.query as string, { topK: args.topK as number }),
   },
   {
     name: 'openx_brain_remember',
     description: 'Store text into the caller-owned brain (requires owner key).',
     paid: false,
-    inputSchema: { type: 'object', properties: { text: tStr, namespace: tStr }, required: ['text'] },
-    handler: async ({ openx, args }) =>
-      ({ memoryId: await openx.remember(args.text as string, { namespace: args.namespace as string }) }),
-  },
-  {
-    name: 'openx_brain_recall',
-    description: 'Paid retrieval of memories from a target brain (semantic search + decryption).',
-    paid: true,
-    inputSchema: { type: 'object', properties: { query: tStr, topK: tInt }, required: ['query'] },
-    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
-    handler: async ({ openx, args }) => openx.recall(args.query as string, { topK: args.topK as number }),
+    inputSchema: {
+      type: 'object',
+      properties: { text: tStr, namespace: tStr },
+      required: ['text'],
+    },
+    handler: async ({ openx, args }) => ({
+      memoryId: await openx.remember(args.text as string, {
+        namespace: args.namespace as string,
+      }),
+    }),
   },
   {
     name: 'openx_brain_ask',
     description: 'Paid LLM-answered query with cited memories + TEE attestation.',
     paid: true,
-    inputSchema: { type: 'object', properties: { query: tStr, topK: tInt }, required: ['query'] },
-    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
-    handler: async ({ openx, args }) => openx.ask(args.query as string, { topK: args.topK as number }),
-  },
-  {
-    name: 'openx_brain_publish',
-    description: 'Publish a brain to the OpenX catalog (one-time setup; free).',
-    paid: false,
-    inputSchema: { type: 'object', properties: { brainId: tStr, title: tStr } },
-    handler: async ({ args }) => ({ ok: true, note: 'wired in Phase 2 — for now use the web /brain UI', args }),
-  },
-  {
-    name: 'openx_brain_cost',
-    description: 'Cost dashboard for a brain — Walrus storage + read pricing in USD + WAL.',
-    paid: false,
-    inputSchema: { type: 'object', properties: { brainId: tStr }, required: ['brainId'] },
-    handler: async ({ args }) => ({ brainId: args.brainId, hint: 'Hit GET /v3/brains/:id/cost — wired Task 6.' }),
-  },
-  {
-    name: 'openx_brain_restore',
-    description: 'Sovereignty proof — rebuild chunk index from Walrus alone (trustless tier only).',
-    paid: false,
-    inputSchema: { type: 'object', properties: { brainId: tStr }, required: ['brainId'] },
-    handler: async ({ openx, args }) => openx.restore(args.brainId as string),
-  },
-
-  // ─── MemWal-tier tools (PRD-09 / @openx/memwal-adapter) ─────────────────
-  // These tools sit ABOVE upstream `@mysten-incubation/memwal-mcp`. The
-  // host invokes them, the gateway forwards to the OpenX API which speaks
-  // to MemWal via `OpenXMemWalAdapter`. Three-proof attestation + payment
-  // gating are server-side; the host just sees a uniform tool response.
-  {
-    name: 'memwal_marketplace_list',
-    description:
-      'List paid MemWal-tier brains. Filters: cognitive_level (1-5), max_price_usdc, kya, q (keyword).',
-    paid: false,
     inputSchema: {
       type: 'object',
-      properties: {
-        cognitive_level: tInt,
-        max_price_usdc: { type: 'number' },
-        kya: tStr,
-        q: tStr,
-      },
-    },
-    handler: async ({ openx, args }) => memwalFetch(openx, '/v3/memory/marketplace', 'GET', undefined, args),
-  },
-  {
-    name: 'memwal_marketplace_query',
-    description:
-      'Paid recall against a published MemWal brain. Returns recall results + three-proof attestation (Phala/Sui/Walrus).',
-    paid: true,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        brain_id: tStr,
-        query: tStr,
-        limit: tInt,
-        min_relevance: { type: 'number' },
-      },
-      required: ['brain_id', 'query'],
-    },
-    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
-    handler: async ({ openx, args }) =>
-      memwalFetch(openx, `/v3/memory/brain/${args.brain_id}/query`, 'POST', {
-        query: args.query,
-        limit: args.limit,
-        minRelevance: args.min_relevance,
-      }),
-  },
-  {
-    name: 'memwal_remember',
-    description: 'Store text in the caller-owned MemWalAccount. Sui-only — fails closed off Sui.',
-    paid: false,
-    inputSchema: {
-      type: 'object',
-      properties: { text: tStr, namespace: tStr },
-      required: ['text'],
-    },
-    handler: async ({ openx, args }) =>
-      memwalFetch(openx, '/v3/memory/remember', 'POST', { text: args.text, namespace: args.namespace }),
-  },
-  {
-    name: 'memwal_recall',
-    description: 'Semantic recall against the caller-owned MemWalAccount. Sui-only.',
-    paid: false,
-    inputSchema: {
-      type: 'object',
-      properties: { query: tStr, namespace: tStr, limit: tInt, min_relevance: { type: 'number' } },
+      properties: { query: tStr, topK: tInt },
       required: ['query'],
     },
+    _meta: { 'x-x402': { method: 'x402', currency: 'USDC' } },
     handler: async ({ openx, args }) =>
-      memwalFetch(openx, '/v3/memory/recall', 'POST', {
-        query: args.query,
-        namespace: args.namespace,
-        limit: args.limit,
-        minRelevance: args.min_relevance,
-      }),
-  },
-  {
-    name: 'memwal_analyze',
-    description:
-      'LLM-extract facts from a longer text and bulk-store them under the caller-owned MemWalAccount. Sui-only.',
-    paid: false,
-    inputSchema: {
-      type: 'object',
-      properties: { text: tStr, namespace: tStr },
-      required: ['text'],
-    },
-    handler: async ({ openx, args }) =>
-      memwalFetch(openx, '/v3/memory/analyze', 'POST', { text: args.text, namespace: args.namespace }),
-  },
-  {
-    name: 'memwal_restore',
-    description:
-      'Rebuild the relayer index for one of the caller-owned namespaces from Walrus alone (sovereignty op).',
-    paid: false,
-    inputSchema: {
-      type: 'object',
-      properties: { namespace: tStr, limit: tInt },
-      required: ['namespace'],
-    },
-    handler: async ({ openx, args }) =>
-      memwalFetch(openx, '/v3/memory/restore', 'POST', { namespace: args.namespace, limit: args.limit }),
-  },
-  {
-    name: 'openx_memwal_my_earnings',
-    description:
-      'Seller-only read: published MemWal brains + cumulative settlement totals + 24h query count.',
-    paid: false,
-    inputSchema: { type: 'object', properties: {} },
-    handler: async ({ openx }) => memwalFetch(openx, '/v3/memory/operator/stats', 'GET'),
-  },
-  {
-    name: 'openx_memwal_publish',
-    description:
-      'Cache the metadata of a MemWalBrain Sui object after the seller has submitted the on-chain publish_brain tx. Idempotent on suiObjectId.',
-    paid: false,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        suiObjectId: tStr,
-        memwalAccountId: tStr,
-        namespace: tStr,
-        title: tStr,
-        description: tStr,
-        pricePerQueryUsdc: tStr,
-        kyaRequired: { type: 'boolean' },
-        attestationRequired: tInt,
-        cognitiveLevel: tInt,
-        sovereigntyProofUrl: tStr,
-      },
-      required: ['suiObjectId', 'memwalAccountId', 'namespace', 'title'],
-    },
-    handler: async ({ openx, args }) =>
-      memwalFetch(openx, '/v3/memory/marketplace/publish', 'POST', args),
+      openx.ask(args.query as string, { topK: args.topK as number }),
   },
 
-  // ─── Marketplace v1 tools — agent-callable surface (PRD-C) ──────────────
-  // openx_marketplace_search returns LLM-ranked listings via /v3/discover.
-  // openx_agent_invoke proxies the paid /v3/agents/:id/chat endpoint and
-  // surfaces the standard -32402 envelope so MCP hosts that handle
-  // pay-then-retry (Claude / Cursor / AgentCash) work without bespoke wiring.
+  // ─── Marketplace tools — agent-callable surface ────────────────────────
   {
     name: 'openx_marketplace_search',
     description:
-      'Search the OpenX agent marketplace. Returns LLM-ranked agents with score, reason, chain, and pricing.',
+      'Search the OpenX agent marketplace. Returns LLM-ranked agents with score, reason, and pricing.',
     paid: false,
     inputSchema: {
       type: 'object',
@@ -244,7 +101,8 @@ export const TOOLS: ToolDef[] = [
     handler: async ({ openx, args }) => {
       const message = String(args.query ?? '').trim();
       if (!message) return { candidates: [], bundle: null };
-      const max = typeof args.max === 'number' ? Math.min(Math.max(args.max, 1), 5) : 5;
+      const max =
+        typeof args.max === 'number' ? Math.min(Math.max(args.max, 1), 5) : 5;
       const res = (await openxApiFetch(openx, '/v3/discover', 'POST', {
         message,
         max_steps: max,
@@ -253,16 +111,14 @@ export const TOOLS: ToolDef[] = [
           agent_id: string;
           score: number;
           reason: string;
-          chain: string;
           pricing: Record<string, string | null>;
+          domain?: string;
         }>;
         bundle?: unknown;
       };
-      // Optional client-side domain filter (concierge already biases on it
-      // via the LLM prompt, but explicit filter helps tight queries).
       const domain = typeof args.domain === 'string' ? args.domain : null;
       const candidates = (res?.candidates ?? []).filter((c) =>
-        domain ? (c as { domain?: string }).domain === domain : true,
+        domain ? c.domain === domain : true,
       );
       return { candidates, bundle: res?.bundle ?? null };
     },
@@ -270,7 +126,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'openx_agent_invoke',
     description:
-      'Invoke a published OpenX marketplace agent. Returns -32402 with x-payment-info on first call; pay then retry. Accepts either agent_id (UUID) or slug.',
+      'Invoke a published OpenX marketplace agent. Returns -32402 with x-payment-info on first call; pay then retry.',
     paid: true,
     inputSchema: {
       type: 'object',
@@ -281,7 +137,7 @@ export const TOOLS: ToolDef[] = [
       },
       required: ['input'],
     },
-    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
+    _meta: { 'x-x402': { method: 'x402', currency: 'USDC' } },
     handler: async ({ openx, args }) => {
       const id = (args.agent_id ?? args.slug) as string | undefined;
       if (!id) throw new Error('agent_id or slug required');
@@ -292,54 +148,20 @@ export const TOOLS: ToolDef[] = [
           : typeof input.message === 'string'
           ? input.message
           : JSON.stringify(input);
-      return openxApiFetch(openx, `/v3/agents/${encodeURIComponent(id)}/chat`, 'POST', {
-        message,
-      });
-    },
-  },
-  // openx_workflow_run — PRD-15 §9. Invoke a workflow listing by slug.
-  // Pays via the existing x402/sui-usdc rails; returns the full execution
-  // receipt (per-step + total). Caller may set max_cost_usdc as a guard.
-  {
-    name: 'openx_workflow_run',
-    description:
-      'Run an OpenX workflow listing by slug. Pays via the agent wallet and returns the full execution receipt. Returns -32402 on first call; pay and retry.',
-    paid: true,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        slug: tStr,
-        input: { type: 'object' },
-        max_cost_usdc: tStr,
-      },
-      required: ['slug', 'input'],
-    },
-    _meta: { 'x-x402': { method: 'sui-usdc', currency: 'USDC' } },
-    handler: async ({ openx, args }) => {
-      const slug = String(args.slug ?? '').trim();
-      if (!slug) throw new Error('slug required');
-      const input = (args.input ?? {}) as Record<string, unknown>;
-      const max_cost_usdc =
-        typeof args.max_cost_usdc === 'string' ? args.max_cost_usdc : undefined;
       return openxApiFetch(
         openx,
-        `/v3/marketplace/workflows/${encodeURIComponent(slug)}/run`,
+        `/v3/agents/${encodeURIComponent(id)}/chat`,
         'POST',
-        { input, max_cost_usdc },
+        { message },
       );
     },
   },
-  // openx_seller_publish — PRD-18. Atomic publish via the shipped
-  // /v3/marketplace/seller/publish endpoint, authenticated by a scoped
-  // single-use Fhenix onboard permit minted from /docs. Free (the listing
-  // bills per-call later via openx_agent_invoke). Replays of the same
-  // permit blob return HTTP 409.
   {
     name: 'openx_seller_publish',
     description:
       'Publish a new agent listing on OpenX using a scoped Fhenix onboard permit. ' +
       'Mint the permit at /docs while logged in (15-min, single-use). Returns the ' +
-      'agent_id, slug, listing_url, and an MCP invoke snippet for the new listing.',
+      'agent_id, slug, and listing_url.',
     paid: false,
     inputSchema: {
       type: 'object',
@@ -373,52 +195,9 @@ export const TOOLS: ToolDef[] = [
 // Re-export MemoryId so MCP consumers don't need a second import.
 export type { MemoryId };
 
-// ─── MemWal helper — used by the four memwal_* tool handlers above ───────
-// Routes through the OpenX API since the buyer never holds delegate keys.
-// SOLID: single function = single concern = uniform error envelope.
-async function memwalFetch(
-  openx: OpenXClient,
-  path: string,
-  method: 'GET' | 'POST',
-  body?: unknown,
-  query?: Record<string, unknown>,
-): Promise<unknown> {
-  const apiUrl = (openx as unknown as { apiUrl?: string }).apiUrl ?? '';
-  const wallet = (openx as unknown as { walletAddress?: string }).walletAddress;
-  const url = new URL(path, apiUrl || 'http://localhost:3001');
-  if (query) {
-    for (const [k, v] of Object.entries(query)) {
-      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-    }
-  }
-  const headers: Record<string, string> = { 'x-chain': 'sui' };
-  if (wallet) headers['x-wallet-address'] = wallet;
-  if (body) headers['Content-Type'] = 'application/json';
-  const r = await fetch(url.toString(), {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await r.text();
-  const json = text ? JSON.parse(text) : {};
-  if (!r.ok) {
-    const err = new Error(json?.message ?? `HTTP ${r.status}`) as Error & {
-      code?: string;
-      status?: number;
-    };
-    err.code = json?.error;
-    err.status = r.status;
-    throw err;
-  }
-  return json;
-}
-
-
-// ─── Generic OpenX API helper — used by marketplace tools (PRD-C) ────────
-// Sibling of `memwalFetch` but without the hardcoded `x-chain: sui` header,
-// since marketplace listings work across chains. SOLID: one function, one
-// concern, one error envelope. Errors carry HTTP status so the JSON-RPC
-// mapper in server.ts translates 402/429/503 etc. correctly.
+// ─── Generic OpenX API helper ───────────────────────────────────────────
+// SOLID: one function, one concern, one error envelope. Errors carry HTTP
+// status so the JSON-RPC mapper in server.ts translates 402/429/503 etc.
 async function openxApiFetch(
   openx: OpenXClient,
   path: string,

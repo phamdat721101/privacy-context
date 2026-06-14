@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { pool } from '../db';
 import { consumeOnboardJti } from '../fhe/permits';
 import { enqueueCreateBrain } from './chainOpsQueue';
-import { indexAgent } from './discoveryService';
 
 /**
  * sellerPublishService — atomic seller publish.
@@ -31,22 +30,18 @@ export type Domain =
 
 export type Tier = 'basic' | 'verified' | 'tee_attested';
 
-export type Rail = 'x402' | 'mpp' | 'sui_usdc' | 'fherc20';
+export type Rail = 'x402' | 'mpp' | 'fherc20';
 
 export type Chain =
   | 'arbitrum-sepolia'
   | 'fhenix'
-  | 'base-sepolia'
-  | 'sui'
-  | 'sui-testnet'
-  | 'sui-mainnet';
+  | 'base-sepolia';
 
 /** Listing kind — PRD-15. v1 = api/brain; v2 adds workflow + skill. */
 export type Kind = 'api' | 'workflow' | 'skill' | 'brain';
 
-/** Privacy mode — PRD-16. Auto-detected from connected wallet network or
- *  manually overridden in the wizard. */
-export type PrivacyModeStr = 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+/** Privacy mode — single tier (Fhenix CoFHE) post-Sui-removal. */
+export type PrivacyModeStr = 'fhe' | 'metadata-only' | 'off';
 export type PrivacySourceStr = 'auto' | 'manual';
 
 export interface SellerProfileInput {
@@ -61,7 +56,7 @@ export interface SellerProfileInput {
 export interface PrivacyInput {
   mode: PrivacyModeStr;
   source: PrivacySourceStr;
-  /** Numeric EVM chain id or string Sui chain. Persisted as BIGINT for EVM. */
+  /** Numeric EVM chain id. Persisted as BIGINT. */
   chain_id?: number | string;
 }
 
@@ -134,12 +129,12 @@ const DOMAINS: Domain[] = [
   'other',
 ];
 
-const RAILS: Rail[] = ['x402', 'mpp', 'sui_usdc', 'fherc20'];
+const RAILS: Rail[] = ['x402', 'mpp', 'fherc20'];
 
 const TIERS: Tier[] = ['basic', 'verified', 'tee_attested'];
 
 const KINDS: Kind[] = ['api', 'workflow', 'skill', 'brain'];
-const PRIVACY_MODES: PrivacyModeStr[] = ['fhe', 'seal_walrus', 'metadata-only', 'off'];
+const PRIVACY_MODES: PrivacyModeStr[] = ['fhe', 'metadata-only', 'off'];
 const PRIVACY_SOURCES: PrivacySourceStr[] = ['auto', 'manual'];
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,40}$/;
@@ -148,9 +143,6 @@ const CHAINS: Chain[] = [
   'arbitrum-sepolia',
   'fhenix',
   'base-sepolia',
-  'sui',
-  'sui-testnet',
-  'sui-mainnet',
 ];
 
 function slugify(s: string): string {
@@ -277,17 +269,13 @@ function renderManifest(
 }
 
 /**
- * Tier-aware knowledge upload URL. Standard tier (Fhenix on Arbitrum/Base)
- * routes to /brain; Trustless tier (Sui + Walrus + MemWal) routes to
- * /brain-sui/<id>. Returned in the publish result so the wizard's success
- * card deeplinks without a second round-trip.
+ * Knowledge-pack upload URL. Single chain (Arbitrum + Fhenix) post-Sui-removal.
+ * Returned in the publish result so the wizard's success card can deeplink
+ * without a second round-trip.
  */
 function knowledgeUrlFor(chain: Chain, brainId: number, baseUrl: string): string | null {
   if (chain === 'arbitrum-sepolia' || chain === 'fhenix' || chain === 'base-sepolia') {
     return `${baseUrl}/brain?id=${brainId}`;
-  }
-  if (chain === 'sui' || chain === 'sui-testnet' || chain === 'sui-mainnet') {
-    return `${baseUrl}/brain-sui/${brainId}`;
   }
   return null;
 }
@@ -345,7 +333,6 @@ export async function publish(
   const pricing: Record<Rail, string | null> = {
     x402: null,
     mpp: null,
-    sui_usdc: null,
     fherc20: null,
   };
   for (const r of railsArr) pricing[r] = input.pricing_amount_usdc;
@@ -402,9 +389,8 @@ export async function publish(
 
     // §2 PRD-15 — when kind='workflow', upsert cognitive_workflows row first
     // so the FK target exists when agents.workflow_ref is written below.
-    // For Standard-tier (Fhenix) workflows the sui_object_id / signature
-    // fields take placeholder values derived from the manifest hash;
-    // Sui-tier workflows overwrite them via the existing /v3/workflows path.
+    // The sui_object_id / signature columns (legacy) take placeholder values
+    // derived from the manifest hash.
     if (kind === 'workflow' && input.workflow) {
       const wf = input.workflow;
       const manifestHashHex = manifestHash.toString('hex');
@@ -504,20 +490,6 @@ export async function publish(
     }
 
     await client.query('COMMIT');
-
-    // PRD-17 §4 — best-effort MemWal index. DB row is already persisted;
-    // index failure is logged inside indexAgent() and never blocks publish.
-    void indexAgent({
-      agent_id: agentId,
-      slug,
-      title: input.title,
-      short_description: input.short_description,
-      domain: input.domain,
-      kind,
-      tags: input.tags,
-      persona_system_prompt: input.persona_system_prompt,
-    });
-
     return {
       agent_id: agentId,
       brain_id: brainId,

@@ -1,33 +1,20 @@
 /**
- * Privacy types — extended for seller-first marketplace v2.
+ * Privacy types — Arbitrum/Fhenix-only after the v2.0 Sui-removal relaunch.
  *
- * Backward-compatible: existing 'fhe' | 'metadata-only' | 'off' modes
- * stay; 'seal_walrus' is added for the Sui Trustless tier (Seal IBE +
- * Walrus + MemWal). Also adds the human-facing PrivacyTier and the
- * detection-source field used by the network-aware router (PRD-16).
+ * Single tier ('standard' = Fhenix CoFHE on Arbitrum). The 'trustless'
+ * tier (Seal + Walrus on Sui) is removed; PrivacyTier is kept as a single-
+ * value type so existing UI badges + hooks compile byte-identically.
  *
- * SOLID:
- *   - Types are the public contract. No runtime code in this file.
- *   - The router (privacyModeRouter.ts) and detector (networkDetect.ts)
- *     read these types; UI badges (PrivacyBadge.tsx) derive labels
- *     from `tier`, never from raw `mode`.
+ * SOLID: types only — no runtime code in this file.
  */
 
-export type PrivacyMode = 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+export type PrivacyMode = 'fhe' | 'metadata-only' | 'off';
 
-/**
- * Human-facing two-tier label. Maps:
- *   'fhe'           → 'standard'
- *   'seal_walrus'   → 'trustless'
- *   'metadata-only' → 'standard'
- *   'off'           → 'standard'
- */
-export type PrivacyTier = 'standard' | 'trustless';
+/** Human-facing tier label. Single value post-Sui-removal. */
+export type PrivacyTier = 'standard';
 
-/**
- * Whether the mode was auto-detected from the connected wallet's network
- * or manually picked by the seller via the wizard's override radio.
- */
+/** Whether the mode was auto-detected from the connected wallet's network
+ *  or manually picked by the seller via the wizard's override radio. */
 export type PrivacySource = 'auto' | 'manual';
 
 export interface PrivacyConfig {
@@ -38,9 +25,9 @@ export interface PrivacyConfig {
   contextEncryption?: boolean;
 }
 
-/** Pure projection — no runtime side-effects. */
-export function privacyTierFor(mode: PrivacyMode): PrivacyTier {
-  return mode === 'seal_walrus' ? 'trustless' : 'standard';
+/** Pure projection — every supported mode maps to the standard tier. */
+export function privacyTierFor(_mode: PrivacyMode): PrivacyTier {
+  return 'standard';
 }
 
 export interface FilteredMetadata {

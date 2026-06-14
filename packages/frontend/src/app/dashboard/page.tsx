@@ -5,21 +5,19 @@ import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 
 /**
- * /dashboard — Frame F1 cash-flow proof.
+ * /dashboard — public cash-flow proof.
  *
  * Renders live counts from /v3/dashboard/stats. SWR-style polling (30s).
- * Receipts link to Suivision (testnet) for Sui txs; otherwise generic.
+ * Receipts link to Arbiscan / Basescan; mocks/free previews return null.
  *
  * SOLID:
- *   - SRP: one page, one fetch, three render blocks. No cross-component state.
+ *   - SRP: one page, one fetch, three render blocks.
  */
 
 interface Stats {
   counts: {
     brains_published: number;
     workflows_published: number;
-    skills_published: number;
-    reflective_published: number;
     workflow_runs_total: number;
     workflow_runs_24h: number;
     total_usdc_routed: string;
@@ -35,14 +33,11 @@ interface Stats {
     method: string;
     created_at: string;
   }>;
-  walUsdRate?: { usdPerWal: number; cached: boolean; updatedAt: number };
   generatedAt: string;
 }
 
 function explorerUrl(network: string, txHash: string): string | null {
   if (!txHash || txHash.startsWith('mock-') || txHash.startsWith('free-')) return null;
-  if (network === 'sui-testnet') return `https://suivision.xyz/txblock/${txHash}?network=testnet`;
-  if (network === 'sui-mainnet') return `https://suivision.xyz/txblock/${txHash}`;
   if (network === 'base-sepolia') return `https://sepolia.basescan.org/tx/${txHash}`;
   if (network === 'arbitrum-sepolia') return `https://sepolia.arbiscan.io/tx/${txHash}`;
   return null;
@@ -107,11 +102,10 @@ export default function DashboardPage() {
       {address ? <SellerSection walletAddress={address} /> : null}
 
       {/* Top counts — the headline numbers Frame F1 cares about. */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard label="Brains" value={c.brains_published} hint="published" />
         <StatCard label="Workflows" value={c.workflows_published} hint="published" />
-        <StatCard label="Skills" value={c.skills_published} hint="published" />
-        <StatCard label="Reflective traces" value={c.reflective_published} hint="published" />
+        <StatCard label="USDC routed" value={`$${Number(c.total_usdc_routed).toFixed(2)}`} hint="all-time" />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -134,36 +128,7 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Tatum infrastructure section — surfaces the 3 Tatum products live in OpenX. */}
-      {stats.walUsdRate ? (
-        <section className="rounded-xl border border-secondary/30 bg-secondary/5 p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px] text-secondary">hub</span>
-            <h2 className="font-headline text-base font-semibold">Powered by Tatum</h2>
-            <span className="ml-auto rounded-full bg-secondary/10 px-2 py-0.5 font-mono text-[10px] uppercase text-secondary">
-              live
-            </span>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <StatCard
-              label="WAL / USD"
-              value={`$${stats.walUsdRate.usdPerWal.toFixed(4)}`}
-              hint={`Tatum Crypto Price API · ${stats.walUsdRate.cached ? '24h cached' : 'live'}`}
-            />
-            <StatCard
-              label="Walrus storage"
-              value={`$${(stats.walUsdRate.usdPerWal * 0.023).toFixed(5)}/GB·mo`}
-              hint="USD-pegged · published May 13 2026"
-            />
-            <StatCard
-              label="Sui RPC"
-              value="sui-*.gateway.tatum.io"
-              hint="failover → fullnode.{net}.sui.io"
-            />
-          </div>
-        </section>
-      ) : null}
-
+      {/* Top earners list */}
       <section>
         <h2 className="mb-3 font-headline text-xl font-semibold">Top earners</h2>
         {stats.topSellers.length === 0 ? (
@@ -278,7 +243,7 @@ interface SellerAgent {
   kind: 'api' | 'workflow' | 'skill' | 'brain';
   domain: string;
   verification_tier: 'basic' | 'verified' | 'tee_attested';
-  privacy_mode: 'fhe' | 'seal_walrus' | 'metadata-only' | 'off';
+  privacy_mode: 'fhe' | 'metadata-only' | 'off';
   created_at: string;
   earned_total: string;
   calls_total: number;

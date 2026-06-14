@@ -1,17 +1,12 @@
 'use client';
 
 /**
- * useConnectedPrivacyMode — wizard step-3 detector for PRD-16.
- *
- * Reads the canonical network registry (via `useNetwork`) and projects it
- * into a PrivacyMode + PrivacyTier. Manual override (collapsed picker in
- * the wizard) always wins.
+ * useConnectedPrivacyMode — wizard detector. Single-chain post-Sui-removal:
+ * every supported network is EVM (Arbitrum + Base) and maps to mode='fhe'.
  *
  * SOLID:
- *  - SRP: this hook just derives privacy from network + override. The
- *    detection algorithm itself lives in `@fhe-ai-context/sdk` (pure fn).
- *  - DIP: the SDK function is the policy; this hook is the adapter to
- *    React state.
+ *  - SRP: derive privacy from active network + manual override.
+ *  - DIP: detection algorithm lives in `@fhe-ai-context/sdk` (pure fn).
  */
 
 import { useMemo, useState } from 'react';
@@ -26,9 +21,8 @@ export interface UseConnectedPrivacyMode {
   detected: NetworkDetectResult;
   override: PrivacyMode | undefined;
   setOverride: (m: PrivacyMode | undefined) => void;
-  /** Numeric chain id (EVM) or Sui chain string — passed to publish API
-   *  as `privacy.chain_id`. */
-  chainId: number | string | undefined;
+  /** Numeric chain id — passed to publish API as `privacy.chain_id`. */
+  chainId: number | undefined;
 }
 
 export function useConnectedPrivacyMode(): UseConnectedPrivacyMode {
@@ -36,21 +30,12 @@ export function useConnectedPrivacyMode(): UseConnectedPrivacyMode {
   const [override, setOverride] = useState<PrivacyMode | undefined>(undefined);
 
   const { detected, chainId } = useMemo(() => {
-    if (network.kind === 'sui') {
-      return {
-        detected: detectPrivacyMode({
-          suiChain: network.suiChain,
-          manualOverride: override,
-        }),
-        chainId: network.suiChain as string,
-      };
-    }
     return {
       detected: detectPrivacyMode({
         evmChainId: network.id,
         manualOverride: override,
       }),
-      chainId: network.id as number,
+      chainId: network.id,
     };
   }, [network, override]);
 

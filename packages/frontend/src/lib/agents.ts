@@ -198,3 +198,92 @@ export async function getAgentCognitiveSnapshot(
   if (!r.ok) return null;
   return r.json() as Promise<AgentCognitiveSnapshot>;
 }
+
+// ─── PRD-21 — Studio archive + buyer task history helpers ────────────────
+
+/**
+ * Soft-archive a single agent. Buyer receipts in `paid_calls` are
+ * preserved (the agents row stays). Returns `archived_at` ISO timestamp.
+ */
+export async function archiveAgent(
+  agentId: string,
+  walletAddress: string,
+): Promise<{ ok: true; archived_at: string }> {
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/marketplace/seller/agent/${encodeURIComponent(agentId)}`,
+    { method: 'DELETE', headers: { 'x-wallet-address': walletAddress } },
+  );
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string })?.error ?? `archive failed: ${r.status}`);
+  }
+  return r.json() as Promise<{ ok: true; archived_at: string }>;
+}
+
+export async function restoreAgent(
+  agentId: string,
+  walletAddress: string,
+): Promise<{ ok: true; restored: true }> {
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/marketplace/seller/agent/${encodeURIComponent(agentId)}/restore`,
+    { method: 'POST', headers: { 'x-wallet-address': walletAddress } },
+  );
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string })?.error ?? `restore failed: ${r.status}`);
+  }
+  return r.json() as Promise<{ ok: true; restored: true }>;
+}
+
+/** Bulk-archive every active agent owned by the connected wallet. */
+export async function archiveAllMyAgents(
+  walletAddress: string,
+): Promise<{ ok: true; archived_count: number }> {
+  const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/archive-all`, {
+    method: 'POST',
+    headers: { 'x-wallet-address': walletAddress },
+  });
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string })?.error ?? `archive-all failed: ${r.status}`);
+  }
+  return r.json() as Promise<{ ok: true; archived_count: number }>;
+}
+
+export interface BuyerTask {
+  id: number;
+  agent_id: string;
+  agent_title: string;
+  slug: string;
+  amount_usdc: string;
+  tx_hash: string;
+  network: string;
+  method: string;
+  created_at: string;
+}
+
+export interface BuyerTasksResponse {
+  tasks: BuyerTask[];
+  task_count: number;
+  total_spent_usdc: string;
+  limit: number;
+  offset: number;
+}
+
+/** Buyer's full task / receipt history. Auth-derived; never takes a wallet
+ *  in the URL (paranoid against URL-leak / wrong-tab-grab). */
+export async function listMyTasks(
+  walletAddress: string,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<BuyerTasksResponse> {
+  const params = new URLSearchParams();
+  if (opts.limit) params.set('limit', String(opts.limit));
+  if (opts.offset) params.set('offset', String(opts.offset));
+  const qs = params.toString();
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/marketplace/buyer/me/tasks${qs ? `?${qs}` : ''}`,
+    { headers: { 'x-wallet-address': walletAddress } },
+  );
+  if (!r.ok) throw new Error(`tasks fetch failed: ${r.status}`);
+  return r.json() as Promise<BuyerTasksResponse>;
+}

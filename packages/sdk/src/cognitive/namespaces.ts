@@ -1,6 +1,6 @@
 /**
  * cognitive/namespaces.ts — single source of truth for the cognitive L1–L5
- * MemWal namespace convention (PRD-10).
+ * namespace convention (PRD-10).
  *
  * Pattern:  `cog-l{N}-{brainId}[-{sessionId}]`
  *
@@ -9,14 +9,6 @@
  *   L3 long-term    → cog-l3-<brainId>
  *   L4 workflow     → cog-l4-<brainId>
  *   L5 reflective   → cog-l5-<brainId>
- *
- * Why this lives in one file:
- *   • String formatting + parsing is centralized — no `cog-l${level}-` template
- *     literals are allowed anywhere else in the codebase.
- *   • Dual-write (cognitiveMemoryService → Postgres + MemWal) calls
- *     `cogNamespace()` so MemWal blobs are automatically grouped by level.
- *   • The marketplace publish flow (PRD-08) reads `cognitive_level` and
- *     re-derives the namespace — never persists it as a free-form string.
  *
  * SOLID: this module is pure (no I/O), so it's safe to import everywhere
  * (frontend, api, worker, scripts).
@@ -43,7 +35,7 @@ export const COGNITIVE_DEFAULT_PRICES_USDC: Record<CognitiveLevel, string> = {
 };
 
 /**
- * Build the canonical MemWal namespace for a (level, brainId[, sessionId]) triple.
+ * Build the canonical namespace for a (level, brainId[, sessionId]) triple.
  * Throws when L1 is requested without a sessionId — `cog-l1-<brainId>` would
  * leak the per-session boundary that L1 episodic memory depends on.
  */
@@ -76,29 +68,3 @@ export function parseCogNamespace(
   if (level === 1 && !sessionId) return null;
   return { level, brainId, sessionId };
 }
-
-/**
- * Dual-write contract — used by `cognitiveMemoryService` and any future
- * surface that wants to mirror a Postgres-stored cognitive memory into
- * MemWal in the background.
- *
- * The actual mirror is fire-and-forget: callers enqueue a job; a BullMQ
- * worker picks it up and calls `OpenXMemWalAdapter.remember(text, ns)`.
- * This interface keeps the service-layer code free of MemWal coupling
- * (DIP) — pass any function that satisfies the shape.
- */
-export interface CognitiveMirror {
-  enqueue(args: {
-    level: CognitiveLevel;
-    brainId: string;
-    sessionId?: string;
-    text: string;
-    /** Postgres row id — set on the row after MemWal write succeeds. */
-    postgresRowId: string | number;
-  }): Promise<void>;
-}
-
-/** No-op mirror — used when the worker isn't running (dev / tests). */
-export const noopCognitiveMirror: CognitiveMirror = {
-  enqueue: async () => undefined,
-};

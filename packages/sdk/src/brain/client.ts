@@ -189,10 +189,6 @@ registerBrainProvider('fhenix', (opts) =>
  * @example
  *   import { createBrainClient } from '@fhe-ai-context/sdk';
  *   const fhenix = createBrainClient('fhenix', { apiUrl, walletAddress });
- *
- *   // For Sui: import the sui-sdk once (registers itself), then:
- *   import '@fhe-ai-context/sui-sdk';
- *   const sui = createBrainClient('sui', { apiUrl, walletAddress });
  */
 export function createBrainClient(
   provider: ChainProvider,
@@ -201,10 +197,7 @@ export function createBrainClient(
   const factory = providers.get(provider);
   if (!factory) {
     throw new Error(
-      `BrainClient provider '${provider}' not registered. ` +
-        (provider === 'sui'
-          ? 'Did you import @fhe-ai-context/sui-sdk?'
-          : 'Call registerBrainProvider() first.'),
+      `BrainClient provider '${provider}' not registered. Call registerBrainProvider() first.`,
     );
   }
   return factory(opts);

@@ -97,7 +97,7 @@ Steps:
        "persona_tools": string[] (≤10),
        "pricing_amount_usdc": string (e.g. "0.05"; > 0, ≤ 1000),
        "pricing_rails": (subset of)
-                       ["x402","mpp","sui_usdc","fherc20"],
+                       ["x402","mpp","fherc20"],
        "accept_private_payment": boolean
                        (true → also expose Fhenix \`fherc20\` rail),
        "slug": string (optional, lowercase, [a-z0-9-], 3..40),
@@ -423,15 +423,6 @@ export default function DocsPage() {
             cryptographically blind to the plaintext. Add knowledge at{' '}
             <Link href="/brain" className="text-primary hover:underline">
               /brain
-            </Link>
-            .
-          </p>
-          <p>
-            <strong className="text-on-surface">Trustless tier</strong> — Sui + Walrus + MemWal.
-            AES key Seal-IBE-wrapped against the brain&apos;s identity policy; ciphertext lives on
-            Walrus; semantic recall via MemWal. Add knowledge at{' '}
-            <Link href="/brain-sui/new" className="text-primary hover:underline">
-              /brain-sui
             </Link>
             .
           </p>
