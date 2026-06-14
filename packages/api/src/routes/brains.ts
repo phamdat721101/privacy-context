@@ -149,8 +149,19 @@ router.get('/earnings/:wallet', auth, async (req: AuthRequest, res) => {
 });
 
 router.post('/create', auth, async (req: AuthRequest, res) => {
-  // Single chain post-Sui-removal: Fhenix CoFHE on Arbitrum. The FHE
-  // permit gate is the only authorization required to mint a brain row.
+  // Single chain post-Sui-removal: Fhenix CoFHE on Arbitrum. Two gates:
+  //  1. Wallet address must be a valid 40-hex EVM (rejects Sui leftovers
+  //     and other malformed addresses — prevents the v2.0 cleanup
+  //     orphans from reappearing).
+  //  2. FHE permit must be authorized.
+  const owner = req.user?.address ?? '';
+  if (!/^0x[0-9a-fA-F]{40}$/.test(owner)) {
+    return res.status(400).json({
+      error: 'Invalid wallet address',
+      reason: 'invalid_owner_format',
+      message: 'Brain owner must be a valid 40-hex EVM address.',
+    });
+  }
   if (!req.user?.hasPermit) {
     return res.status(403).json({
       error: 'Permit required',

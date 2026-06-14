@@ -309,6 +309,12 @@ export async function publish(
   },
 ): Promise<SellerPublishResult> {
   validate(input);
+  // Single chain post-Sui-removal: brains/agents are EVM-keyed. Reject
+  // malformed wallet addresses (Sui leftovers, placeholders, etc.) at the
+  // boundary so the marketplace never accumulates orphan rows again.
+  if (!/^0x[0-9a-fA-F]{40}$/.test(walletAddress)) {
+    throw httpErr('invalid wallet address (must be a 40-hex EVM)', 400);
+  }
 
   const owner = walletAddress.toLowerCase();
   const slug = input.slug ?? slugify(input.title);
