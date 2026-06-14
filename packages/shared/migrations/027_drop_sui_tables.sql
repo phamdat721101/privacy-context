@@ -46,15 +46,23 @@ ALTER TABLE brains DROP COLUMN IF EXISTS trustless_tier_data;
 ALTER TABLE brains
   ADD COLUMN IF NOT EXISTS payload_status TEXT NOT NULL DEFAULT 'active';
 
--- Consume the marker that migrate-to-supabase.ts wrote into metadata,
--- then strip it so the JSONB column doesn't grow unbounded over re-runs.
-UPDATE brains
-   SET payload_status = 'needs_reupload'
- WHERE metadata ->> 'payload_status' = 'needs_reupload';
-
-UPDATE brains
-   SET metadata = metadata - 'payload_status'
- WHERE metadata ? 'payload_status';
+-- Consume the migrate-to-supabase.ts marker IFF a `metadata` JSONB column
+-- exists (newer schemas may not have it). Wrapped in a DO block so the
+-- migration is portable across both shapes.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'brains' AND column_name = 'metadata'
+  ) THEN
+    UPDATE brains
+       SET payload_status = 'needs_reupload'
+     WHERE metadata ->> 'payload_status' = 'needs_reupload';
+    UPDATE brains
+       SET metadata = metadata - 'payload_status'
+     WHERE metadata ? 'payload_status';
+  END IF;
+END$$;
 
 -- ─── agents: drop Sui mirror columns ─────────────────────────────────────
 ALTER TABLE agents DROP COLUMN IF EXISTS sui_seller_address;
