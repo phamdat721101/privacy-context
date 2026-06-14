@@ -71,27 +71,30 @@ export default function StudioPage() {
         .catch(() => ({ agents: [] })),
     ])
       .then(([brainAgents, dash]) => {
-        // Dedupe: brain ids (number) vs agent uuids (string) live in
-        // different keyspaces, so we union directly with no collision.
-        // A v2-published listing exposes both a brain row and an agents
-        // row — listMyAgents already returns the brain side; we fold the
-        // v2-only fields (slug, kind, earnings) onto it where present.
+        // Match by brain_id (numeric, stable across v1 brains and v2
+        // marketplace listings). The dashboard endpoint returns brain_id +
+        // agent UUID for every agent owned by the wallet — so every brain
+        // surfaces with a Hide-able v3AgentId, including legacy v1 rows.
         const dashAgents = (dash?.agents ?? []) as Array<{
           id?: string;
+          brain_id?: number;
           slug?: string;
           kind?: string;
           earned_total?: string;
           calls_total?: number;
         }>;
-        const dashBySlug = new Map(dashAgents.filter((a) => a.slug).map((a) => [a.slug as string, a]));
+        const dashByBrainId = new Map(
+          dashAgents.filter((a) => a.brain_id != null).map((a) => [Number(a.brain_id), a]),
+        );
         const merged = brainAgents.map((a) => {
-          const m = a.slug ? dashBySlug.get(a.slug) : undefined;
+          const m = dashByBrainId.get(a.id);
           return m
             ? Object.assign({}, a, {
                 _kind: m.kind,
                 _earned: m.earned_total,
                 _calls: m.calls_total,
                 v3AgentId: m.id ?? a.v3AgentId,
+                slug: m.slug ?? a.slug,
               })
             : a;
         });
@@ -343,7 +346,7 @@ export default function StudioPage() {
                         key={a.id}
                         className="encryption-glow flex items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface p-4"
                       >
-                        <Link href={`/studio/${a.id}`} className="min-w-0 flex-1">
+                        <Link href={`/agent/${a.id}`} className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="material-symbols-outlined text-primary">smart_toy</span>
                             <div className="min-w-0">

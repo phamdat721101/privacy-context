@@ -287,24 +287,27 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
   if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
   const owner = req.user.address.toLowerCase();
   const sellerRow = await pool.query(`SELECT id FROM sellers WHERE wallet_address = $1`, [owner]);
-  if (sellerRow.rowCount === 0) return res.json({ seller: null, agents: [], earnings: null });
-  const sellerId = sellerRow.rows[0].id;
+  const sellerId = sellerRow.rowCount === 0 ? null : sellerRow.rows[0].id;
 
+  // Query agents by owner_address — broader than seller_id so legacy v1
+  // brains (no sellers row) still surface in the Studio creator tab.
+  // Includes a.brain_id so the frontend can match every brain↔agent pair
+  // and resolve the agent UUID for the per-row Hide/Restore actions.
   const [agents, archived, earnings] = await Promise.all([
     pool.query(
-      `SELECT a.id, a.slug, a.kind, a.domain, a.verification_tier, a.privacy_mode,
+      `SELECT a.id, a.brain_id, a.slug, a.kind, a.domain, a.verification_tier, a.privacy_mode,
               a.created_at,
               COALESCE(SUM(pc.amount_usdc), 0)::text AS earned_total,
               COUNT(pc.id)::int                      AS calls_total
          FROM agents a
          LEFT JOIN paid_calls pc ON pc.agent_id = a.id
-        WHERE a.seller_id = $1 AND a.archived_at IS NULL
+        WHERE LOWER(a.owner_address) = $1 AND a.archived_at IS NULL
      GROUP BY a.id
      ORDER BY a.created_at DESC`,
-      [sellerId],
+      [owner],
     ),
     pool.query(
-      `SELECT a.id, a.slug, a.kind, a.domain, a.verification_tier, a.privacy_mode,
+      `SELECT a.id, a.brain_id, a.slug, a.kind, a.domain, a.verification_tier, a.privacy_mode,
               a.created_at, a.archived_at,
               COALESCE(SUM(pc.amount_usdc), 0)::text AS earned_total,
               COUNT(pc.id)::int                      AS calls_total,
@@ -312,10 +315,10 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
          FROM agents a
          JOIN brains b ON b.id = a.brain_id
          LEFT JOIN paid_calls pc ON pc.agent_id = a.id
-        WHERE a.seller_id = $1 AND a.archived_at IS NOT NULL
+        WHERE LOWER(a.owner_address) = $1 AND a.archived_at IS NOT NULL
      GROUP BY a.id, b.title
      ORDER BY a.archived_at DESC`,
-      [sellerId],
+      [owner],
     ),
     pool.query(
       `SELECT
@@ -325,8 +328,8 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
          COUNT(*) FILTER (WHERE pc.created_at > now() - interval '7 days')                                 AS calls_7d
        FROM paid_calls pc
        JOIN agents a ON a.id = pc.agent_id
-      WHERE a.seller_id = $1`,
-      [sellerId],
+      WHERE LOWER(a.owner_address) = $1`,
+      [owner],
     ),
   ]);
 
