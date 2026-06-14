@@ -31,6 +31,7 @@
     "frontend:start": "npm run start -w packages/frontend",
     "openx-mcp:build": "npm run build -w packages/openx-mcp",
     "build": "npm run runtime-utils:build && npm run sdk:build && npm run ui:build && npm run openx-mcp:build && npm run api:build",
+    "postinstall": "node -e \"const fs=require('fs'),path=require('path'),walk=(d)=>{try{for(const e of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,e.name);if(e.isDirectory()){if(['_types','_esm','_cjs','node_modules'].includes(e.name))continue;walk(p);}else if(e.isFile()&&e.name.endsWith('.ts')&&!e.name.endsWith('.d.ts')){fs.unlinkSync(p);}}}catch{}};for(const r of ['node_modules/ox','node_modules/viem/node_modules/ox','node_modules/@cofhe/sdk/node_modules/ox','node_modules/@walletconnect/utils/node_modules/ox','node_modules/@walletconnect/universal-provider/node_modules/ox','node_modules/@walletconnect/ethereum-provider/node_modules/ox']){walk(r);}\"",
     "dev": "./scripts/start-dev.sh",
     "docker:up": "docker compose up -d",
     "docker:build": "docker compose build --parallel",
