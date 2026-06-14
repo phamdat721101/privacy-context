@@ -172,7 +172,7 @@ v3.get('/agents', async (req: Request, res: Response) => {
   const limit = Math.min(Number(req.query.limit ?? 50), 100);
   const r = await pool.query(
     `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
-     FROM agents WHERE published = true ORDER BY created_at DESC LIMIT $1`,
+     FROM agents WHERE published = true AND archived_at IS NULL ORDER BY created_at DESC LIMIT $1`,
     [limit],
   );
   res.json(r.rows);
@@ -234,7 +234,7 @@ v3.get('/agents/search', async (req: Request, res: Response) => {
 v3.get('/agents/:id', async (req: Request, res: Response) => {
   const r = await pool.query(
     `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
-     FROM agents WHERE id = $1`,
+     FROM agents WHERE id = $1 AND archived_at IS NULL`,
     [req.params.id],
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'not found' });
@@ -244,7 +244,7 @@ v3.get('/agents/:id', async (req: Request, res: Response) => {
 v3.get('/agents/by-owner/:owner', async (req: Request, res: Response) => {
   const r = await pool.query(
     `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, slug, created_at
-     FROM agents WHERE owner_address = $1 ORDER BY created_at DESC`,
+     FROM agents WHERE owner_address = $1 AND archived_at IS NULL ORDER BY created_at DESC`,
     [req.params.owner.toLowerCase()],
   );
   res.json(r.rows);
@@ -298,7 +298,7 @@ v3.post('/agents/:id/try', async (req: Request, res: Response) => {
   }
 
   const r = await pool.query(
-    `SELECT id, slug, brain_id, owner_address, persona, pricing FROM agents WHERE id = $1 AND published = true`,
+    `SELECT id, slug, brain_id, owner_address, persona, pricing FROM agents WHERE id = $1 AND published = true AND archived_at IS NULL`,
     [id],
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'agent not found' });

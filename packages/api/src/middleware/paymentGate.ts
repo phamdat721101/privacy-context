@@ -117,7 +117,7 @@ export async function paymentGate(req: PriceableRequest, res: Response, next: Ne
 
   const r = await pool.query(
     `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at
-     FROM agents WHERE id = $1 AND published = true`,
+     FROM agents WHERE id = $1 AND published = true AND archived_at IS NULL`,
     [agentId],
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'agent not found' });

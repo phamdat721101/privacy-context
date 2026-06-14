@@ -79,7 +79,7 @@ async function loadAgent(slug: string): Promise<AgentRow | null> {
   if (isReserved(slug)) return null;
   const r = await pool.query(
     `SELECT id, slug, brain_id, owner_address, persona, pricing, daily_request_cap, published, chain
-       FROM agents WHERE slug = $1 AND published = true`,
+       FROM agents WHERE slug = $1 AND published = true AND archived_at IS NULL`,
     [slug],
   );
   return (r.rows[0] as AgentRow) ?? null;

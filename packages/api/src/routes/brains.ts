@@ -5,11 +5,25 @@ import { logger } from '../lib';
 
 const router = Router();
 
+// Public-facing helper: a brain is "live" when it is published AND no
+// matching agent row is archived. Encoded as a NOT EXISTS subquery so
+// every public list/search/detail query gets the same gate, and brains
+// with no agent row (legacy v1) are NOT filtered out (they were never
+// in the marketplace to begin with).
+const ACTIVE_BRAIN_FILTER = `NOT EXISTS (
+  SELECT 1 FROM agents a
+   WHERE a.brain_id = brains.id AND a.archived_at IS NOT NULL
+)`;
+
 router.get('/', async (req, res) => {
   const { page = '1', limit = '20' } = req.query;
   const offset = (+page - 1) * +limit;
   const { rows } = await pool.query(
-    `SELECT id, owner_address, title, description, tags, created_at FROM brains WHERE published = true ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    `SELECT id, owner_address, title, description, tags, created_at
+       FROM brains
+      WHERE published = true AND ${ACTIVE_BRAIN_FILTER}
+      ORDER BY created_at DESC
+      LIMIT $1 OFFSET $2`,
     [+limit, offset]
   );
   res.json(rows);
@@ -19,7 +33,11 @@ router.get('/search', async (req, res) => {
   const { q = '', tags } = req.query;
   const tagArr = tags ? (tags as string).split(',') : [];
   const { rows } = await pool.query(
-    `SELECT id, owner_address, title, description, tags, created_at FROM brains WHERE published = true AND (title ILIKE $1 OR description ILIKE $1 OR tags && $2::text[]) LIMIT 20`,
+    `SELECT id, owner_address, title, description, tags, created_at
+       FROM brains
+      WHERE published = true AND ${ACTIVE_BRAIN_FILTER}
+        AND (title ILIKE $1 OR description ILIKE $1 OR tags && $2::text[])
+      LIMIT 20`,
     [`%${q}%`, tagArr]
   );
   res.json(rows);
@@ -159,7 +177,14 @@ router.get('/:id', async (req, res) => {
     return res.status(404).json({ error: 'Brain not found' });
   }
   try {
-    const { rows } = await pool.query(`SELECT * FROM brains WHERE id = $1`, [id]);
+    // PRD-22 — public detail returns 404 when ANY agent of this brain is
+    // archived, so stale share-links don't reveal hidden assistants. The
+    // owner sees their own archived brains via /brains/mine + Studio's
+    // Hidden section, not via this public route.
+    const { rows } = await pool.query(
+      `SELECT * FROM brains WHERE id = $1 AND ${ACTIVE_BRAIN_FILTER}`,
+      [id],
+    );
     if (!rows[0]) return res.status(404).json({ error: 'Brain not found' });
     res.json(rows[0]);
   } catch (err) {

@@ -86,18 +86,30 @@ export default function StudioPage() {
         const dashByBrainId = new Map(
           dashAgents.filter((a) => a.brain_id != null).map((a) => [Number(a.brain_id), a]),
         );
-        const merged = brainAgents.map((a) => {
-          const m = dashByBrainId.get(a.id);
-          return m
-            ? Object.assign({}, a, {
-                _kind: m.kind,
-                _earned: m.earned_total,
-                _calls: m.calls_total,
-                v3AgentId: m.id ?? a.v3AgentId,
-                slug: m.slug ?? a.slug,
-              })
-            : a;
-        });
+        // PRD-22 — exclude brains whose agent is archived. Without this,
+        // /brains/mine repopulates the active list on every re-fetch and
+        // the user sees hidden assistants reappear immediately after
+        // "Hide all". The dashboard's archived_agents is the source of
+        // truth — cheaper than a server-side LEFT JOIN.
+        const archivedBrainIds = new Set(
+          ((dash?.archived_agents ?? []) as Array<{ brain_id?: number }>)
+            .filter((a) => a.brain_id != null)
+            .map((a) => Number(a.brain_id)),
+        );
+        const merged = brainAgents
+          .filter((a) => !archivedBrainIds.has(a.id))
+          .map((a) => {
+            const m = dashByBrainId.get(a.id);
+            return m
+              ? Object.assign({}, a, {
+                  _kind: m.kind,
+                  _earned: m.earned_total,
+                  _calls: m.calls_total,
+                  v3AgentId: m.id ?? a.v3AgentId,
+                  slug: m.slug ?? a.slug,
+                })
+              : a;
+          });
         setAgents(merged);
         setArchivedAgents((dash?.archived_agents ?? []) as ArchivedAgent[]);
       })
