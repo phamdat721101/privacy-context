@@ -149,8 +149,13 @@ export default function AgentDetailPage() {
             See PaidApiHero({isDraft}) for the draft-aware rendering. */}
         <PaidApiHero agent={agent} agentJson={agentJson} isDraft={!isPublished} />
 
-        {/* PRD-2: free, rate-limited try-it — only when the API is live */}
-        {isPublished && <TryIt agent={agent} />}
+        {/* PRD-2 + PRD-23: task-framed run panel — visible for both
+            published (live API) AND draft agents. The /try endpoint is
+            free + rate-limited regardless of publish state, so there's
+            no reason to hide it on drafts. Drafts that get published
+            later are the same UX surface; drafts also benefit from
+            preview testing the persona before going live. */}
+        <TryIt agent={agent} />
 
         {/* Knowledge Snapshot — appears only when there's data */}
         {hasCognition && snap && (
@@ -451,13 +456,37 @@ function PaidApiHero({
   );
 }
 
-// ─── PRD-2: TryIt widget ───────────────────────────────────────────────────
+// ─── PRD-2 + PRD-23: HireBox (formerly TryIt) ────────────────────────────
 //
-// Free, rate-limited demo invocation. Posts to /v3/agents/:id/try; renders
-// the answer + citations + a "DEMO" chip. On 429, shows a countdown.
+// Task-framed runner. Buyer types a task, optionally attaches a reference
+// document (.txt/.md/.csv/.json/.log up to 100 KB read as UTF-8), and runs
+// it through the free, rate-limited /v3/agents/:id/try endpoint. Now also
+// renders for DRAFT agents — the /try endpoint is free regardless of
+// publish state, so there's no reason to gate it.
+//
+// SOLID:
+//   - SRP: one component owns task input + file context + invocation +
+//     result display. The /try API is the only external dep.
+//   - File reading is best-effort: text-like only, 100 KB cap, prepended
+//     to the prompt as labeled context. Binary files (PDFs, images) are
+//     out of scope for this single-shot demo path; a future paid Hire
+//     tier ports arb-mem's encrypted-file flow when needed.
+
+const FILE_MAX_BYTES = 100_000;
+const FILE_ACCEPT = '.txt,.md,.csv,.json,.log,text/*';
+
+async function readFileAsText(file: File): Promise<string> {
+  if (file.size > FILE_MAX_BYTES) {
+    throw new Error(
+      `File too large (${(file.size / 1024).toFixed(0)} KB > ${FILE_MAX_BYTES / 1024} KB). Try a shorter excerpt.`,
+    );
+  }
+  return await file.text();
+}
 
 function TryIt({ agent }: { agent: Agent }) {
   const [q, setQ] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [resp, setResp] = useState<{ answer: string; citations: number[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -466,16 +495,24 @@ function TryIt({ agent }: { agent: Agent }) {
   if (!agent.v3AgentId) return null;
 
   async function send() {
-    if (!q.trim() || busy) return;
+    if ((!q.trim() && !file) || busy) return;
     setBusy(true);
     setErr(null);
     setResp(null);
     setRetryAfterSec(null);
     try {
+      // Build the prompt: file content (if any) prepended as labeled
+      // context, then the user's task. The LLM treats the document as
+      // grounding; this matches arb-mem's translator demo shape.
+      let finalQ = q.trim();
+      if (file) {
+        const body = await readFileAsText(file);
+        finalQ = `Reference document "${file.name}":\n---\n${body}\n---\n\n${finalQ || `Use the document above to perform the task implied by the assistant's persona.`}`;
+      }
       const r = await fetch(`${AGENT_BACKEND_URL}/v3/agents/${agent.v3AgentId}/try`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: q.trim() }),
+        body: JSON.stringify({ q: finalQ }),
       });
       if (r.status === 429) {
         const body = await r.json().catch(() => ({}));
@@ -499,7 +536,7 @@ function TryIt({ agent }: { agent: Agent }) {
   return (
     <div className="space-y-3 rounded-xl border border-tertiary/30 bg-tertiary/5 p-5">
       <div className="flex items-center justify-between">
-        <h2 className="font-headline text-base font-semibold">Try it</h2>
+        <h2 className="font-headline text-base font-semibold">Run a task</h2>
         <span className="rounded-full border border-tertiary/30 bg-tertiary/10 px-2 py-0.5 font-mono text-[9px] uppercase text-tertiary">
           free demo · rate limited
         </span>
@@ -509,19 +546,60 @@ function TryIt({ agent }: { agent: Agent }) {
         onChange={(e) => setQ(e.target.value)}
         rows={3}
         maxLength={2000}
-        placeholder="Ask anything this brain might know…"
+        placeholder="What do you need this assistant to do? (e.g. translate this NDA, summarize this contract, audit this code)"
         className="w-full rounded-2xl border border-outline-variant/40 bg-surface px-4 py-2.5 text-sm focus:border-primary/60 focus:outline-none"
       />
-      <div className="flex items-center justify-end gap-2">
-        <span className="font-mono text-[10px] text-on-surface-variant">{q.length} / 2000</span>
-        <button
-          onClick={send}
-          disabled={busy || !q.trim()}
-          className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-on-primary disabled:opacity-50"
-        >
-          {busy ? 'Asking…' : 'Try'}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-outline-variant/40 bg-surface px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary">
+            <span className="material-symbols-outlined text-[14px]" aria-hidden>attach_file</span>
+            {file ? file.name.length > 28 ? `${file.name.slice(0, 25)}…` : file.name : 'Attach a document'}
+            <input
+              type="file"
+              accept={FILE_ACCEPT}
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                if (f && f.size > FILE_MAX_BYTES) {
+                  setErr(`File too large (${(f.size / 1024).toFixed(0)} KB > 100 KB). Pick a shorter excerpt.`);
+                  e.target.value = '';
+                  return;
+                }
+                setFile(f);
+                setErr(null);
+              }}
+              className="hidden"
+            />
+          </label>
+          {file && (
+            <button
+              type="button"
+              onClick={() => setFile(null)}
+              title="Remove attachment"
+              className="rounded-full border border-outline-variant/40 bg-surface px-2 py-1.5 text-xs text-on-surface-variant hover:border-error/40 hover:text-error"
+            >
+              ×
+            </button>
+          )}
+          {file && (
+            <span className="font-mono text-[10px] text-on-surface-variant">
+              {(file.size / 1024).toFixed(1)} KB
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] text-on-surface-variant">{q.length} / 2000</span>
+          <button
+            onClick={send}
+            disabled={busy || (!q.trim() && !file)}
+            className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-on-primary disabled:opacity-50"
+          >
+            {busy ? 'Running…' : file && !q.trim() ? 'Run with document' : 'Run task'}
+          </button>
+        </div>
       </div>
+      <p className="text-[11px] text-on-surface-variant">
+        Plain-text documents only (.txt, .md, .csv, .json, .log) up to 100 KB. PDFs and images aren&apos;t supported on the free tier yet.
+      </p>
       {err && (
         <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
           {err}
