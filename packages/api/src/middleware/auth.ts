@@ -36,6 +36,12 @@ const PUBLIC_PATHS: RegExp[] = [
   // Read-only aggregation over `paid_calls`; called before any wallet has
   // connected, so it cannot require an x-wallet-address header.
   /^\/agents\/top$/,
+  // /v3/agents — public listing of all published, non-archived agents.
+  // The route SQL filters `WHERE published = true AND archived_at IS NULL`,
+  // so no private data leaks. Required to be public so /agent/[id]'s
+  // getAgent() merge populates slug + v3AgentId without forcing a sign-in
+  // (drives isPublished detection → HireBox visibility).
+  /^\/agents$/,
   // /v3/agents/search — keyword fast-path search. Public; reads the
   // cached Postgres TF-IDF corpus.
   /^\/agents\/search$/,
