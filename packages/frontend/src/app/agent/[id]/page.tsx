@@ -322,10 +322,10 @@ function HireCTA({ agent, ownerBadge }: { agent: Agent; ownerBadge?: boolean }) 
             </span>
           )}
         </div>
-        <div className="mt-1 font-headline text-2xl font-bold">
-          ${agent.price?.amount ?? '0.01'}
-          <span className="ml-1 font-mono text-xs font-normal text-on-surface-variant">
-            {agent.price?.currency ?? 'USDC'} / call
+        <div className="mt-1 flex items-baseline gap-2">
+          <span className="font-headline text-2xl font-bold text-secondary">FREE</span>
+          <span className="font-mono text-xs font-normal text-on-surface-variant">
+            preview · no wallet
           </span>
         </div>
       </div>
@@ -337,7 +337,7 @@ function HireCTA({ agent, ownerBadge }: { agent: Agent; ownerBadge?: boolean }) 
         Run a task
       </Link>
       <p className="mt-2 text-center font-mono text-[10px] text-on-surface-variant">
-        Free demo for short prompts · attach files to settle paid.
+        No wallet needed · result downloadable as .md
       </p>
       {ownerBadge && (
         <Link

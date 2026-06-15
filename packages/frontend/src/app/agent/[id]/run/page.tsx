@@ -6,30 +6,25 @@
  * Layout (matches openx_agent_task_workspace mock, OpenX tokens only):
  *   • left  8/12 → agent identity strip + Task Parameters card
  *                  (requirement textarea, 50 MB drag-drop file zone)
- *   • right 4/12 → Execution Estimate + tiered Run/Pay button
+ *   • right 4/12 → Execution Estimate + single Run button
  *                  + AgentRecentCalls (TX history) stacked below
  *
- * Tiered run logic:
- *   no files → POST /v3/agents/:id/try            (free, rate-limited, demo)
- *   files    → USDC.transfer(payTo, price)
- *              → POST /v3/agents/:id/try with x-payment-tx + x-payment-from
- *              (server records paid_calls.method='exact', skips rate limit)
+ * Free preview tier (PRD-E J): every run goes through /v3/agents/:id/try,
+ * which is rate-limited and records `paid_calls.method='demo'`. No wallet
+ * signature, no USDC, no x-payment-tx. Re-enabling paid is a one-commit
+ * revert when ready.
  *
  * SOLID:
- *   • SRP — one page, one purpose. No chat composer, no integrate hero.
+ *   • SRP — one page, one purpose. No chat composer, no integrate hero,
+ *     no payment branch.
  *   • DIP — fetcher (`getAgent`, `uploadFileToAgent`) injected via lib/agents.
- *   • OCP — adding rails (e.g. fherc20) means swapping the `pay()` block,
- *           not refactoring the page.
- *
- * Per PRD-E (R1=b, R2=c, R3=a, R4=a, R5=a, R6=c).
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
-import { BrowserProvider, Contract, parseUnits } from 'ethers';
-import { usePrivyEvmAddress, usePrivyEvmWallet } from '@/hooks/useActiveWallet';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import {
   getAgent,
@@ -37,13 +32,6 @@ import {
   type Agent,
 } from '@/lib/agents';
 import { AgentRecentCalls } from '@/components/AgentRecentCalls';
-import { BASE_SEPOLIA_CHAIN_ID } from '@/lib/networks';
-
-// USDC ERC-20 on Base Sepolia (matches existing chat-page settlement).
-// Same trust model as /v2/inference: server records the claimed tx hash;
-// on-chain verification runs out-of-band as an audit job.
-const USDC_BASE_SEPOLIA = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
-const ERC20_ABI = ['function transfer(address to, uint256 value) returns (bool)'];
 
 const UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const UPLOAD_ACCEPT =
@@ -81,8 +69,6 @@ interface RunResult {
 export default function AgentWorkspacePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const { authenticated, ready, login } = usePrivy();
-  const evmWallet = usePrivyEvmWallet();
   const userAddress = usePrivyEvmAddress();
 
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -93,9 +79,9 @@ export default function AgentWorkspacePage() {
   const [uploading, setUploading] = useState(false);
 
   const [running, setRunning] = useState(false);
-  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!params?.id) return;
@@ -105,15 +91,12 @@ export default function AgentWorkspacePage() {
       .finally(() => setLoading(false));
   }, [params?.id]);
 
-  const priceUsdc = agent?.price?.amount ?? '0.01';
-  const isPaidPath = files.length > 0;
-
   const submitDisabled = useMemo(() => {
-    if (loading || running || paying || uploading) return true;
+    if (loading || running || uploading) return true;
     if (!requirement.trim() && files.length === 0) return true;
     if (!agent?.v3AgentId) return true; // legacy v1 brain — must be wrapped first
     return false;
-  }, [loading, running, paying, uploading, requirement, files.length, agent?.v3AgentId]);
+  }, [loading, running, uploading, requirement, files.length, agent?.v3AgentId]);
 
   // ── attachment pipeline ─────────────────────────────────────────────────
   // Branch:
@@ -219,48 +202,8 @@ export default function AgentWorkspacePage() {
     }
   }
 
-  async function payAndRun() {
-    if (!authenticated) {
-      login();
-      return;
-    }
-    if (!agent?.ownerAddress || !evmWallet || !userAddress) {
-      setError('Connect a wallet to pay.');
-      return;
-    }
-    setError(null);
-    setResult(null);
-    setPaying(true);
-    try {
-      // Settle USDC on Base Sepolia — same chain + token as the existing
-      // /chat page paid path. The /try server records this verbatim; an
-      // out-of-band audit job verifies the transfer log on-chain.
-      await evmWallet.switchChain(BASE_SEPOLIA_CHAIN_ID);
-      const provider = await evmWallet.getEthereumProvider();
-      const signer = await new BrowserProvider(provider).getSigner();
-      const usdc = new Contract(USDC_BASE_SEPOLIA, ERC20_ABI, signer);
-      const tx = await usdc.transfer(
-        agent.ownerAddress,
-        parseUnits(priceUsdc, 6),
-      );
-      await tx.wait();
-      setPaying(false);
-      setRunning(true);
-      const out = await callTry({
-        'x-payment-tx': tx.hash,
-        'x-payment-from': userAddress,
-      });
-      setResult(out);
-    } catch (e: any) {
-      setError(e?.shortMessage ?? e?.message ?? 'payment failed');
-    } finally {
-      setPaying(false);
-      setRunning(false);
-    }
-  }
-
   // ── render ───────────────────────────────────────────────────────────────
-  if (!ready || loading) {
+  if (loading) {
     return <div className="py-20 text-center text-on-surface-variant">Loading workspace…</div>;
   }
   if (!agent) {
@@ -464,26 +407,39 @@ export default function AgentWorkspacePage() {
               )}
               {result && (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase ${
-                        result.settled?.demo
-                          ? 'border-tertiary/30 bg-tertiary/10 text-tertiary'
-                          : 'border-secondary/30 bg-secondary/10 text-secondary'
-                      }`}
-                    >
-                      {result.settled?.demo ? 'demo' : 'paid'}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-secondary/30 bg-secondary/10 px-2 py-0.5 font-mono text-[9px] uppercase text-secondary">
+                      free preview
                     </span>
-                    {result.settled && !result.settled.demo && (
-                      <code className="truncate font-mono text-[10px] text-on-surface-variant">
-                        tx {result.settled.txHash.slice(0, 10)}…
-                      </code>
-                    )}
                     {result.citations.length > 0 && (
                       <span className="font-mono text-[10px] text-on-surface-variant">
                         cited chunks: [{result.citations.join(', ')}]
                       </span>
                     )}
+                    <div className="ml-auto flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => downloadAsMarkdown(result.answer, agent?.title)}
+                        className="inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-container-low px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant hover:border-primary/40 hover:text-primary"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">download</span>
+                        download .md
+                      </button>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await copyToClipboard(result.answer);
+                          setCopied(true);
+                          window.setTimeout(() => setCopied(false), 1500);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-container-low px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant hover:border-primary/40 hover:text-primary"
+                      >
+                        <span className="material-symbols-outlined text-[14px]">
+                          {copied ? 'check' : 'content_copy'}
+                        </span>
+                        {copied ? 'copied' : 'copy'}
+                      </button>
+                    </div>
                   </div>
                   <pre className="overflow-x-auto whitespace-pre-wrap font-sans text-sm text-on-surface">
                     {result.answer}
@@ -506,15 +462,11 @@ export default function AgentWorkspacePage() {
               <dl className="mt-3 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <dt className="text-on-surface-variant">Compute cost</dt>
-                  <dd className="font-mono text-primary">
-                    ${priceUsdc} <span className="text-on-surface-variant">USDC</span>
-                  </dd>
+                  <dd className="font-mono text-secondary">FREE preview</dd>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <dt className="text-on-surface-variant">Path</dt>
-                  <dd className="font-mono text-on-surface">
-                    {isPaidPath ? 'paid · x402' : 'free demo · rate-limited'}
-                  </dd>
+                  <dd className="font-mono text-on-surface">demo · rate-limited</dd>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <dt className="text-on-surface-variant">Attachments</dt>
@@ -523,25 +475,17 @@ export default function AgentWorkspacePage() {
               </dl>
               <button
                 type="button"
-                onClick={() => (isPaidPath ? payAndRun() : runFree())}
+                onClick={() => runFree()}
                 disabled={submitDisabled}
                 className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-mono text-sm uppercase tracking-wider text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 <span className="material-symbols-outlined text-[18px]">
-                  {paying ? 'hourglass_empty' : running ? 'sync' : 'play_arrow'}
+                  {running ? 'sync' : 'play_arrow'}
                 </span>
-                {paying
-                  ? 'Paying…'
-                  : running
-                    ? 'Running…'
-                    : isPaidPath
-                      ? `Pay $${priceUsdc} & Run`
-                      : 'Run task (free)'}
+                {running ? 'Running…' : 'Run task'}
               </button>
               <p className="mt-2 text-center font-mono text-[10px] text-on-surface-variant">
-                {isPaidPath
-                  ? 'Wallet signature required.'
-                  : 'No wallet needed for the free demo.'}
+                No wallet needed · result downloadable.
               </p>
             </section>
 
@@ -551,4 +495,40 @@ export default function AgentWorkspacePage() {
       </div>
     </div>
   );
+}
+
+// ─── result helpers (single consumer — this page) ──────────────────────────
+
+/**
+ * Trigger a browser download of the answer as a Markdown file.
+ * Filename derived from the agent title + timestamp; falls back to "task".
+ * No DOM library, no new component — just the standard Blob/anchor trick.
+ */
+function downloadAsMarkdown(answer: string, agentTitle: string | undefined): void {
+  if (typeof window === 'undefined') return;
+  const slug = (agentTitle ?? 'task')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'task';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const blob = new Blob([answer], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${slug}-${stamp}.md`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/** Best-effort clipboard write. Resolves silently when blocked. */
+async function copyToClipboard(text: string): Promise<void> {
+  if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* clipboard permission denied — silent */
+  }
 }
