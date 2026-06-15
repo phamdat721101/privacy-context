@@ -449,7 +449,20 @@ v3.post('/agents/:id/uploads', async (req: Request, res: Response) => {
       max_bytes: UPLOAD_MAX_BYTES,
     });
   } catch (err) {
-    logger.error({ agentId: id, err: (err as Error).message }, 'v3:uploads:failed');
+    // STORAGE_UNCONFIGURED → operator hasn't provisioned Supabase Storage.
+    // Surface a clear 503 instead of generic 500 so the workspace can show
+    // a useful message (and the user knows the inline path still works for
+    // text-y files ≤100KB).
+    const e = err as { code?: string; message?: string };
+    if (e?.code === 'STORAGE_UNCONFIGURED') {
+      logger.warn({ agentId: id, reason: e.message }, 'v3:uploads:disabled');
+      return res.status(503).json({
+        error: 'binary_uploads_disabled',
+        message:
+          'Binary uploads are not configured on this deploy. Text-y files (txt, md, csv, json, yaml, xml) up to 100 KB still work via the inline path. To enable larger / binary uploads, the operator must set SUPABASE_SERVICE_ROLE_KEY.',
+      });
+    }
+    logger.error({ agentId: id, err: e?.message }, 'v3:uploads:failed');
     res.status(500).json({ error: 'upload mint failed' });
   }
 });

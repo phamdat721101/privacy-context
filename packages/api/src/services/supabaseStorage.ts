@@ -175,29 +175,61 @@ let _singleton: SupabaseStorage | null = null;
 let _taskUploads: SupabaseStorage | null = null;
 
 /**
- * Lazy-construct a singleton from env. Throws when SUPABASE_URL or
- * SUPABASE_SERVICE_ROLE_KEY are unset — the API boot env-validator should
- * catch that, but we double-check here so a misconfigured deploy fails
- * loudly on the first publish rather than silently breaking storage.
+ * Resolve the Supabase project URL.
+ *
+ * Priority:
+ *   1. explicit SUPABASE_URL env (canonical)
+ *   2. derived from DATABASE_URL (Supabase pooler URL embeds the project ref
+ *      as `postgres.<project-ref>` in the user). We auto-derive so single-
+ *      tenant deploys don't need the same secret listed twice.
+ *
+ * Returns null when neither path produces a value.
+ */
+function resolveSupabaseUrl(): string | null {
+  if (process.env.SUPABASE_URL) return process.env.SUPABASE_URL;
+  const db = process.env.DATABASE_URL ?? '';
+  const m = db.match(/postgres(?:ql)?:\/\/[^:]+\.([a-z0-9]+):/);
+  return m ? `https://${m[1]}.supabase.co` : null;
+}
+
+/**
+ * Typed sentinel error thrown when storage env is incomplete. Route
+ * handlers should catch by `code` and return 503 with a clear message
+ * instead of leaking the generic 500.
+ */
+export class StorageUnconfiguredError extends Error {
+  readonly code = 'STORAGE_UNCONFIGURED' as const;
+  constructor(missing: string) {
+    super(`task uploads disabled: missing ${missing}`);
+    this.name = 'StorageUnconfiguredError';
+  }
+}
+
+function buildClient(bucket: string): SupabaseStorage {
+  const url = resolveSupabaseUrl();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    const missing = !url && !key
+      ? 'SUPABASE_URL (or DATABASE_URL) + SUPABASE_SERVICE_ROLE_KEY'
+      : !url
+        ? 'SUPABASE_URL (could not derive from DATABASE_URL)'
+        : 'SUPABASE_SERVICE_ROLE_KEY';
+    throw new StorageUnconfiguredError(missing);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createClient } = require('@supabase/supabase-js');
+  return new SupabaseStorage({ client: createClient(url, key), bucket });
+}
+
+/**
+ * Lazy-construct a singleton from env. Throws StorageUnconfiguredError
+ * when env is incomplete — callers should catch by `code` and degrade
+ * gracefully (e.g. workspace falls back to inline text uploads).
  */
 export function getSupabaseStorage(): SupabaseStorage {
   if (_singleton) return _singleton;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.SUPABASE_STORAGE_BUCKET ?? 'brain-blobs';
-  if (!url || !key) {
-    throw new Error(
-      'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for blob storage',
-    );
-  }
-  // Lazy require so tests / consumers without storage needs don't pull the
-  // ~1 MB @supabase/supabase-js bundle on import.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createClient } = require('@supabase/supabase-js');
-  _singleton = new SupabaseStorage({
-    client: createClient(url, key),
-    bucket,
-  });
+  _singleton = buildClient(bucket);
   return _singleton;
 }
 
@@ -209,16 +241,7 @@ export function getSupabaseStorage(): SupabaseStorage {
  */
 export function getTaskUploadsStorage(): SupabaseStorage {
   if (_taskUploads) return _taskUploads;
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.TASK_UPLOADS_BUCKET ?? 'task-uploads';
-  if (!url || !key) {
-    throw new Error(
-      'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for task uploads',
-    );
-  }
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createClient } = require('@supabase/supabase-js');
-  _taskUploads = new SupabaseStorage({ client: createClient(url, key), bucket });
+  _taskUploads = buildClient(bucket);
   return _taskUploads;
 }
