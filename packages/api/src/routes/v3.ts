@@ -283,18 +283,35 @@ v3.post('/agents/:id/try', async (req: Request, res: Response) => {
   const q = String(req.body?.q ?? req.body?.message ?? '').trim();
   if (!q || q.length > 2000) return res.status(400).json({ error: 'q or message required, ≤2000 chars' });
 
-  // Privacy: hash the IP rather than store it. 12 hex chars = 48 bits, plenty
-  // for keying without re-identification.
-  const ipHash = createHash('sha256').update(req.ip ?? 'unknown').digest('hex').slice(0, 12);
-  const perIp = tryAllow(`ip:${ipHash}:agent:${id}`, 10);
-  if (!perIp.ok) {
-    res.set('Retry-After', String(perIp.retryAfterSec));
-    return res.status(429).json({ error: 'try limit reached for this agent today', retryAfterSec: perIp.retryAfterSec });
-  }
-  const perAgent = tryAllow(`agent:${id}`, 100);
-  if (!perAgent.ok) {
-    res.set('Retry-After', String(perAgent.retryAfterSec));
-    return res.status(429).json({ error: 'agent demo cap reached today', retryAfterSec: perAgent.retryAfterSec });
+  // PRD-E unified dispatcher:
+  //   • absent x-payment-tx → demo path (rate-limited, free, paid_calls.method='demo')
+  //   • present x-payment-tx → paid path (skip rate limit, method='exact', amount from agent.pricing)
+  // Same trust model as /v2/inference today — server records the claimed tx
+  // verbatim; on-chain verification is an out-of-band audit job.
+  const paymentTx =
+    typeof req.headers['x-payment-tx'] === 'string'
+      ? (req.headers['x-payment-tx'] as string).trim()
+      : '';
+  const payerAddr =
+    typeof req.headers['x-payment-from'] === 'string'
+      ? (req.headers['x-payment-from'] as string).toLowerCase()
+      : '';
+  const isPaid = paymentTx.length > 0;
+
+  if (!isPaid) {
+    // Privacy: hash the IP rather than store it. 12 hex chars = 48 bits, plenty
+    // for keying without re-identification.
+    const ipHash = createHash('sha256').update(req.ip ?? 'unknown').digest('hex').slice(0, 12);
+    const perIp = tryAllow(`ip:${ipHash}:agent:${id}`, 10);
+    if (!perIp.ok) {
+      res.set('Retry-After', String(perIp.retryAfterSec));
+      return res.status(429).json({ error: 'try limit reached for this agent today', retryAfterSec: perIp.retryAfterSec });
+    }
+    const perAgent = tryAllow(`agent:${id}`, 100);
+    if (!perAgent.ok) {
+      res.set('Retry-After', String(perAgent.retryAfterSec));
+      return res.status(429).json({ error: 'agent demo cap reached today', retryAfterSec: perAgent.retryAfterSec });
+    }
   }
 
   const r = await pool.query(
@@ -307,26 +324,202 @@ v3.post('/agents/:id/try', async (req: Request, res: Response) => {
   try {
     const { runInference } = await import('./v1Public');
     const { record } = await import('../services/paidCallLedger');
+    const uploadIds = Array.isArray(req.body?.upload_ids)
+      ? (req.body.upload_ids as unknown[])
+          .filter((x): x is string => typeof x === 'string' && x.length > 0)
+          .slice(0, 5) // hard cap per call — defends LLM context window + DB
+      : [];
     const result = await runInference(
-      { brain_id: agent.brain_id, persona: agent.persona },
+      { id: agent.id, brain_id: agent.brain_id, persona: agent.persona },
       q,
+      uploadIds,
     );
-    const txHash = `demo-${randomUUID()}`;
+    const txHash = isPaid ? paymentTx : `demo-${randomUUID()}`;
+    const method = isPaid ? 'exact' : 'demo';
+    const amountUsdc = isPaid
+      ? String(agent.pricing?.x402 ?? '0.01')
+      : '0';
+    const buyer = isPaid ? (payerAddr || 'anonymous') : 'demo';
     await record({
       agentId: agent.id,
       slug: agent.slug ?? `agent-${agent.id}`,
-      buyer: 'demo',
-      amountUsdc: '0',
+      buyer,
+      amountUsdc,
       txHash,
       network: process.env.X402_NETWORK ?? 'arbitrum-sepolia',
-      method: 'demo',
+      method,
     });
-    logger.info({ agentId: agent.id, ipHash }, 'service:try:end');
-    res.json({ ...result, settled: { method: 'demo', txHash, demo: true } });
+    logger.info({ agentId: agent.id, paid: isPaid }, 'service:try:end');
+    res.json({
+      ...result,
+      settled: { method, txHash, demo: !isPaid, amount_usdc: amountUsdc },
+    });
   } catch (err) {
     logger.error({ agentId: agent.id, err: (err as Error).message }, 'service:try:failed');
     res.status(500).json({ error: 'inference failed' });
   }
+});
+
+// ─── PRD-E: workspace uploads + public recent-calls feed ───────────────────
+//
+// Both endpoints support the new /agent/:id/run workspace surface. They
+// share the agent-lookup helper inline (pool.query is one-shot here, so
+// no abstraction earns its keep). All limits enforced server-side; the
+// client cannot bypass them by tweaking request bodies.
+
+const UPLOAD_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+const UPLOAD_MAX_PER_HOUR_PER_AGENT = 100; // soft DoS guard
+const UPLOAD_ALLOWED_MIME_RE =
+  /^(text\/|application\/(json|csv|x-yaml|xml|pdf|wasm|x-wasm|octet-stream)|image\/(png|jpeg|webp))/i;
+
+function sanitizeName(raw: string): string {
+  // Strip path separators, collapse to a-zA-Z0-9._-, trim length.
+  return (raw || 'file')
+    .replace(/[\\/]/g, '_')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(0, 80);
+}
+
+/**
+ * POST /v3/agents/:id/uploads — mint a signed PUT URL for one workspace
+ * file. The client uploads directly to Supabase Storage; the API never
+ * proxies the bytes. Bucket is ensured idempotently on first call.
+ *
+ * Body: { original_name, mime_type, size_bytes }
+ * Resp: { upload_id, signed_url, storage_path, expires_in_sec, max_bytes }
+ */
+v3.post('/agents/:id/uploads', async (req: Request, res: Response) => {
+  const id = req.params.id;
+  const originalName = String(req.body?.original_name ?? '').trim();
+  const mimeType = String(req.body?.mime_type ?? 'application/octet-stream').trim();
+  const sizeBytes = Number(req.body?.size_bytes ?? 0);
+
+  if (!originalName) return res.status(400).json({ error: 'original_name required' });
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return res.status(400).json({ error: 'size_bytes must be a positive number' });
+  }
+  if (sizeBytes > UPLOAD_MAX_BYTES) {
+    return res.status(413).json({ error: `file exceeds ${UPLOAD_MAX_BYTES} bytes` });
+  }
+  if (!UPLOAD_ALLOWED_MIME_RE.test(mimeType)) {
+    return res.status(415).json({ error: `mime_type ${mimeType} not allowed` });
+  }
+
+  // Validate agent + per-hour soft cap in one round-trip.
+  const guard = await pool.query(
+    `SELECT a.id, a.published, a.archived_at,
+            (SELECT COUNT(*)::int FROM task_uploads u
+              WHERE u.agent_id = a.id AND u.created_at > NOW() - INTERVAL '1 hour') AS hour_count
+       FROM agents a WHERE a.id = $1`,
+    [id],
+  );
+  const row = guard.rows[0];
+  if (!row || !row.published || row.archived_at) {
+    return res.status(404).json({ error: 'agent not found' });
+  }
+  if (row.hour_count >= UPLOAD_MAX_PER_HOUR_PER_AGENT) {
+    return res.status(429).json({ error: 'agent upload cap reached, retry later' });
+  }
+
+  const uploadId = randomUUID();
+  const safeName = sanitizeName(originalName);
+  const storagePath = `${id}/${uploadId}/${safeName}`;
+  const uploaderAddr =
+    typeof req.body?.uploader_addr === 'string'
+      ? req.body.uploader_addr.toLowerCase()
+      : (req as AuthRequest).user?.address?.toLowerCase() ?? null;
+
+  try {
+    const { getTaskUploadsStorage } = await import('../services/supabaseStorage');
+    const storage = getTaskUploadsStorage();
+    await storage.ensureBucket({ public: false, fileSizeLimit: UPLOAD_MAX_BYTES });
+    const { signedUrl } = await storage.signedUploadUrl(storagePath);
+
+    await pool.query(
+      `INSERT INTO task_uploads (id, agent_id, uploader_addr, storage_path, original_name, mime_type, size_bytes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [uploadId, id, uploaderAddr, storagePath, originalName, mimeType, sizeBytes],
+    );
+
+    res.json({
+      upload_id: uploadId,
+      signed_url: signedUrl,
+      storage_path: storagePath,
+      expires_in_sec: 60,
+      max_bytes: UPLOAD_MAX_BYTES,
+    });
+  } catch (err) {
+    logger.error({ agentId: id, err: (err as Error).message }, 'v3:uploads:failed');
+    res.status(500).json({ error: 'upload mint failed' });
+  }
+});
+
+// ─── public recent-calls feed (paid only, anonymized, 5s cache) ────────────
+//
+// Powers the right-column TX history on /agent/:id and /agent/:id/run.
+// Rolling cache key = `agent:${id}:limit:${n}`. Cache TTL is small so the
+// social-proof feed feels live without hitting Postgres on every poll.
+
+interface RecentCallRow {
+  tx_hash: string;
+  payer: string;
+  amount_usdc: string;
+  status: 'success' | 'demo' | 'free';
+  network: string;
+  settled_at: string;
+}
+
+const recentCallsCache = new Map<
+  string,
+  { at: number; rows: RecentCallRow[] }
+>();
+const RECENT_CALLS_TTL_MS = 5_000;
+const RECENT_CALLS_MAX_LIMIT = 50;
+
+function anonAddr(addr: string): string {
+  if (!addr || addr.length < 10) return addr ?? '';
+  if (addr === 'demo') return 'demo';
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function methodToStatus(method: string): RecentCallRow['status'] {
+  if (method === 'demo' || method === 'free') return method;
+  return 'success'; // exact / fherc20 / any future paid rail
+}
+
+v3.get('/agents/:id/recent-calls', async (req: Request, res: Response) => {
+  const id = req.params.id;
+  const limit = Math.max(
+    1,
+    Math.min(RECENT_CALLS_MAX_LIMIT, Number(req.query.limit ?? 10) | 0),
+  );
+  const key = `${id}:${limit}`;
+  const now = Date.now();
+  const cached = recentCallsCache.get(key);
+  if (cached && now - cached.at < RECENT_CALLS_TTL_MS) {
+    res.set('Cache-Control', 'public, max-age=5');
+    return res.json({ rows: cached.rows, cached: true });
+  }
+
+  const r = await pool.query(
+    `SELECT tx_hash, buyer, amount_usdc::text AS amount_usdc, network, method, created_at
+       FROM paid_calls
+      WHERE agent_id = $1
+      ORDER BY created_at DESC
+      LIMIT $2`,
+    [id, limit],
+  );
+  const rows: RecentCallRow[] = r.rows.map((row) => ({
+    tx_hash: row.tx_hash,
+    payer: anonAddr(row.buyer ?? ''),
+    amount_usdc: row.amount_usdc,
+    status: methodToStatus(row.method),
+    network: row.network,
+    settled_at: row.created_at,
+  }));
+  recentCallsCache.set(key, { at: now, rows });
+  res.set('Cache-Control', 'public, max-age=5');
+  res.json({ rows, cached: false });
 });
 
 /**

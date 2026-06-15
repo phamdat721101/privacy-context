@@ -72,6 +72,12 @@ curl -X POST https://13-229-63-192.sslip.io/v3/discover \
 
 # 3. Hit the translator paywall — returns 402 with a payment challenge.
 curl -i https://13-229-63-192.sslip.io/api/v1/translator-en-vi
+
+# 4. Public anonymized ledger of recent paid calls (PRD-E).
+curl 'https://13-229-63-192.sslip.io/v3/agents/<agent-uuid>/recent-calls?limit=5' | jq
+
+# 5. Run a task in the new workspace (browser):
+#    /agent/<id>/run  — left: task description + 50 MB upload, right: pay & run + TX history.
 ```
 
 The full pay-and-receive flow needs a wallet to sign EIP-3009; the [SDK](packages/sdk) ships an x402 helper for both browser and Node.

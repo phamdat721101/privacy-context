@@ -137,7 +137,8 @@ async function buildProvider(agent: AgentRow): Promise<CachedProvider> {
         name: 'ask',
         description: 'Ask this brain a question.',
         price: priceMicroUsdc,
-        handler: async (input: { question: string }) => runInference(agent, input.question),
+        handler: async (input: { question: string; uploadIds?: string[] }) =>
+          runInference(agent, input.question, input.uploadIds ?? []),
       }),
     ],
   });
@@ -178,18 +179,106 @@ export function invalidateProvider(slug: string): void {
 // ─── inference helper (kept small — delegates to existing services) ────────
 
 /**
+ * Inline budget for text-y attachments. Files smaller than this and with a
+ * text-y MIME are fetched server-side via signed URL and pasted into the
+ * prompt as labelled context. Anything larger is referenced by name + size
+ * + signed URL so the LLM knows the document exists without us blowing
+ * the context window.
+ */
+const UPLOAD_INLINE_BYTES = 100_000;
+const TEXTY_MIME_RE = /^(text\/|application\/(json|csv|x-yaml|xml))/i;
+
+interface UploadRow {
+  id: string;
+  storage_path: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+}
+
+/**
+ * Resolve `uploadIds[]` into an LLM-ready prompt prefix. Marks rows
+ * consumed in the same transaction so a row can't be replayed across
+ * many free /try calls.
+ *
+ * Pure-ish: queries DB + Supabase Storage; no other side-effects beyond
+ * the consumed_at update. Returns the prompt prefix (possibly empty).
+ */
+export async function buildUploadContext(
+  agentId: string,
+  uploadIds: string[],
+): Promise<string> {
+  if (!uploadIds.length) return '';
+  const { pool } = await import('../db');
+  const r = await pool.query<UploadRow>(
+    `UPDATE task_uploads
+        SET consumed_at = NOW()
+      WHERE id = ANY($1::uuid[])
+        AND agent_id = $2
+        AND consumed_at IS NULL
+        AND expires_at > NOW()
+      RETURNING id, storage_path, original_name, mime_type, size_bytes`,
+    [uploadIds, agentId],
+  );
+  if (r.rowCount === 0) return '';
+
+  const { getTaskUploadsStorage } = await import('../services/supabaseStorage');
+  const storage = getTaskUploadsStorage();
+  const blocks: string[] = [];
+  for (const row of r.rows) {
+    const uri = storage.toUri(row.storage_path);
+    const inlineable =
+      row.size_bytes <= UPLOAD_INLINE_BYTES && TEXTY_MIME_RE.test(row.mime_type);
+    if (inlineable) {
+      try {
+        const buf = await storage.download(uri);
+        blocks.push(
+          `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes):\n---\n${buf.toString('utf8')}\n---`,
+        );
+        continue;
+      } catch (err) {
+        logger.warn({ id: row.id, err: (err as Error).message }, 'upload:inline:failed');
+      }
+    }
+    // Binary or oversized: emit a signed-URL reference. The LLM can include
+    // the URL in its answer if the agent persona supports tool calls.
+    try {
+      const signed = await storage.signedUrl(uri, 900);
+      blocks.push(
+        `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes, binary): ${signed}`,
+      );
+    } catch (err) {
+      logger.warn({ id: row.id, err: (err as Error).message }, 'upload:signed:failed');
+      blocks.push(
+        `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes) — could not be loaded.`,
+      );
+    }
+  }
+  return blocks.join('\n\n');
+}
+
+/**
  * Run RAG + LLM for one paid call. Exported so PRD-2's `/v3/agents/:id/try`
  * can reuse the same path without duplicating the chunk-rank-LLM dance.
+ *
+ * `uploadIds` (PRD-E) attaches workspace files to the prompt. Empty array
+ * is the legacy behaviour — every existing caller stays byte-identical.
  */
 export async function runInference(
-  agent: { brain_id: number; persona: AgentRow['persona'] },
+  agent: { id?: string; brain_id: number; persona: AgentRow['persona'] },
   question: string,
+  uploadIds: string[] = [],
 ): Promise<{ answer: string; citations: number[] }> {
   const chunks = await KnowledgeIngestService.loadChunks(agent.brain_id);
   const ranked = rankChunks(question, chunks).slice(0, 5);
   const context = ranked.map((c) => c.content).filter(Boolean).join('\n---\n');
   const system = buildSystemPrompt(agent.persona, context);
-  const answer = await llmChat(system, [{ role: 'user', content: question }]);
+  const uploadCtx =
+    agent.id && uploadIds.length
+      ? await buildUploadContext(agent.id, uploadIds)
+      : '';
+  const userMsg = uploadCtx ? `${uploadCtx}\n\n${question}` : question;
+  const answer = await llmChat(system, [{ role: 'user', content: userMsg }]);
   // Citations are positional indices into the ranked chunk list; the agent.json
   // surface declares this so callers can map [n] → ranked[n].
   return { answer, citations: ranked.map((_, i) => i) };

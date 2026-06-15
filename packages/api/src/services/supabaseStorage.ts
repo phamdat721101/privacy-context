@@ -41,7 +41,20 @@ interface SupabaseClientLike {
         path: string,
         ttlSec: number,
       ): Promise<{ data: { signedUrl: string } | null; error: { message: string } | null }>;
+      createSignedUploadUrl(
+        path: string,
+      ): Promise<{
+        data: { signedUrl: string; path: string; token: string } | null;
+        error: { message: string } | null;
+      }>;
     };
+    createBucket(
+      name: string,
+      opts?: { public?: boolean; fileSizeLimit?: number },
+    ): Promise<{ data: unknown; error: { message: string } | null }>;
+    getBucket(
+      name: string,
+    ): Promise<{ data: unknown; error: { message: string } | null }>;
   };
 }
 
@@ -115,9 +128,51 @@ export class SupabaseStorage {
     }
     return data.signedUrl;
   }
+
+  /**
+   * Mint a one-shot signed PUT URL the *client* can upload to directly.
+   * Used by /v3/agents/:id/uploads so the API never proxies large files
+   * (high-perf: zero bytes through Express). Path is bucket-relative.
+   *
+   * Throws on Supabase error so callers can surface 5xx with context.
+   */
+  async signedUploadUrl(
+    path: string,
+  ): Promise<{ signedUrl: string; storageUri: string; token: string }> {
+    const { data, error } = await this.deps.client.storage
+      .from(this.deps.bucket)
+      .createSignedUploadUrl(path);
+    if (error || !data) {
+      throw new Error(`supabase signed-upload-url failed: ${error?.message ?? 'no url'}`);
+    }
+    return {
+      signedUrl: data.signedUrl,
+      storageUri: this.toUri(path),
+      token: data.token,
+    };
+  }
+
+  /**
+   * Idempotent bucket creation. Errors with messages containing "exists"
+   * (Supabase's wording for already-created buckets) are swallowed so this
+   * is safe to call on every boot. Any other error propagates.
+   */
+  async ensureBucket(opts: { public?: boolean; fileSizeLimit?: number } = {}): Promise<void> {
+    const probe = await this.deps.client.storage.getBucket(this.deps.bucket);
+    if (probe.data) return;
+    const { error } = await this.deps.client.storage.createBucket(this.deps.bucket, {
+      public: opts.public ?? false,
+      fileSizeLimit: opts.fileSizeLimit,
+    });
+    if (error && !/exists/i.test(error.message)) {
+      throw new Error(`supabase ensureBucket failed: ${error.message}`);
+    }
+    this.deps.logger?.info({ bucket: this.deps.bucket }, 'supabase:bucket:ensured');
+  }
 }
 
 let _singleton: SupabaseStorage | null = null;
+let _taskUploads: SupabaseStorage | null = null;
 
 /**
  * Lazy-construct a singleton from env. Throws when SUPABASE_URL or
@@ -144,4 +199,26 @@ export function getSupabaseStorage(): SupabaseStorage {
     bucket,
   });
   return _singleton;
+}
+
+/**
+ * Storage handle for ephemeral workspace uploads (50 MB cap, 24h TTL,
+ * private bucket — signed URLs only). Separate from the brain-blobs bucket
+ * so retention + access policies stay independent. Bucket is created
+ * idempotently on first use.
+ */
+export function getTaskUploadsStorage(): SupabaseStorage {
+  if (_taskUploads) return _taskUploads;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const bucket = process.env.TASK_UPLOADS_BUCKET ?? 'task-uploads';
+  if (!url || !key) {
+    throw new Error(
+      'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set for task uploads',
+    );
+  }
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createClient } = require('@supabase/supabase-js');
+  _taskUploads = new SupabaseStorage({ client: createClient(url, key), bucket });
+  return _taskUploads;
 }

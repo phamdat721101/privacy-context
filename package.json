@@ -46,6 +46,7 @@
     "smoke:permit-onboard": "tsx scripts/smoke-marketplace-seller-flow.ts",
     "smoke:marketplace-seller-first": "tsx scripts/smoke-marketplace-seller-first.ts",
     "smoke:translator-e2e": "tsx scripts/smoke-translator-e2e.ts",
+    "smoke:workspace-e2e": "tsx scripts/smoke-workspace-e2e.ts",
     "smoke:fhenix-onboard": "tsx scripts/smoke-fhenix-onboard.ts",
     "seed:translator": "tsx scripts/seed-translator-agent.ts",
     "seed:curated-brain": "tsx scripts/seed-curated-brain.ts",

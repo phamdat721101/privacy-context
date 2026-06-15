@@ -100,6 +100,14 @@ export interface SellerPublishInput {
   /** PRD-16: explicit privacy choice from the wizard. When omitted,
    *  defaults to {mode:'fhe', source:'auto'} for back-compat. */
   privacy?: PrivacyInput;
+  /**
+   * PRD-E F5 — when set, publish reuses the caller's existing draft brain
+   * instead of creating a new one. Ownership is enforced inside the
+   * publish transaction; mismatches throw 403. Title/description/tags
+   * are still taken from the wizard form, so the seller can edit metadata
+   * during the publish step.
+   */
+  existing_brain_id?: number;
 }
 
 export interface SellerPublishResult {
@@ -153,6 +161,36 @@ function slugify(s: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || 'agent'
   );
+}
+
+/**
+ * Pick the first free slug at or after `base`. Cheap: one indexed read.
+ * Read inside the publish transaction so the resolved value is consistent
+ * with the §4 INSERT that follows — race conditions across two concurrent
+ * publishes still hit the agents_slug UNIQUE constraint at INSERT time
+ * (caught downstream as 409), but for the common case (one wallet, one
+ * publish) the resolution is deterministic.
+ *
+ * Returns the base when nothing collides; otherwise the first free
+ * `${base}-${N}` for N starting at 2. Capped at 999 attempts; on cap
+ * collision the caller will surface a 409 — matches existing behaviour.
+ */
+async function resolveFreeSlug(
+  client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<{ slug: string }> }> },
+  base: string,
+): Promise<string> {
+  const r = await client.query(
+    `SELECT slug FROM agents WHERE slug = $1 OR slug LIKE $2`,
+    [base, `${base}-%`],
+  );
+  if (r.rows.length === 0) return base;
+  const used = new Set(r.rows.map((row) => row.slug));
+  if (!used.has(base)) return base;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${base}-${n}`;
+    if (!used.has(candidate) && candidate.length <= 40) return candidate;
+  }
+  return base; // exhausted — let the INSERT throw 409 downstream
 }
 
 /** Lift a thrown Error to carry an HTTP-style status code. */
@@ -317,7 +355,14 @@ export async function publish(
   }
 
   const owner = walletAddress.toLowerCase();
-  const slug = input.slug ?? slugify(input.title);
+  const baseSlug = input.slug ?? slugify(input.title);
+  // The transaction below resolves the final slug inside the same tx
+  // (read-committed) — pre-check + fallback ensures a free slug even when
+  // the seller has archived agents that still own the natural slug
+  // (UNIQUE constraint on agents.slug spans archived rows). Lifecycle
+  // matches the rest of the publish path: no rollback ambiguity.
+  let slug: string = baseSlug;
+  const slugIsExplicit = !!input.slug;
   const tier: Tier = input.verification_tier ?? 'basic';
   const chain: Chain = input.chain ?? 'arbitrum-sepolia';
   const tags = input.tags ?? [];
@@ -436,44 +481,142 @@ export async function publish(
       );
     }
 
-    // §3 brain INSERT (existing path; brain is the knowledge backstore for
-    // kind='brain'/'api' — for kind='workflow'/'skill' it's still created
-    // as a placeholder so existing chat/recall paths keep working).
-    const brainRes = await client.query(
-      `INSERT INTO brains (owner_address, title, description, tags, published, chain)
-       VALUES ($1, $2, $3, $4, true, $5)
-       RETURNING id`,
-      [owner, input.title, input.long_description ?? input.short_description, tags, chain],
-    );
-    const brainId = brainRes.rows[0].id as number;
+    // §3 brain step — two branches keep this dead simple:
+    //   (a) existing_brain_id set → ownership-checked UPDATE of the draft.
+    //       Closes the "publish creates a new brain" loop reported on
+    //       2026-06-15 where owners ended up with two rows per agent.
+    //   (b) fresh INSERT — historical path, default.
+    let brainId: number;
+    if (typeof input.existing_brain_id === 'number' && input.existing_brain_id > 0) {
+      const upd = await client.query(
+        `UPDATE brains
+            SET title       = $2,
+                description = $3,
+                tags        = $4,
+                published   = true,
+                chain       = $5
+          WHERE id = $1 AND lower(owner_address) = $6
+          RETURNING id`,
+        [
+          input.existing_brain_id,
+          input.title,
+          input.long_description ?? input.short_description,
+          tags,
+          chain,
+          owner,
+        ],
+      );
+      if (upd.rowCount === 0) {
+        // Either the brain doesn't exist or the connected wallet doesn't
+        // own it. 403 prevents the wizard from accidentally publishing a
+        // brain it has no rights to (defense-in-depth — the CTA only
+        // surfaces for owners, but the server is the source of truth).
+        throw httpErr('not the brain owner', 403);
+      }
+      brainId = upd.rows[0].id as number;
+    } else {
+      const brainRes = await client.query(
+        `INSERT INTO brains (owner_address, title, description, tags, published, chain)
+         VALUES ($1, $2, $3, $4, true, $5)
+         RETURNING id`,
+        [owner, input.title, input.long_description ?? input.short_description, tags, chain],
+      );
+      brainId = brainRes.rows[0].id as number;
+    }
 
-    // §4 agents INSERT — extended with seller_id + kind + workflow_ref
-    // + privacy_mode/source/connected_chain_id (PRD-14 + PRD-15 + PRD-16).
-    const agentRes = await client.query(
-      `INSERT INTO agents (
-         brain_id, owner_address, chain, persona, pricing,
-         kya_required, min_reputation, published, slug,
-         domain, short_description, verification_tier, manifest_yaml, manifest_hash,
-         seller_id, kind, workflow_ref,
-         privacy_mode, privacy_source, connected_chain_id
-       )
-       VALUES (
-         $1, $2, $3, $4::jsonb, $5::jsonb,
-         false, 0, true, $6,
-         $7, $8, $9, $10, $11,
-         $12, $13, $14,
-         $15, $16, $17
-       )
-       RETURNING id`,
-      [
-        brainId, owner, chain, JSON.stringify(persona), JSON.stringify(pricing),
-        slug,
-        input.domain, input.short_description, tier, manifestYaml, manifestHash,
-        sellerId, kind, workflowRef,
-        privacy.mode, privacy.source, connectedChainIdNum,
-      ],
-    );
-    const agentId = agentRes.rows[0].id as string;
+    // §3.5 + §4 — PRD-E F7: agent step is an UPSERT, not always INSERT.
+    //
+    // When the brain already has a non-archived agent row, UPDATE it
+    // (preserving slug/URL stability) instead of inserting a duplicate.
+    // This is what fixes the user-reported "publish creates a new agent
+    // every time" loop: a draft brain has at most one live agent, full
+    // stop. Slug resolution only runs in the INSERT branch — the UPDATE
+    // path keeps whatever slug the agent already owns so external
+    // /api/v1/<slug> URLs never break across re-publishes.
+    let agentId: string;
+    const existingAgent =
+      typeof input.existing_brain_id === 'number' && input.existing_brain_id > 0
+        ? (
+            await client.query(
+              `SELECT id, slug FROM agents
+                 WHERE brain_id = $1 AND archived_at IS NULL
+                 ORDER BY created_at DESC
+                 LIMIT 1`,
+              [brainId],
+            )
+          ).rows[0] as { id: string; slug: string } | undefined
+        : undefined;
+
+    if (existingAgent) {
+      slug = existingAgent.slug; // preserve URL — buyers may have it bookmarked
+      const upd = await client.query(
+        `UPDATE agents SET
+           chain              = $2,
+           persona            = $3::jsonb,
+           pricing            = $4::jsonb,
+           published          = true,
+           domain             = $5,
+           short_description  = $6,
+           verification_tier  = $7,
+           manifest_yaml      = $8,
+           manifest_hash      = $9,
+           seller_id          = $10,
+           kind               = $11,
+           workflow_ref       = $12,
+           privacy_mode       = $13,
+           privacy_source     = $14,
+           connected_chain_id = $15
+         WHERE id = $1
+         RETURNING id`,
+        [
+          existingAgent.id,
+          chain,
+          JSON.stringify(persona),
+          JSON.stringify(pricing),
+          input.domain,
+          input.short_description,
+          tier,
+          manifestYaml,
+          manifestHash,
+          sellerId,
+          kind,
+          workflowRef,
+          privacy.mode,
+          privacy.source,
+          connectedChainIdNum,
+        ],
+      );
+      agentId = upd.rows[0].id as string;
+    } else {
+      if (!slugIsExplicit) {
+        slug = await resolveFreeSlug(client, baseSlug);
+      }
+      const agentRes = await client.query(
+        `INSERT INTO agents (
+           brain_id, owner_address, chain, persona, pricing,
+           kya_required, min_reputation, published, slug,
+           domain, short_description, verification_tier, manifest_yaml, manifest_hash,
+           seller_id, kind, workflow_ref,
+           privacy_mode, privacy_source, connected_chain_id
+         )
+         VALUES (
+           $1, $2, $3, $4::jsonb, $5::jsonb,
+           false, 0, true, $6,
+           $7, $8, $9, $10, $11,
+           $12, $13, $14,
+           $15, $16, $17
+         )
+         RETURNING id`,
+        [
+          brainId, owner, chain, JSON.stringify(persona), JSON.stringify(pricing),
+          slug,
+          input.domain, input.short_description, tier, manifestYaml, manifestHash,
+          sellerId, kind, workflowRef,
+          privacy.mode, privacy.source, connectedChainIdNum,
+        ],
+      );
+      agentId = agentRes.rows[0].id as string;
+    }
 
     // §5 PRD-19 — gasless on-chain registration. Enqueue a `create_brain`
     // op for the chain-relayer worker to drain. Gated by feature flag +

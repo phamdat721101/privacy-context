@@ -388,7 +388,7 @@ export default function StudioPage() {
                             <div className="min-w-0">
                               <div className="truncate font-headline font-semibold">{a.title}</div>
                               <div className="font-mono text-[11px] text-on-surface-variant">
-                                {a.published ? '✓ Published' : '🔒 Private draft'}
+                                {a.slug ? '✓ Published' : '🔒 Private draft'}
                               </div>
                             </div>
                           </div>

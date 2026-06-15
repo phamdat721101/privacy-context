@@ -69,6 +69,16 @@ const PUBLIC_PATHS: RegExp[] = [
   // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
   // rate limiter (in v3.ts) is the abuse defense here.
   /^\/agents\/[^/]+\/try$/,
+  // /v3/agents/:id/recent-calls — PRD-E public TX history feed.
+  // Server already anonymizes payer addresses; counts come from
+  // paid_calls which is read-only public ledger material.
+  /^\/agents\/[^/]+\/recent-calls$/,
+  // /v4/cognitive/brain/:brainId/snapshot — public cognitive counts
+  // (episodes / facts / skills / topics / 14-day activity). Mounted
+  // under /v4 with auth, but the route emits no plaintext bodies, so
+  // anonymous reads are safe and required (the agent detail page
+  // fetches this before any wallet has connected).
+  /^\/cognitive\/brain\/[^/]+\/snapshot$/,
   // /v3/discover — concierge marketplace search; the route uses neither
   // req.user nor wallet-scoped data and is invoked from /marketplace
   // before any wallet has connected.

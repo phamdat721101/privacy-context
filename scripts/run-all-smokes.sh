@@ -55,8 +55,12 @@ if [ -n "${API_URL:-}" ]; then
   step "Translator lighthouse e2e (against ${API_URL})"
   npm run smoke:translator-e2e > /tmp/smoke4.log 2>&1 || fail "translator-e2e smoke"
   ok "translator e2e passed"
+
+  step "PRD-E workspace e2e (uploads + recent-calls + try)"
+  npm run smoke:workspace-e2e > /tmp/smoke5.log 2>&1 || fail "workspace-e2e smoke"
+  ok "workspace e2e passed"
 else
-  printf "${color_yellow}⚠  API_URL not set — skipping translator-e2e (set API_URL to run)${color_reset}\n"
+  printf "${color_yellow}⚠  API_URL not set — skipping translator-e2e + workspace-e2e (set API_URL to run)${color_reset}\n"
 fi
 
 # ─── 4. Existing-smoke registry (informational only) ──────────────────────

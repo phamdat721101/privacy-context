@@ -29,6 +29,7 @@ import { useActiveWallet } from '@/hooks/useActiveWallet';
 import { useConnectedPrivacyMode } from '@/hooks/useConnectedPrivacyMode';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
+import { getAgent } from '@/lib/agents';
 import type { PrivacyMode } from '@fhe-ai-context/sdk';
 import {
   WorkflowComposer,
@@ -153,6 +154,17 @@ function getInternalReturnPath(): string | null {
   return v;
 }
 
+/**
+ * Read `?brain_id=` — used by the agent detail page's OwnerPublishCTA to
+ * publish an EXISTING draft brain instead of minting a new one. PRD-E F5.
+ */
+function getBrainIdParam(): number | null {
+  if (typeof window === 'undefined') return null;
+  const raw = new URLSearchParams(window.location.search).get('brain_id');
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function isStepValid(s: number, f: FormState): boolean {
   if (s === 1) {
     return (
@@ -185,6 +197,28 @@ export default function SellerOnboardPage() {
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<PublishResult | null>(null);
   const [form, setForm] = useState<FormState>(INITIAL);
+  // PRD-E F5 — `?brain_id=` reuses an existing draft brain on submit
+  // instead of inserting a new one. Captured once at mount; the wizard
+  // pre-fills the title/description/tags so the seller can still edit
+  // metadata during the publish step.
+  const [reuseBrainId] = useState<number | null>(() => getBrainIdParam());
+
+  useEffect(() => {
+    if (!reuseBrainId) return;
+    let cancelled = false;
+    void getAgent(reuseBrainId).then((a) => {
+      if (cancelled || !a) return;
+      setForm((s) => ({
+        ...s,
+        title: s.title || a.title,
+        short_description: s.short_description || a.description.slice(0, 200),
+        tags: s.tags || a.tags.join(', '),
+      }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [reuseBrainId]);
 
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((s) => ({ ...s, [k]: v }));
@@ -273,6 +307,7 @@ export default function SellerOnboardPage() {
             source: privacy.detected.source,
             chain_id: privacy.chainId,
           },
+          ...(reuseBrainId ? { existing_brain_id: reuseBrainId } : {}),
         }),
       });
       const j = (await r.json().catch(() => ({}))) as Record<string, unknown>;

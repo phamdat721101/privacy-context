@@ -326,3 +326,88 @@ export async function listMyTasks(
   if (!r.ok) throw new Error(`tasks fetch failed: ${r.status}`);
   return r.json() as Promise<BuyerTasksResponse>;
 }
+
+// ─── PRD-E — workspace uploads + recent-calls feed ─────────────────────────
+//
+// Used by the new `/agent/[id]/run` workspace and `<AgentRecentCalls />`
+// (sidebar on detail + workspace). All shapes mirror the API responses
+// 1:1 — the boundary stays explicit.
+
+export interface AgentUploadHandle {
+  upload_id: string;
+  signed_url: string;
+  storage_path: string;
+  expires_in_sec: number;
+  max_bytes: number;
+}
+
+export async function mintAgentUpload(
+  v3AgentId: string,
+  file: { name: string; type: string; size: number },
+  walletAddress?: string,
+): Promise<AgentUploadHandle> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (walletAddress) headers['x-wallet-address'] = walletAddress;
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/agents/${encodeURIComponent(v3AgentId)}/uploads`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        original_name: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        size_bytes: file.size,
+        ...(walletAddress ? { uploader_addr: walletAddress } : {}),
+      }),
+    },
+  );
+  if (!r.ok) {
+    const j = await r.json().catch(() => ({}));
+    throw new Error((j as { error?: string })?.error ?? `upload mint failed: ${r.status}`);
+  }
+  return r.json() as Promise<AgentUploadHandle>;
+}
+
+/**
+ * One-shot helper: mint signed URL + PUT the file. Returns the upload_id
+ * the workspace then attaches to /try or the paid x402 call.
+ */
+export async function uploadFileToAgent(
+  v3AgentId: string,
+  file: File,
+  walletAddress?: string,
+): Promise<string> {
+  const handle = await mintAgentUpload(
+    v3AgentId,
+    { name: file.name, type: file.type, size: file.size },
+    walletAddress,
+  );
+  const put = await fetch(handle.signed_url, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!put.ok) throw new Error(`upload PUT failed: ${put.status}`);
+  return handle.upload_id;
+}
+
+export interface AgentRecentCall {
+  tx_hash: string;
+  payer: string;          // already anonymized on the server (e.g. 0xab12…cd34)
+  amount_usdc: string;
+  status: 'success' | 'demo' | 'free';
+  network: string;
+  settled_at: string;     // ISO timestamp
+}
+
+export async function getAgentRecentCalls(
+  v3AgentId: string,
+  limit = 10,
+): Promise<AgentRecentCall[]> {
+  const r = await fetch(
+    `${AGENT_BACKEND_URL}/v3/agents/${encodeURIComponent(v3AgentId)}/recent-calls?limit=${limit}`,
+  );
+  if (!r.ok) return [];
+  const data = (await r.json()) as { rows?: AgentRecentCall[] };
+  return Array.isArray(data.rows) ? data.rows : [];
+}
