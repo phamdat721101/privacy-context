@@ -216,9 +216,18 @@ function buildClient(bucket: string): SupabaseStorage {
         : 'SUPABASE_SERVICE_ROLE_KEY';
     throw new StorageUnconfiguredError(missing);
   }
+  // Use @supabase/storage-js directly rather than @supabase/supabase-js's
+  // createClient(). The full client eagerly initializes a Realtime
+  // websocket connection which fails on Node 20 (no native WebSocket).
+  // Storage is the only Supabase surface we use, so we drop the rest:
+  // single concern, no transitive dependency on browser globals.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createClient } = require('@supabase/supabase-js');
-  return new SupabaseStorage({ client: createClient(url, key), bucket });
+  const { StorageClient } = require('@supabase/storage-js');
+  const storage = new StorageClient(`${url}/storage/v1`, {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+  });
+  return new SupabaseStorage({ client: { storage }, bucket });
 }
 
 /**
