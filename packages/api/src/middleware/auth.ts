@@ -69,6 +69,11 @@ const PUBLIC_PATHS: RegExp[] = [
   // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
   // rate limiter (in v3.ts) is the abuse defense here.
   /^\/agents\/[^/]+\/try$/,
+  // /v3/agents/:id/uploads — PRD-E signed-URL mint. Anonymous demo
+  // users need this for the free tier's file attach. The route's
+  // 50MB size cap + 100/hour/agent rate cap are the abuse defense
+  // (same posture as /try).
+  /^\/agents\/[^/]+\/uploads$/,
   // /v3/agents/:id/recent-calls — PRD-E public TX history feed.
   // Server already anonymizes payer addresses; counts come from
   // paid_calls which is read-only public ledger material.
