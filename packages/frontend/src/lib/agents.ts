@@ -67,18 +67,26 @@ export async function listAgents(query?: string): Promise<Agent[]> {
 
   // Merge in slug + pricing + persona + v3 agent UUID from /v3/agents
   // (paid API records, keyed by brain_id).
+  //
+  // Type-safety: agents.brain_id is BIGINT in Postgres, which node-pg
+  // returns as a string to avoid JS 2^53 precision loss. brains.id is
+  // INTEGER and arrives as a number. Without the Number() coercion the
+  // strict equality "37" === 37 silently fails — that single line was
+  // the root cause of every "Studio shows Published, detail shows DRAFT"
+  // bug report. Coerce ONCE at the JSON boundary so every downstream
+  // comparison stays trivial.
   if (paidRes && paidRes.ok) {
     try {
       const paid = await paidRes.json() as Array<{
         id: string;
-        brain_id: number;
+        brain_id: number | string;
         slug?: string;
         pricing?: { x402?: string | null; fherc20?: string | null };
         persona?: { system_prompt?: string | null; description?: string };
       }>;
-      const byBrain = new Map(paid.map((p) => [p.brain_id, p]));
+      const byBrain = new Map(paid.map((p) => [Number(p.brain_id), p]));
       for (const a of agents) {
-        const p = byBrain.get(a.id);
+        const p = byBrain.get(Number(a.id));
         if (!p) continue;
         a.slug = p.slug;
         a.v3AgentId = p.id;
@@ -100,17 +108,21 @@ export async function getAgent(id: string | number): Promise<Agent | null> {
   const data = (await brainRes.json()) as BrainDto;
   const agent = brainToAgent(data);
 
-  // Same merge as listAgents — keeps the two paths byte-equivalent.
+  // Same merge as listAgents — keeps the two paths byte-equivalent. See
+  // the comment above for why Number() coercion matters (BIGINT vs
+  // INTEGER serialization mismatch was the root cause of the persistent
+  // "Published in Studio, DRAFT on detail" disagreement).
   if (paidRes && paidRes.ok) {
     try {
       const paid = (await paidRes.json()) as Array<{
         id: string;
-        brain_id: number;
+        brain_id: number | string;
         slug?: string;
         pricing?: { x402?: string | null; fherc20?: string | null };
         persona?: { system_prompt?: string | null; description?: string };
       }>;
-      const p = paid.find((x) => x.brain_id === agent.id);
+      const target = Number(agent.id);
+      const p = paid.find((x) => Number(x.brain_id) === target);
       if (p) {
         agent.slug = p.slug;
         agent.v3AgentId = p.id;
