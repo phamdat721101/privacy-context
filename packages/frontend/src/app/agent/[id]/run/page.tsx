@@ -49,12 +49,28 @@ const UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
 const UPLOAD_ACCEPT =
   'text/*,application/json,application/pdf,application/wasm,image/png,image/jpeg,image/webp,.csv,.json,.md,.txt,.log,.pdf,.wasm';
 
-interface AttachedFile {
-  upload_id: string;
-  name: string;
-  size: number;
-  type: string;
-}
+// Inline budget mirrors the API's UPLOAD_INLINE_BYTES (v1Public.ts).
+// Files at or under this size with a text-y MIME are read in the browser
+// and prepended to `q` directly — bypassing the /uploads round-trip entirely.
+// Result: the free-demo path works without Supabase Storage being configured.
+const INLINE_BYTES = 100_000;
+const INLINE_MIME_RE = /^(text\/|application\/(json|csv|x-yaml|xml|yaml))/i;
+
+type AttachedFile =
+  | {
+      kind: 'inline';
+      name: string;
+      size: number;
+      type: string;
+      content: string;
+    }
+  | {
+      kind: 'upload';
+      upload_id: string;
+      name: string;
+      size: number;
+      type: string;
+    };
 
 interface RunResult {
   answer: string;
@@ -99,7 +115,13 @@ export default function AgentWorkspacePage() {
     return false;
   }, [loading, running, paying, uploading, requirement, files.length, agent?.v3AgentId]);
 
-  // ── upload pipeline ──────────────────────────────────────────────────────
+  // ── attachment pipeline ─────────────────────────────────────────────────
+  // Branch:
+  //   • text-y MIME ≤ INLINE_BYTES → read in browser, attach as 'inline'
+  //   • binary OR larger           → mint signed Supabase upload, attach as 'upload'
+  // The inline branch removes the /uploads dependency for the common case
+  // (small text/json/csv/md), so the free-demo path keeps working even if
+  // Supabase Storage hasn't been provisioned for this deploy.
   async function handleFiles(picked: FileList | null) {
     if (!picked || picked.length === 0 || !agent?.v3AgentId) return;
     setError(null);
@@ -110,31 +132,67 @@ export default function AgentWorkspacePage() {
         if (f.size > UPLOAD_MAX_BYTES) {
           throw new Error(`${f.name} exceeds 50 MB`);
         }
-        const upload_id = await uploadFileToAgent(agent.v3AgentId, f, userAddress ?? undefined);
-        accepted.push({ upload_id, name: f.name, size: f.size, type: f.type });
+        if (f.size <= INLINE_BYTES && INLINE_MIME_RE.test(f.type || 'text/plain')) {
+          const content = await f.text();
+          accepted.push({
+            kind: 'inline',
+            name: f.name,
+            size: f.size,
+            type: f.type || 'text/plain',
+            content,
+          });
+        } else {
+          const upload_id = await uploadFileToAgent(
+            agent.v3AgentId,
+            f,
+            userAddress ?? undefined,
+          );
+          accepted.push({
+            kind: 'upload',
+            upload_id,
+            name: f.name,
+            size: f.size,
+            type: f.type,
+          });
+        }
         if (files.length + accepted.length >= 5) break; // cap matches /try server-side
       }
       setFiles((prev) => [...prev, ...accepted].slice(0, 5));
     } catch (e: any) {
-      setError(e?.message ?? 'upload failed');
+      setError(e?.message ?? 'attachment failed');
     } finally {
       setUploading(false);
     }
   }
 
-  function removeFile(id: string) {
-    setFiles((prev) => prev.filter((f) => f.upload_id !== id));
+  function removeFile(idx: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
   // ── tiered run ───────────────────────────────────────────────────────────
   async function callTry(headers: Record<string, string>) {
+    // Compose the prompt: inline file contents prepended as labelled
+    // context, the user's task last. Upload-backed files travel as ids;
+    // the server fetches them via signed URL.
+    const inlineCtx = files
+      .filter((f): f is Extract<AttachedFile, { kind: 'inline' }> => f.kind === 'inline')
+      .map(
+        (f) =>
+          `Reference document "${f.name}" (${f.type}, ${f.size} bytes):\n---\n${f.content}\n---`,
+      )
+      .join('\n\n');
+    const baseQ =
+      requirement.trim() ||
+      `Use the attached document to perform the task implied by the assistant's persona.`;
+    const finalQ = inlineCtx ? `${inlineCtx}\n\n${baseQ}` : baseQ;
+    const upload_ids = files
+      .filter((f): f is Extract<AttachedFile, { kind: 'upload' }> => f.kind === 'upload')
+      .map((f) => f.upload_id);
+
     const r = await fetch(`${AGENT_BACKEND_URL}/v3/agents/${agent!.v3AgentId}/try`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify({
-        q: requirement.trim() || `Use the attached document to perform the task implied by the assistant's persona.`,
-        upload_ids: files.map((f) => f.upload_id),
-      }),
+      body: JSON.stringify({ q: finalQ, upload_ids }),
     });
     if (r.status === 429) {
       const j = (await r.json().catch(() => ({}))) as { retryAfterSec?: number; error?: string };
@@ -358,18 +416,32 @@ export default function AgentWorkspacePage() {
                 )}
                 {files.length > 0 && (
                   <ul className="mt-2 space-y-1.5">
-                    {files.map((f) => (
+                    {files.map((f, i) => (
                       <li
-                        key={f.upload_id}
+                        key={`${i}-${f.name}`}
                         className="flex items-center justify-between gap-2 rounded-lg border border-outline-variant/30 bg-surface-container-low px-3 py-2 font-mono text-[11px]"
                       >
                         <span className="truncate text-on-surface">{f.name}</span>
+                        <span
+                          className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] uppercase ${
+                            f.kind === 'inline'
+                              ? 'border-secondary/30 bg-secondary/10 text-secondary'
+                              : 'border-tertiary/30 bg-tertiary/10 text-tertiary'
+                          }`}
+                          title={
+                            f.kind === 'inline'
+                              ? 'Embedded inline in the prompt'
+                              : 'Uploaded · referenced via signed URL'
+                          }
+                        >
+                          {f.kind}
+                        </span>
                         <span className="shrink-0 text-on-surface-variant">
                           {(f.size / 1024).toFixed(1)} KB
                         </span>
                         <button
                           type="button"
-                          onClick={() => removeFile(f.upload_id)}
+                          onClick={() => removeFile(i)}
                           aria-label={`remove ${f.name}`}
                           className="shrink-0 text-on-surface-variant hover:text-error"
                         >
