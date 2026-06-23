@@ -1,6 +1,13 @@
 import { Request, Response, NextFunction } from 'express';
 import type { PermitReason } from '../fhe/permits';
 
+/**
+ * PRD-F — single source of truth for the agent auth header. Renamed from
+ * the legacy `x-fhenix-permit` per Q2=a (semantics unchanged; verification
+ * still calls verifyPermit() which is now an EIP-712 recover under the hood).
+ */
+export const AUTH_HEADER = 'x-openx-token';
+
 export interface AuthRequest extends Request {
   user?: {
     address: string;
@@ -115,7 +122,9 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
   // The permit IS the proof of identity: verifyPermit() (without an
   // expectedIssuer) cryptographically derives the wallet address from the
   // signed blob. No need for x-wallet-address; spoofing is impossible.
-  const permitHeader = req.headers['x-fhenix-permit'];
+  // Accept the new header (canonical), with a one-release grace window for
+  // the legacy `x-fhenix-permit` so deployed agents don't break overnight.
+  const permitHeader = req.headers[AUTH_HEADER] ?? req.headers['x-fhenix-permit'];
   const serialized = typeof permitHeader === 'string' ? permitHeader : null;
   if (serialized && serialized.length > 100) {
     try {
@@ -151,7 +160,7 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
     process.env.FEATURE_PERMIT_AUTH === 'true' &&
     PERMIT_AUTH_REQUIRED.some((re) => re.test(req.path))
   ) {
-    return res.status(401).json({ error: 'x-fhenix-permit required', reason: 'permit_required' });
+    return res.status(401).json({ error: `${AUTH_HEADER} required`, reason: 'permit_required' });
   }
 
   // ─── Legacy x-wallet-address path (byte-identical default) ─────────────

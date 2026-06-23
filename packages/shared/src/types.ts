@@ -1,3 +1,10 @@
+// packages/shared/src/types.ts
+//
+// PRD-F: FHE strip — post-cutover shared types.
+// `Chain` widened to a plain string for forward-compat; `Rail` narrowed to
+// the two rails we still ship; the legacy `Brain.chain`/`AgentRecord.chain`
+// readers continue to compile because they consumed `string` underneath.
+
 export enum SubscriptionTier {
   WEEK = 1,
   MONTH = 2,
@@ -58,27 +65,29 @@ export interface ChatHistory {
 }
 
 // ---------------------------------------------------------------------------
-// v3 — Dual-chain agentic marketplace
+// v3 — Agentic marketplace
 // ---------------------------------------------------------------------------
 
-export type Chain = 'fhenix' | 'sui';
-export type Rail = 'x402' | 'mpp' | 'sui_usdc';
+/** EVM chain identifier. After PRD-F strip: 'arbitrum-sepolia' | 'base-sepolia'. */
+export type Chain = string;
+
+/** Payment rails. 'fherc20' + 'sui_usdc' removed in PRD-F. */
+export type Rail = 'x402' | 'mpp';
 
 export interface AgentPersona {
   system_prompt: string;
-  tools: string[];        // tool ids the agent advertises (free-form for v1)
-  model: string;          // 'gpt-4o-mini' | 'claude-3-5-sonnet' | etc.
+  tools: string[];
+  model: string;
 }
 
 /** Pricing per rail. `null` means rail disabled for this agent. */
 export interface AgentPricing {
-  x402: string | null;     // USDC, decimal string ("0.01")
+  x402: string | null;
   mpp: string | null;
-  sui_usdc: string | null;
 }
 
 export interface AgentRecord {
-  id: string;              // uuid
+  id: string;
   brain_id: number;
   owner_address: string;
   chain: Chain;
@@ -93,9 +102,7 @@ export interface AgentRecord {
 export interface AgentLink {
   canonical_id: string;
   eth_address: string | null;
-  sui_address: string | null;
   eth_sig: string | null;
-  sui_sig: string | null;
   reputation: number;
   created_at: Date;
 }
@@ -113,8 +120,8 @@ export interface MppSession {
 }
 
 export interface BundleStep {
-  agent_id: string;                 // optional human-readable handle
-  endpoint: string;                 // full URL
+  agent_id: string;
+  endpoint: string;
   rail: Rail;
   price_usdc: string;
   estimated_calls: number;
@@ -122,16 +129,16 @@ export interface BundleStep {
 }
 
 export interface BundleManifestBody {
-  id: string;                       // bundle:0x… canonical hash of body
+  id: string;
   issuer: string;
   steps: BundleStep[];
   aggregate_price_usdc: string;
-  expires_at: number;               // unix-ms
+  expires_at: number;
   metadata?: Record<string, unknown>;
 }
 
 export interface BundleManifest extends BundleManifestBody {
-  signature: string;                // ed25519 over canonical(body)
+  signature: string;
 }
 
 export interface AgentReceipt {

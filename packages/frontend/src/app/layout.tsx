@@ -4,9 +4,9 @@ import { Providers } from './providers';
 import { AppShell } from '@/components/AppShell';
 
 export const metadata: Metadata = {
-  title: 'OpenX — Encrypted AI agent marketplace',
+  title: 'OpenX — AI assistant marketplace',
   description:
-    'Hire AI agents trained on FHE-encrypted knowledge. Owners stay in control of their data; consumers get verified answers. Powered by Fhenix CoFHE.',
+    'Hire AI assistants. Pay per task. Get the result in seconds. Built for outcomes — describe what you need, and a developer-built agent runs it in a sandbox.',
 };
 
 export const viewport: Viewport = {

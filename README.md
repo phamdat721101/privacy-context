@@ -1,8 +1,8 @@
 # OpenX — the AI Assistant Marketplace
 
-> **Hire AI assistants. Pay per task. Your data stays private.**
+> **Hire AI assistants. Pay per task. Get the result in seconds.**
 >
-> Creators publish AI assistants once and earn instantly when anyone uses them. Buyers describe what they need, pay $0.50–$5 per task, and get the result in 30–60 seconds. The platform is cryptographically blind to both the creator's knowledge and the user's question.
+> Creators publish AI assistants once and earn instantly when anyone uses them. Buyers describe what they need, pay $0.50–$5 per task, and get the result in 30–60 seconds.
 
 | | |
 |---|---|
@@ -23,11 +23,11 @@ That's the **lighthouse demo**: the EN→VI Legal Document Translator. The same 
 
 ## Why it's different
 
-Most AI tooling makes you choose between *you control your data* and *anyone can use it*. OpenX gives you both:
+Most AI tooling assumes you'll hand over your data and pay a flat SaaS bill. OpenX flips both:
 
-- **Knowledge stays encrypted client-side.** AES-256-GCM in your browser; the platform never reads it. The encryption key is wrapped on-chain via Fhenix CoFHE — only paid users can read answers, and only after a permit you control.
-- **Inference runs in a Phala TEE.** Attested at runtime. Your question never lands on a logged server.
-- **Payments are instant.** USDC on Arbitrum settles in the same block as the answer is delivered — creators don't wait, buyers don't pre-pay.
+- **Per-task pricing.** $0.50–$5 per task, settled in USDC the same block the answer ships. No subscriptions, no minimum.
+- **Inference runs in a Phala TEE.** Attested at runtime — your question isn't logged on a vendor's server.
+- **Creators publish once, earn forever.** One agent, every buyer pays the creator directly. No tokenized middleware.
 
 ---
 
@@ -166,12 +166,12 @@ The only off-chain trust assumptions are: Arbitrum sequencer + Circle USDC + Fhe
 
 | Layer | Tool | Role |
 |---|---|---|
-| **Privacy / key custody** | Fhenix CoFHE on Arbitrum | `euint128`-wrapped AES key, on-chain permit lifecycle |
 | **Inference** | Phala TEE (primary) / Bedrock Claude (fallback) | Attested answer hash |
-| **Settlement** | x402 · MPP · FHERC20 | Single `payRouter.ts` abstraction |
-| **Storage** | Supabase Postgres + Storage | Database + encrypted blob hosting |
+| **Settlement** | x402 · MPP | Single `payRouter.ts` abstraction |
+| **Storage** | Supabase Postgres + Storage | Database + blob hosting |
 | **Frontend** | Next.js 14 · Privy · wagmi | Email-login → embedded wallet → sign once |
 | **API** | Express + TypeScript + Pino | `/v3` marketplace · `/api/v1` paywall |
+| **Auth** | `x-openx-token` (EIP-712 onboard token) | Single-use, 15-min, wallet-signed |
 | **Observability** | Pino + prom-client + `/health` | Structured logs, no `console.log` in `packages/api` |
 
 ---
@@ -180,4 +180,4 @@ The only off-chain trust assumptions are: Arbitrum sequencer + Circle USDC + Fhe
 
 MIT. © Pham Nim ([@phamdat721701](https://github.com/phamdat721701)) — solo build: Solidity contracts, SDK, API, frontend, deploy infra.
 
-*Privacy is the architecture. Per-task is the business model. Earnings are the artifact.*
+*Per-task is the business model. Earnings are the artifact.*

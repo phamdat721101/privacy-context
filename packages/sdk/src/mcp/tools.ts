@@ -12,6 +12,7 @@
  */
 
 import type { OpenXClient, MemoryId } from '../openx';
+import { AUTH_HEADER } from '../constants';
 
 export interface PaymentEnvelope {
   rail: 'x402';
@@ -159,8 +160,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'openx_seller_publish',
     description:
-      'Publish a new agent listing on OpenX using a scoped Fhenix onboard permit. ' +
-      'Mint the permit at /docs while logged in (15-min, single-use). Returns the ' +
+      'Publish a new agent listing on OpenX using a scoped onboard token. ' +
+      'Mint the token at /docs while logged in (15-min, single-use). Returns the ' +
       'agent_id, slug, and listing_url.',
     paid: false,
     inputSchema: {
@@ -175,8 +176,8 @@ export const TOOLS: ToolDef[] = [
         onboard_permit: {
           type: 'string',
           description:
-            'Serialized Fhenix permit (the value /docs prints into the canonical prompt). ' +
-            'Sent as x-fhenix-permit header. Single-use; valid 15 min.',
+            'Wallet-signed onboard token (the value /docs prints into the canonical prompt). ' +
+            'Sent as x-openx-token header. Single-use; valid 15 min.',
         },
       },
       required: ['listing', 'onboard_permit'],
@@ -186,7 +187,7 @@ export const TOOLS: ToolDef[] = [
       if (permit.length < 100) throw new Error('onboard_permit missing or too short');
       const listing = (args.listing ?? {}) as Record<string, unknown>;
       return openxApiFetch(openx, '/v3/marketplace/seller/publish', 'POST', listing, {
-        'x-fhenix-permit': permit,
+        [AUTH_HEADER]: permit,
       });
     },
   },

@@ -5,33 +5,75 @@ import { KnowledgeIngestService } from './knowledge-ingest';
 const BEDROCK_REGION = 'us-east-1';
 const BEDROCK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
 
+/**
+ * Provider-cascading LLM call. Bedrock-first when `BEDROCK_API_KEY` is set;
+ * on auth failure (401/403 = expired/revoked key) or network error we
+ * fall through to OpenAI rather than crashing the whole inference path.
+ *
+ * SOLID:
+ *   • SRP — owns provider selection + error normalization, nothing else.
+ *   • OCP — additional providers slot in as new branches; current callers
+ *           are untouched.
+ *
+ * Errors are surfaced with provider tags so ops can tell from one log line
+ * whether Bedrock died, OpenAI died, or both. No silent fallback masking.
+ */
 export async function llmChat(system: string, messages: Array<{ role: string; content: string }>): Promise<string> {
-  const apiKey = process.env.BEDROCK_API_KEY;
-  if (apiKey) {
-    // Bedrock Claude Opus
-    const url = `https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL}/invoke`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 4096,
-        system,
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
-      }),
-    });
-    if (!res.ok) throw new Error(`Bedrock error ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    return data.content?.[0]?.text ?? '';
+  const bedrockKey = process.env.BEDROCK_API_KEY;
+  const openaiKey = process.env.OPENAI_API_KEY;
+
+  // Provider 1 — Bedrock Claude. Skipped only when no key set.
+  if (bedrockKey) {
+    try {
+      const url = `https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL}/invoke`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${bedrockKey}` },
+        body: JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          // 16k tokens accommodates multi-file <artifact> outputs (app scaffolds,
+          // code bundles). Chat-only responses still fit comfortably under 4k —
+          // billing is per-output-token, so this is a ceiling, not a floor.
+          max_tokens: 16384,
+          system,
+          messages: messages.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.content?.[0]?.text ?? '';
+      }
+      // 401/403 → key rotated or scope dropped. Try the next provider.
+      // Other 4xx/5xx → also fall through; OpenAI may still be fine.
+      const body = await res.text();
+      if (!openaiKey) throw new Error(`bedrock ${res.status}: ${body.slice(0, 200)}`);
+      // Otherwise log + fall through.
+      // eslint-disable-next-line no-console
+      console.warn(`[llmChat] bedrock ${res.status}, falling back to openai: ${body.slice(0, 120)}`);
+    } catch (err) {
+      // Network errors mirror auth-fail behaviour: fall through if we have a backup.
+      if (!openaiKey) throw err;
+      // eslint-disable-next-line no-console
+      console.warn(`[llmChat] bedrock threw, falling back to openai: ${(err as Error).message}`);
+    }
   }
-  // Fallback: OpenAI
+
+  // Provider 2 — OpenAI. Last-resort; throws with clear `openai:` tag.
+  if (!openaiKey) {
+    throw new Error('llmChat: no provider configured (set BEDROCK_API_KEY or OPENAI_API_KEY)');
+  }
   const OpenAI = (await import('openai')).default;
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || 'sk-placeholder' });
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [{ role: 'system', content: system }, ...messages as any],
-  });
-  return completion.choices[0].message.content!;
+  const openai = new OpenAI({ apiKey: openaiKey });
+  try {
+    const completion = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
+      max_tokens: 16384,
+      messages: [{ role: 'system', content: system }, ...messages as any],
+    });
+    return completion.choices[0].message.content ?? '';
+  } catch (err) {
+    throw new Error(`openai: ${(err as Error).message}`);
+  }
 }
 
 export class ChatService {

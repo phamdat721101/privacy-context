@@ -52,6 +52,10 @@ interface SupabaseClientLike {
       name: string,
       opts?: { public?: boolean; fileSizeLimit?: number },
     ): Promise<{ data: unknown; error: { message: string } | null }>;
+    updateBucket(
+      name: string,
+      opts: { public?: boolean; fileSizeLimit?: number | null; allowedMimeTypes?: string[] | null },
+    ): Promise<{ data: unknown; error: { message: string } | null }>;
     getBucket(
       name: string,
     ): Promise<{ data: unknown; error: { message: string } | null }>;
@@ -156,10 +160,33 @@ export class SupabaseStorage {
    * Idempotent bucket creation. Errors with messages containing "exists"
    * (Supabase's wording for already-created buckets) are swallowed so this
    * is safe to call on every boot. Any other error propagates.
+   *
+   * When the bucket already exists, `updateBucket` is invoked to reconcile
+   * its `fileSizeLimit` and `allowedMimeTypes` with the caller's intent —
+   * this matters when a previous deploy created the bucket with a stale
+   * 50 MB cap and the new policy is "unlimited" (`fileSizeLimit: undefined`
+   * → null on the wire). Update errors are logged but never throw, so the
+   * mint path stays available even on read-only service-role keys.
    */
   async ensureBucket(opts: { public?: boolean; fileSizeLimit?: number } = {}): Promise<void> {
     const probe = await this.deps.client.storage.getBucket(this.deps.bucket);
-    if (probe.data) return;
+    if (probe.data) {
+      // Bucket already exists — reconcile policy. `fileSizeLimit: undefined`
+      // becomes `null` over the wire, which Supabase interprets as "no cap".
+      // Same trick for `allowedMimeTypes`.
+      const upd = await this.deps.client.storage.updateBucket(this.deps.bucket, {
+        public: opts.public ?? false,
+        fileSizeLimit: opts.fileSizeLimit ?? null,
+        allowedMimeTypes: null,
+      });
+      if (upd.error) {
+        this.deps.logger?.warn(
+          { bucket: this.deps.bucket, err: upd.error.message },
+          'supabase:bucket:update-skipped',
+        );
+      }
+      return;
+    }
     const { error } = await this.deps.client.storage.createBucket(this.deps.bucket, {
       public: opts.public ?? false,
       fileSizeLimit: opts.fileSizeLimit,

@@ -36,7 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const items = NAV_ITEMS.filter((item) => !item.requiresAuth || authenticated);
 
   return (
-    <div className="min-h-screen bg-background text-on-surface">
+    <div className="flex min-h-screen flex-col bg-background text-on-surface">
       {/* Sticky top header */}
       <header className="sticky top-0 z-40 border-b border-outline-variant/30 bg-background/85 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
@@ -77,8 +77,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      {/* Page body — bottom padding leaves room for the mobile nav */}
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-6 md:px-8 md:pb-12">{children}</main>
+      {/* Page body — `flex-1` makes main grow so the footer sticks to the
+          bottom of the viewport when content is short. Mobile keeps the
+          24-unit bottom padding for the fixed bottom-nav clearance; desktop
+          uses 6-unit because there's no bottom-nav. */}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-24 pt-6 md:px-8 md:pb-6">
+        {children}
+      </main>
+
+      <Footer />
 
       {/* Mobile bottom nav */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-outline-variant/30 bg-background/95 backdrop-blur md:hidden">
@@ -107,5 +114,45 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </ul>
       </nav>
     </div>
+  );
+}
+
+// ─── Footer ───────────────────────────────────────────────────────────────
+// PRD-F: design footer per home-page/code.html. Inline sub-component (no
+// new file) keeps SRP local to AppShell and honors the file-budget rule.
+
+const FOOTER_LINKS: ReadonlyArray<{ href: string; label: string }> = [
+  { href: '#', label: 'Terms' },
+  { href: '#', label: 'Privacy' },
+  { href: '#', label: 'Github' },
+  { href: '#', label: 'Discord' },
+];
+
+function Footer() {
+  return (
+    // `mb-16 md:mb-0` keeps the footer above the fixed mobile bottom-nav
+    // (h-16) on small screens; on md+ the bottom-nav is hidden so no margin.
+    <footer className="mb-16 border-t border-outline-variant/30 bg-surface-container-low md:mb-0">
+      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-6 md:flex-row md:px-8 md:py-8">
+        <span className="font-headline text-xl font-bold text-primary">OpenX</span>
+        <span className="text-center text-sm text-on-surface-variant">
+          © {new Date().getFullYear()} OpenX Infrastructure. All rights reserved.
+        </span>
+        <nav aria-label="Footer">
+          <ul className="flex flex-wrap items-center justify-center gap-4">
+            {FOOTER_LINKS.map((l) => (
+              <li key={l.label}>
+                <a
+                  href={l.href}
+                  className="text-sm text-on-surface-variant transition-colors hover:text-primary"
+                >
+                  {l.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
+    </footer>
   );
 }

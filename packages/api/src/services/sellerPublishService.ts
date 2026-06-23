@@ -108,6 +108,14 @@ export interface SellerPublishInput {
    * during the publish step.
    */
   existing_brain_id?: number;
+  /**
+   * PRD-G — Level-2 self-hosted endpoint. When provided, the API routes
+   * paid calls to this URL instead of running RAG + Bedrock locally.
+   * Seller owns inference; OpenX owns discovery + payment routing.
+   * Must be http(s):// (DB CHECK constraint mirrors this); SSRF guard
+   * runs at dispatch time so a bad URL just errors that one call.
+   */
+  endpoint_url?: string | null;
 }
 
 export interface SellerPublishResult {
@@ -161,6 +169,35 @@ function slugify(s: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || 'agent'
   );
+}
+
+/**
+ * PRD-G — validate + normalize a seller-provided self-hosted endpoint URL.
+ *
+ * Format rules (matching the DB CHECK constraint):
+ *   • http(s):// scheme
+ *   • no whitespace
+ *   • length ≤ 500 (defensive; URLs in the wild rarely exceed 2KB but we
+ *     don't need to carry massive query strings here)
+ *
+ * Returns null for empty / undefined input (seller wants the platform-hosted
+ * path). Throws on a malformed string so the publish flow surfaces "fix your
+ * URL" rather than failing later at dispatch.
+ *
+ * Pure: no I/O, no side effects. SSRF / private-IP checks live in the
+ * dispatcher (runtime concern) — at publish time we only enforce shape.
+ */
+function normalizeEndpointUrl(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 500) {
+    throw new Error('endpoint_url too long (max 500 chars)');
+  }
+  if (!/^https?:\/\/\S+$/i.test(trimmed)) {
+    throw new Error('endpoint_url must be http(s):// with no whitespace');
+  }
+  return trimmed;
 }
 
 /**
@@ -597,14 +634,16 @@ export async function publish(
            kya_required, min_reputation, published, slug,
            domain, short_description, verification_tier, manifest_yaml, manifest_hash,
            seller_id, kind, workflow_ref,
-           privacy_mode, privacy_source, connected_chain_id
+           privacy_mode, privacy_source, connected_chain_id,
+           endpoint_url
          )
          VALUES (
            $1, $2, $3, $4::jsonb, $5::jsonb,
            false, 0, true, $6,
            $7, $8, $9, $10, $11,
            $12, $13, $14,
-           $15, $16, $17
+           $15, $16, $17,
+           $18
          )
          RETURNING id`,
         [
@@ -613,6 +652,7 @@ export async function publish(
           input.domain, input.short_description, tier, manifestYaml, manifestHash,
           sellerId, kind, workflowRef,
           privacy.mode, privacy.source, connectedChainIdNum,
+          normalizeEndpointUrl(input.endpoint_url),
         ],
       );
       agentId = agentRes.rows[0].id as string;

@@ -155,6 +155,8 @@ export class OpenXClient {
 
 // ---------- helpers --------------------------------------------------------
 
+// ---------- helpers --------------------------------------------------------
+
 function naiveSplitFacts(text: string): string[] {
   return text
     .split(/(?<=[.!?])\s+/)

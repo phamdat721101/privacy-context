@@ -33,9 +33,11 @@ import {
 } from '@/lib/agents';
 import { AgentRecentCalls } from '@/components/AgentRecentCalls';
 
-const UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
-const UPLOAD_ACCEPT =
-  'text/*,application/json,application/pdf,application/wasm,image/png,image/jpeg,image/webp,.csv,.json,.md,.txt,.log,.pdf,.wasm';
+// Client-side upload policy: the API is the source of truth. We accept any
+// file type and let the server enforce the size cap via the mint response's
+// `max_bytes` (0 = unlimited). The inline branch below is purely a
+// performance heuristic for text-y files — *not* a type filter.
+const UPLOAD_ACCEPT = '*/*';
 
 // Inline budget mirrors the API's UPLOAD_INLINE_BYTES (v1Public.ts).
 // Files at or under this size with a text-y MIME are read in the browser
@@ -60,9 +62,18 @@ type AttachedFile =
       type: string;
     };
 
+interface ArtifactHandle {
+  path: string;
+  size_bytes: number;
+  mime_type: string;
+  signed_url: string;
+  storage_path: string;
+}
+
 interface RunResult {
   answer: string;
   citations: number[];
+  artifacts?: ArtifactHandle[];
   settled?: { method: string; txHash: string; demo: boolean; amount_usdc: string };
 }
 
@@ -105,6 +116,10 @@ export default function AgentWorkspacePage() {
   // The inline branch removes the /uploads dependency for the common case
   // (small text/json/csv/md), so the free-demo path keeps working even if
   // Supabase Storage hasn't been provisioned for this deploy.
+  //
+  // No client-side size or type filter — the API is the source of truth.
+  // If the server rejects (413, 415, …), the thrown error bubbles to the
+  // banner below with the real reason.
   async function handleFiles(picked: FileList | null) {
     if (!picked || picked.length === 0 || !agent?.v3AgentId) return;
     setError(null);
@@ -112,9 +127,6 @@ export default function AgentWorkspacePage() {
     try {
       const accepted: AttachedFile[] = [];
       for (const f of Array.from(picked)) {
-        if (f.size > UPLOAD_MAX_BYTES) {
-          throw new Error(`${f.name} exceeds 50 MB`);
-        }
         if (f.size <= INLINE_BYTES && INLINE_MIME_RE.test(f.type || 'text/plain')) {
           const content = await f.text();
           accepted.push({
@@ -135,12 +147,11 @@ export default function AgentWorkspacePage() {
             upload_id,
             name: f.name,
             size: f.size,
-            type: f.type,
+            type: f.type || 'application/octet-stream',
           });
         }
-        if (files.length + accepted.length >= 5) break; // cap matches /try server-side
       }
-      setFiles((prev) => [...prev, ...accepted].slice(0, 5));
+      setFiles((prev) => [...prev, ...accepted]);
     } catch (e: any) {
       setError(e?.message ?? 'attachment failed');
     } finally {
@@ -310,7 +321,7 @@ export default function AgentWorkspacePage() {
                     Context data
                   </label>
                   <span className="font-mono text-[10px] text-on-surface-variant">
-                    up to 5 files · 50 MB each
+                    any file type · no size limit
                   </span>
                 </div>
                 <label
@@ -330,7 +341,7 @@ export default function AgentWorkspacePage() {
                       : 'Drag & drop or click to attach context files'}
                   </p>
                   <p className="mt-1 font-mono text-[11px] text-on-surface-variant">
-                    text · pdf · csv · json · wasm · png/jpg
+                    any file — text, pdf, image, archive, binary…
                   </p>
                   <input
                     id="task-files"
@@ -444,6 +455,43 @@ export default function AgentWorkspacePage() {
                   <pre className="overflow-x-auto whitespace-pre-wrap font-sans text-sm text-on-surface">
                     {result.answer}
                   </pre>
+                  {result.artifacts && result.artifacts.length > 0 && (
+                    <div className="mt-4 space-y-2 rounded-lg border border-secondary/30 bg-secondary/5 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-secondary">
+                          Generated files · {result.artifacts.length}
+                        </span>
+                        <span className="font-mono text-[10px] text-on-surface-variant">
+                          signed url · 24h
+                        </span>
+                      </div>
+                      <ul className="space-y-1.5">
+                        {result.artifacts.map((a) => (
+                          <li
+                            key={a.storage_path}
+                            className="flex items-center justify-between gap-2 rounded-md bg-surface px-3 py-2 font-mono text-[11px]"
+                          >
+                            <span className="truncate text-on-surface" title={a.path}>
+                              {a.path}
+                            </span>
+                            <span className="shrink-0 text-on-surface-variant">
+                              {(a.size_bytes / 1024).toFixed(1)} KB
+                            </span>
+                            <a
+                              href={a.signed_url}
+                              download={a.path.split('/').pop()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-primary/40 px-2 py-0.5 text-[10px] uppercase tracking-wider text-primary hover:bg-primary/10"
+                            >
+                              <span className="material-symbols-outlined text-[12px]">download</span>
+                              get
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               )}
             </section>

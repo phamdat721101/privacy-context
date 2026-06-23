@@ -3,9 +3,6 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
-import { usePermit } from '@/hooks/usePermit';
-import { usePrivacyDisclosure } from '@/hooks/useEncryptedBalance';
-import { PermitManager } from '@/components/PermitManager';
 import {
   AGENT_BACKEND_URL,
   BRAIN_KEY_VAULT_ADDRESS,
@@ -29,8 +26,6 @@ const CONTRACTS = [
 export default function SettingsPage() {
   const { authenticated, ready, login, logout } = usePrivy();
   const userAddress = usePrivyEvmAddress();
-  const { permitState, reason, authorize, revoke, loading, error } = usePermit(userAddress);
-  const disclosure = usePrivacyDisclosure();
 
   if (!ready) return null;
   if (!authenticated) {
@@ -48,7 +43,7 @@ export default function SettingsPage() {
     <div className="space-y-8">
       <div className="space-y-2">
         <h1 className="font-headline text-3xl font-bold">Settings</h1>
-        <p className="text-on-surface-variant">Account, encryption authorization, and on-chain receipts.</p>
+        <p className="text-on-surface-variant">Account and on-chain receipts.</p>
       </div>
 
       <section className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-6">
@@ -68,36 +63,6 @@ export default function SettingsPage() {
       </section>
 
       <MyActivitySection wallet={userAddress} />
-
-      <section className="space-y-3">
-        <h2 className="font-headline text-lg font-semibold">Encryption</h2>
-        <PermitManager
-          permitState={permitState}
-          authorize={authorize}
-          revoke={revoke}
-          loading={loading}
-          error={error}
-          reason={reason}
-        />
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="font-headline text-lg font-semibold">Privacy disclosure</h2>
-        <label className="flex items-center justify-between gap-4 rounded-xl border border-outline-variant/30 bg-surface p-4">
-          <div className="min-w-0">
-            <div className="font-medium">Show encrypted receipts (advanced)</div>
-            <div className="text-xs text-on-surface-variant">
-              Reveals settlement IDs and FHE handles next to each chat message. Off by default.
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={disclosure.enabled}
-            onChange={(e) => disclosure.toggle(e.target.checked)}
-            className="h-5 w-5 cursor-pointer accent-primary"
-          />
-        </label>
-      </section>
 
       <section className="space-y-3">
         <h2 className="font-headline text-lg font-semibold">Contracts (Arbitrum Sepolia)</h2>

@@ -70,7 +70,7 @@ export interface MintOnboardOptions {
 }
 
 export interface OnboardPermit {
-  /** Serialized permit blob (the value the agent sends in `x-fhenix-permit`). */
+  /** Serialized signed token (the value the agent sends in `x-openx-token`). */
   serialized: string;
   /** Encoded inside the permit's `name`; persisted server-side on first use. */
   jti: string;

@@ -9,7 +9,7 @@
 #   5. Translator e2e smoke (lighthouse demo) — requires API_URL set
 #
 # WHAT THIS DOES NOT RUN (require live infra; invoke locally with creds):
-#   - smoke:auth / smoke:chunks-auth / smoke:fhenix-onboard / smoke:x402
+#   - smoke:auth / smoke:x402
 #   - smoke:marketplace-seller-flow / smoke:marketplace-seller-first
 #
 # Exits non-zero on any failure.
@@ -66,11 +66,9 @@ fi
 # ─── 4. Existing-smoke registry (informational only) ──────────────────────
 step "Existing smokes (run locally with credentials):"
 cat <<EOF
-   • smoke:auth                       (wallet + permit roundtrip)
+   • smoke:auth                       (wallet + token roundtrip)
    • smoke:marketplace-seller-flow    (publish → list → discover → 402)
    • smoke:marketplace-seller-first   (multi-agent publish + workflow listing)
-   • smoke:chunks-auth                (encrypted chunk auth)
-   • smoke:fhenix-onboard             (Fhenix CoFHE onboarding)
    • smoke:x402                       (multi-rail payment)
 EOF
 

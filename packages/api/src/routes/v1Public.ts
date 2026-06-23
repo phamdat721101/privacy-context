@@ -15,6 +15,7 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
 import { pool } from '../db';
 import { logger } from '../lib';
 import { llmChat } from '../services/chat';
@@ -27,6 +28,45 @@ const router = express.Router();
 
 // ─── canonical system-prompt merger ────────────────────────────────────────
 //
+/**
+ * Artifact-emission protocol — appended to every system prompt so the LLM
+ * knows it actually CAN deliver a file (the apparent "I can't make .docx"
+ * refusals were the LLM hallucinating because it had never been told the
+ * envelope exists). The downstream pipeline (extractAndUploadArtifacts +
+ * renderArtifactFile) parses these blocks and materializes them as signed
+ * download URLs — see lines 519+ of this file.
+ *
+ * Format is intentionally identical to the parser regex so a single edit
+ * here propagates everywhere. Kept short to preserve token budget.
+ */
+const ARTIFACT_PROTOCOL = `
+---
+FILE DELIVERY PROTOCOL
+
+You CAN produce downloadable files. The platform automatically packages
+any \`<artifact>\` block in your response into a signed download URL the
+user can click. Use it whenever the user asks for a deliverable file
+(.md, .txt, .csv, .json, .docx, .pdf, .html, code files, etc.).
+
+Format — emit the file alongside your prose:
+
+<artifact>
+<file path="result.docx">
+# Heading
+Body text in markdown. For .docx the server renders headings/paragraphs
+to real Word styles automatically. Plain text/code passes through.
+</file>
+</artifact>
+
+Rules:
+- One <artifact> block can hold multiple <file> entries.
+- Path is a relative filename (no leading slash, no "..").
+- For binary content, add encoding="base64" on <file>.
+- NEVER apologize that you "can't create files" or suggest manual
+  copy-paste workarounds. The artifact block IS the file.
+- Still write a short natural-language preamble outside the block so
+  the user sees what they're getting.`;
+
 // Both `/api/v1/<slug>` (this file) and `/v3/agents/:id/chat` (routes/v3.ts)
 // build the LLM system prompt the same way: optional seller-authored prompt
 // from `persona.system_prompt`, followed by the RAG-derived grounding block.
@@ -43,7 +83,8 @@ export function buildSystemPrompt(
   const grounding = ragContext
     ? `Answer using ONLY this knowledge:\n${ragContext}`
     : `No knowledge available; respond honestly that the brain is empty.`;
-  return sellerPrompt ? `${sellerPrompt}\n\n---\n\n${grounding}` : grounding;
+  const base = sellerPrompt ? `${sellerPrompt}\n\n---\n\n${grounding}` : grounding;
+  return `${base}\n${ARTIFACT_PROTOCOL}`;
 }
 
 // ─── n-payment provider cache (one per slug, lazy) ─────────────────────────
@@ -187,6 +228,8 @@ export function invalidateProvider(slug: string): void {
  */
 const UPLOAD_INLINE_BYTES = 100_000;
 const TEXTY_MIME_RE = /^(text\/|application\/(json|csv|x-yaml|xml))/i;
+const EXTRACTION_DOWNLOAD_CAP_BYTES = 50 * 1024 * 1024; // 50 MB safety cap on server-side download for parsing
+const EXTRACTION_TEXT_BUDGET = 200_000; // chars of extracted text inlined per upload (~50k tokens)
 
 interface UploadRow {
   id: string;
@@ -227,21 +270,31 @@ export async function buildUploadContext(
   const blocks: string[] = [];
   for (const row of r.rows) {
     const uri = storage.toUri(row.storage_path);
-    const inlineable =
-      row.size_bytes <= UPLOAD_INLINE_BYTES && TEXTY_MIME_RE.test(row.mime_type);
-    if (inlineable) {
+    // 1. Always try server-side extraction first. Covers text-y MIMEs (UTF-8
+    //    decode), .docx (mammoth), .pdf (pdf-parse). If anything succeeds,
+    //    the LLM sees the actual content — no more "I cannot parse binary
+    //    content" refusals. Files above the safety cap skip download.
+    if (row.size_bytes <= EXTRACTION_DOWNLOAD_CAP_BYTES) {
       try {
         const buf = await storage.download(uri);
-        blocks.push(
-          `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes):\n---\n${buf.toString('utf8')}\n---`,
-        );
-        continue;
+        const text = await tryExtractText(buf, row.mime_type, row.original_name);
+        if (text) {
+          const truncated = text.length > EXTRACTION_TEXT_BUDGET
+            ? text.slice(0, EXTRACTION_TEXT_BUDGET) + '\n…[truncated]'
+            : text;
+          blocks.push(
+            `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes):\n---\n${truncated}\n---`,
+          );
+          continue;
+        }
       } catch (err) {
-        logger.warn({ id: row.id, err: (err as Error).message }, 'upload:inline:failed');
+        logger.warn({ id: row.id, err: (err as Error).message }, 'upload:extract:failed');
       }
     }
-    // Binary or oversized: emit a signed-URL reference. The LLM can include
-    // the URL in its answer if the agent persona supports tool calls.
+    // 2. Fallback: emit a signed-URL reference. The LLM may include the
+    //    URL in its answer for the buyer to download, but it cannot parse
+    //    the bytes itself — this branch is the "I tried, couldn't read it"
+    //    signal to the agent.
     try {
       const signed = await storage.signedUrl(uri, 900);
       blocks.push(
@@ -257,18 +310,89 @@ export async function buildUploadContext(
   return blocks.join('\n\n');
 }
 
+// ─── server-side document text extraction (PRD-H) ───────────────────────────
+//
+// Pure: takes bytes, returns text. No I/O beyond the lazy `import()` of
+// the format-specific library. Each branch is independently optional —
+// missing a library only kills that one format, never the whole pipeline.
+//
+// Adding a new format = one if-branch + one npm dep. SOLID-clean.
+
+async function tryExtractText(buf: Buffer, mime: string, name: string): Promise<string | null> {
+  const lower = name.toLowerCase();
+  // .docx (Office Open XML zip — mammoth handles parsing + style stripping)
+  if (
+    mime.includes('wordprocessingml') ||
+    mime === 'application/msword' ||
+    lower.endsWith('.docx') ||
+    lower.endsWith('.doc')
+  ) {
+    try {
+      const mammoth = await import('mammoth');
+      const r = await mammoth.extractRawText({ buffer: buf });
+      return r.value || null;
+    } catch (e) {
+      logger.warn({ err: (e as Error).message, name }, 'extract:docx:failed');
+      return null;
+    }
+  }
+  // .pdf
+  if (mime === 'application/pdf' || lower.endsWith('.pdf')) {
+    try {
+      const pdfParse = ((await import('pdf-parse')) as { default: (b: Buffer) => Promise<{ text: string }> }).default;
+      const r = await pdfParse(buf);
+      return r.text || null;
+    } catch (e) {
+      logger.warn({ err: (e as Error).message, name }, 'extract:pdf:failed');
+      return null;
+    }
+  }
+  // text-y MIMEs (text/*, json, csv, yaml, xml) — UTF-8 decode
+  if (TEXTY_MIME_RE.test(mime) || /\.(txt|md|json|csv|ya?ml|xml|log)$/i.test(lower)) {
+    try {
+      return buf.toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 /**
  * Run RAG + LLM for one paid call. Exported so PRD-2's `/v3/agents/:id/try`
  * can reuse the same path without duplicating the chunk-rank-LLM dance.
  *
  * `uploadIds` (PRD-E) attaches workspace files to the prompt. Empty array
  * is the legacy behaviour — every existing caller stays byte-identical.
+ *
+ * ─── ARTIFACT MODE (PRD-F) ────────────────────────────────────────────────
+ * If the LLM emits `<artifact><file path="X">…</file>…</artifact>` blocks,
+ * each file is uploaded to the `task-uploads` bucket and returned to the
+ * caller as a signed download URL. This is how sellers ship multi-file
+ * outputs (apps, scaffolds, code bundles) — the buyer downloads instead
+ * of copy-pasting. Sellers opt in by instructing their persona to emit
+ * the envelope; chat-only agents need no change (artifacts:[]).
+ *
+ * Forward-compat: when a true tool-loop ships later, this envelope stays
+ * the final-emit format — zero rework for existing artifact-mode agents.
  */
 export async function runInference(
   agent: { id?: string; brain_id: number; persona: AgentRow['persona'] },
   question: string,
   uploadIds: string[] = [],
-): Promise<{ answer: string; citations: number[] }> {
+): Promise<{ answer: string; citations: number[]; artifacts: ArtifactHandle[] }> {
+  // ── L2 self-hosted dispatcher ────────────────────────────────────────────
+  // If the agent declares its own `endpoint_url`, OpenX is pure marketplace
+  // + payment routing — the seller's box does inference. Same response
+  // contract on the wire ({answer, citations?, artifacts?}) so paywall,
+  // ledger, recent-calls feed, and frontend rendering stay byte-identical.
+  // No caller changes needed: this function reads endpoint_url from the DB
+  // itself so existing call-sites pass through unchanged.
+  if (agent.id) {
+    const self = await dispatchToSelfHosted(agent.id, question, uploadIds);
+    if (self) return self;
+  }
+
   const chunks = await KnowledgeIngestService.loadChunks(agent.brain_id);
   const ranked = rankChunks(question, chunks).slice(0, 5);
   const context = ranked.map((c) => c.content).filter(Boolean).join('\n---\n');
@@ -278,10 +402,312 @@ export async function runInference(
       ? await buildUploadContext(agent.id, uploadIds)
       : '';
   const userMsg = uploadCtx ? `${uploadCtx}\n\n${question}` : question;
-  const answer = await llmChat(system, [{ role: 'user', content: userMsg }]);
+  const raw = await llmChat(system, [{ role: 'user', content: userMsg }]);
+
+  // Detect + harvest artifact envelopes. When absent, this is a no-op and
+  // legacy chat agents return the byte-identical {answer, citations, []}.
+  const { answer, artifacts } = agent.id
+    ? await extractAndUploadArtifacts(agent.id, raw)
+    : { answer: raw, artifacts: [] };
+
   // Citations are positional indices into the ranked chunk list; the agent.json
   // surface declares this so callers can map [n] → ranked[n].
-  return { answer, citations: ranked.map((_, i) => i) };
+  return { answer, citations: ranked.map((_, i) => i), artifacts };
+}
+
+// ─── L2 self-hosted dispatcher (PRD-G) ──────────────────────────────────────
+//
+// Contract sellers implement on `endpoint_url`:
+//
+//   POST <endpoint_url>
+//     content-type: application/json
+//     x-openx-agent-id: <uuid>
+//   body: { agent_id, question, persona, upload_ids: [...] }
+//   200 → { answer: string, citations?: number[], artifacts?: ArtifactHandle[] }
+//
+// SOLID: one function, one job — translate (agent_id + prompt) to the
+// canonical response shape. Defense-in-depth: format CHECK at DB layer,
+// SSRF guard here, hard timeout to keep the API worker free.
+
+const SELLER_TIMEOUT_MS = Math.max(1000, Number(process.env.SELLER_ENDPOINT_TIMEOUT_MS ?? 60_000));
+
+function isSafeSellerUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+    const host = u.hostname.toLowerCase();
+    // SSRF guard runs ALWAYS. Local development can opt out by setting
+    // ALLOW_PRIVATE_ENDPOINTS=1 — never set this in production. Default-deny
+    // protects the EC2 IMDS endpoint (169.254.169.254), cluster metadata
+    // gateways, and operator's intranet.
+    if (process.env.ALLOW_PRIVATE_ENDPOINTS === '1') return true;
+    if (host === 'localhost' || host === '0.0.0.0' || host === '::1') return false;
+    if (host.endsWith('.internal') || host.endsWith('.local')) return false;
+    // RFC1918 + link-local + loopback IP literals (link-local 169.254.x covers IMDS).
+    if (/^127\.|^10\.|^192\.168\.|^169\.254\./.test(host)) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function dispatchToSelfHosted(
+  agentId: string,
+  question: string,
+  uploadIds: string[],
+): Promise<{ answer: string; citations: number[]; artifacts: ArtifactHandle[] } | null> {
+  const r = await pool.query<{ endpoint_url: string | null; persona: AgentRow['persona'] }>(
+    `SELECT endpoint_url, persona FROM agents WHERE id = $1 AND endpoint_url IS NOT NULL LIMIT 1`,
+    [agentId],
+  );
+  if (r.rowCount === 0) return null;
+  const url = String(r.rows[0].endpoint_url);
+  if (!isSafeSellerUrl(url)) {
+    logger.warn({ agentId, url }, 'self-hosted:unsafe-url');
+    throw new Error(`agent endpoint_url failed safety check`);
+  }
+  const persona = r.rows[0].persona;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SELLER_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-openx-agent-id': agentId },
+      body: JSON.stringify({ agent_id: agentId, question, persona, upload_ids: uploadIds }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`seller endpoint ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const body = (await res.json()) as {
+      answer?: unknown;
+      citations?: unknown;
+      artifacts?: unknown;
+    };
+    return {
+      answer: typeof body.answer === 'string' ? body.answer : '',
+      citations: Array.isArray(body.citations) ? body.citations.filter((n) => Number.isInteger(n)) : [],
+      artifacts: Array.isArray(body.artifacts) ? (body.artifacts as ArtifactHandle[]) : [],
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ─── artifact extraction (PRD-F) ────────────────────────────────────────────
+//
+// The on-wire envelope sellers instruct their persona to emit:
+//
+//   <artifact>
+//     <file path="src/App.tsx">…contents…</file>
+//     <file path="package.json">…</file>
+//   </artifact>
+//
+// Liberal regex parser:
+//   • multiple <artifact> blocks per response are merged
+//   • <file> path is sanitized to forbid path traversal
+//   • binary base64 payloads are accepted via <file path="…" encoding="base64">
+//   • parsing failure is non-fatal — bad envelopes degrade to plain text answer
+//
+// Files land in the SAME bucket as user uploads (`task-uploads`) under
+// `<agent>/<task-id>/artifacts/<path>` with a 24h-ish signed URL. We reuse
+// the existing SupabaseStorage service — no new infra, no new bucket.
+
+export interface ArtifactHandle {
+  path: string;
+  size_bytes: number;
+  mime_type: string;
+  signed_url: string;
+  storage_path: string;
+}
+
+const ARTIFACT_BLOCK_RE = /<artifact>([\s\S]*?)<\/artifact>/gi;
+const ARTIFACT_FILE_RE = /<file\s+path="([^"]+)"(?:\s+encoding="([^"]+)")?\s*>([\s\S]*?)<\/file>/gi;
+
+function safeArtifactPath(raw: string): string | null {
+  // Strip leading/trailing slashes, forbid traversal segments. Allow nested
+  // dirs but keep total depth + filename name length sane.
+  const trimmed = raw.replace(/^\/+|\/+$/g, '').trim();
+  if (!trimmed) return null;
+  if (trimmed.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) return null;
+  if (trimmed.length > 200) return null;
+  // Per-segment whitelist — letters/digits/._- and a single dot, common code chars.
+  if (!/^[a-zA-Z0-9._\-/]+$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function guessMime(path: string): string {
+  const ext = path.toLowerCase().split('.').pop() ?? '';
+  const map: Record<string, string> = {
+    html: 'text/html', css: 'text/css', js: 'application/javascript',
+    ts: 'application/typescript', tsx: 'application/typescript', jsx: 'application/javascript',
+    json: 'application/json', md: 'text/markdown', txt: 'text/plain', csv: 'text/csv',
+    yml: 'application/x-yaml', yaml: 'application/x-yaml', xml: 'application/xml',
+    py: 'text/x-python', rb: 'text/x-ruby', go: 'text/x-go', rs: 'text/x-rust',
+    sh: 'text/x-shellscript', sql: 'application/sql',
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', svg: 'image/svg+xml',
+    pdf: 'application/pdf', zip: 'application/zip',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    doc: 'application/msword',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  };
+  return map[ext] ?? 'application/octet-stream';
+}
+
+async function extractAndUploadArtifacts(
+  agentId: string,
+  raw: string,
+): Promise<{ answer: string; artifacts: ArtifactHandle[] }> {
+  // Fast path — no envelope, no work.
+  if (!raw.includes('<artifact>')) return { answer: raw, artifacts: [] };
+
+  const files: Array<{ path: string; body: Buffer; mime: string }> = [];
+  let cleaned = raw;
+  try {
+    let block: RegExpExecArray | null;
+    ARTIFACT_BLOCK_RE.lastIndex = 0;
+    while ((block = ARTIFACT_BLOCK_RE.exec(raw)) !== null) {
+      const inner = block[1];
+      ARTIFACT_FILE_RE.lastIndex = 0;
+      let fm: RegExpExecArray | null;
+      while ((fm = ARTIFACT_FILE_RE.exec(inner)) !== null) {
+        const safe = safeArtifactPath(fm[1]);
+        if (!safe) continue;
+        const enc = (fm[2] ?? '').toLowerCase();
+        const text = fm[3].replace(/^\n+/, '').replace(/\n+$/, '');
+        const body = enc === 'base64'
+          ? Buffer.from(text, 'base64')
+          : Buffer.from(text, 'utf8');
+        files.push({ path: safe, body, mime: guessMime(safe) });
+      }
+    }
+    // Replace artifact blocks in the answer with a compact reference line so
+    // the prose around them stays readable but the raw envelope doesn't bloat
+    // the chat transcript.
+    cleaned = raw.replace(ARTIFACT_BLOCK_RE, () => {
+      const summary = files.map((f) => `  • ${f.path} (${f.body.length} bytes)`).join('\n');
+      return `\n[Generated ${files.length} file(s):\n${summary}\n]`;
+    }).trim();
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'artifact:parse-failed');
+    return { answer: raw, artifacts: [] };
+  }
+
+  if (files.length === 0) return { answer: raw, artifacts: [] };
+
+  // Render each file to its target binary form. Plain text/code passes
+  // through unchanged; .docx (and future .pdf) get markdown→binary
+  // conversion so users can download a real Word doc instead of "I cannot
+  // generate .docx" prose. Failure to render falls back to the raw bytes.
+  const rendered: Array<{ path: string; body: Buffer; mime: string }> = [];
+  for (const f of files) {
+    try {
+      const r = await renderArtifactFile(f.path, f.body);
+      rendered.push({ path: f.path, body: r.body, mime: r.mime });
+    } catch (err) {
+      logger.warn({ path: f.path, err: (err as Error).message }, 'artifact:render-failed');
+      rendered.push(f);
+    }
+  }
+
+  // Best-effort upload. Storage misconfiguration is logged but does not fail
+  // the inference — buyer still gets the answer text. Each file becomes a
+  // signed-URL handle the buyer can download client-side.
+  try {
+    const { getTaskUploadsStorage } = await import('../services/supabaseStorage');
+    const storage = getTaskUploadsStorage();
+    await storage.ensureBucket({ public: false, fileSizeLimit: undefined });
+    const taskId = randomUUID();
+    const handles: ArtifactHandle[] = [];
+    for (const f of rendered) {
+      const storagePath = `${agentId}/${taskId}/artifacts/${f.path}`;
+      try {
+        await storage.upload(f.body, storagePath, f.mime);
+        const uri = storage.toUri(storagePath);
+        const signed = await storage.signedUrl(uri, 24 * 3600);
+        handles.push({
+          path: f.path,
+          size_bytes: f.body.length,
+          mime_type: f.mime,
+          signed_url: signed,
+          storage_path: storagePath,
+        });
+      } catch (err) {
+        logger.warn({ path: f.path, err: (err as Error).message }, 'artifact:upload-failed');
+      }
+    }
+    return { answer: cleaned, artifacts: handles };
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'artifact:storage-unavailable');
+    return { answer: cleaned, artifacts: [] };
+  }
+}
+
+// ─── artifact rendering (PRD-H) ─────────────────────────────────────────────
+//
+// Convert agent-emitted text into the target binary format implied by the
+// file extension. The agent can also pre-encode as base64 — in that case
+// we trust the raw bytes and skip rendering. Currently:
+//
+//   • .docx ← markdown/text via `docx` npm package
+//   • everything else ← identity (text or base64 stored verbatim)
+//
+// Adding .pdf, .xlsx, etc. is one more if-branch each. SOLID-clean.
+
+async function renderArtifactFile(
+  path: string,
+  body: Buffer,
+): Promise<{ body: Buffer; mime: string }> {
+  const lower = path.toLowerCase();
+  const mime = guessMime(path);
+  if (lower.endsWith('.docx')) {
+    try {
+      const text = body.toString('utf8');
+      // Heuristic: a real .docx (zip) starts with the bytes "PK\003\004";
+      // if the agent emitted a base64-decoded zip, leave it alone.
+      if (body.length > 2 && body[0] === 0x50 && body[1] === 0x4b) {
+        return { body, mime };
+      }
+      const docxBuf = await markdownToDocxBuffer(text);
+      return { body: docxBuf, mime };
+    } catch (err) {
+      logger.warn({ path, err: (err as Error).message }, 'render:docx:failed');
+      // Fall through to identity — better to ship the markdown than nothing.
+    }
+  }
+  return { body, mime };
+}
+
+async function markdownToDocxBuffer(text: string): Promise<Buffer> {
+  const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import('docx');
+  // Minimal markdown handling — headings + paragraphs. Real-world legal
+  // translations care about clause numbering (preserved as plain text by
+  // the LLM persona); rich style is out of scope for v1.
+  const lines = text.split(/\r?\n/);
+  const children: InstanceType<typeof Paragraph>[] = [];
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+$/, '');
+    if (!line.trim()) {
+      children.push(new Paragraph({ children: [new TextRun('')] }));
+      continue;
+    }
+    const h = line.match(/^(#{1,6})\s+(.+)$/);
+    if (h) {
+      const level = Math.min(h[1].length, 6);
+      const levelEnum =
+        [HeadingLevel.HEADING_1, HeadingLevel.HEADING_2, HeadingLevel.HEADING_3,
+         HeadingLevel.HEADING_4, HeadingLevel.HEADING_5, HeadingLevel.HEADING_6][level - 1];
+      children.push(new Paragraph({ heading: levelEnum, children: [new TextRun({ text: h[2], bold: true })] }));
+      continue;
+    }
+    children.push(new Paragraph({ children: [new TextRun(line)] }));
+  }
+  const doc = new Document({ sections: [{ properties: {}, children }] });
+  return Packer.toBuffer(doc);
 }
 
 // ─── routes ────────────────────────────────────────────────────────────────

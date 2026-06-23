@@ -24,9 +24,7 @@ import { useParams } from 'next/navigation';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 import { WorkflowDagViz } from '@/components/WorkflowDagViz';
-import { PrivacyBadge } from '@/components/PrivacyBadge';
 import { RunWorkflowModal, type WorkflowSummary } from '../../RunWorkflowModal';
-import type { PrivacyMode } from '@fhe-ai-context/sdk';
 
 interface WorkflowDetail {
   id: string;
@@ -37,7 +35,7 @@ interface WorkflowDetail {
   short_description: string;
   domain: string;
   verification_tier: 'basic' | 'verified' | 'tee_attested';
-  privacy_mode: PrivacyMode;
+  privacy_mode: 'metadata-only' | 'off';
   privacy_source: 'auto' | 'manual';
   steps: Array<{
     id: string;
@@ -131,7 +129,6 @@ export default function WorkflowDetailPage() {
               <span className="rounded border border-outline-variant/40 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-on-surface-variant">
                 {wf.verification_tier}
               </span>
-              <PrivacyBadge mode={wf.privacy_mode} />
             </div>
             <h1 className="truncate font-headline text-2xl font-bold text-on-surface md:text-3xl">
               {wf.title}

@@ -11,10 +11,8 @@ import {
   type Agent,
   type BuyerTask,
 } from '@/lib/agents';
-import { usePermit } from '@/hooks/usePermit';
-import { PermitManager } from '@/components/PermitManager';
-import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
+import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
 /** Hidden assistant row. Combines two sources:
  *  - dashboard.archived_agents (v2 listings with rich metadata)
@@ -37,17 +35,9 @@ export default function StudioPage() {
   // ownership chip on the detail page matches the header pill.
   const { address } = useActiveWallet();
   const userAddress = address as `0x${string}` | undefined;
-  const {
-    permitState,
-    reason,
-    authorize,
-    revoke,
-    loading: permitLoading,
-    error: permitError,
-  } = usePermit(userAddress);
-  // Permit gate authorizes Fhenix CoFHE to decrypt the brain's AES key.
-  // Single chain post-Sui-removal — no chain dispatch.
-  const hasPermit = !!permitState.serializedPermit;
+  // PRD-F: permit gate removed alongside FHE strip. Studio is wallet-gated;
+  // every authenticated wallet can manage their own agents directly.
+  const hasPermit = !!userAddress;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [archivedAgents, setArchivedAgents] = useState<ArchivedAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,7 +267,7 @@ export default function StudioPage() {
         <div className="space-y-2">
           <h1 className="font-headline text-3xl font-bold">Studio</h1>
           <p className="text-on-surface-variant">
-            Train, manage, and publish your encrypted AI agents.
+            Train, manage, and publish your AI agents.
           </p>
         </div>
         <Link
@@ -315,17 +305,12 @@ export default function StudioPage() {
           <EarningsTile userAddress={userAddress} agents={agents} />
 
           {!hasPermit ? (
-            // Onboarding gate: login → permit → create. The PermitManager is
-            // the only deliberate step between authenticated wallet and
-            // creator UI.
-            <PermitManager
-              permitState={permitState}
-              authorize={authorize}
-              revoke={revoke}
-              loading={permitLoading}
-              error={permitError}
-              reason={reason}
-            />
+            // PRD-F: Permit-gate removed. Show a simple sign-in prompt.
+            <section className="rounded-xl border border-dashed border-outline-variant/30 bg-surface p-8 text-center">
+              <p className="text-sm text-on-surface-variant">
+                Connect your wallet to manage your agents.
+              </p>
+            </section>
           ) : (
             <>
               {/* Create-new — unified with /seller/onboard. */}
@@ -334,7 +319,7 @@ export default function StudioPage() {
                   <div>
                     <h2 className="font-headline text-lg font-semibold">Create a new assistant</h2>
                     <p className="text-sm text-on-surface-variant">
-                      One human, many assistants. End-to-end encrypted by default.
+                      One human, many assistants. Publish in under a minute.
                     </p>
                   </div>
                   <Link

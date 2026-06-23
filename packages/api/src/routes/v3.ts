@@ -367,10 +367,38 @@ v3.post('/agents/:id/try', async (req: Request, res: Response) => {
 // no abstraction earns its keep). All limits enforced server-side; the
 // client cannot bypass them by tweaking request bodies.
 
-const UPLOAD_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
-const UPLOAD_MAX_PER_HOUR_PER_AGENT = 100; // soft DoS guard
-const UPLOAD_ALLOWED_MIME_RE =
-  /^(text\/|application\/(json|csv|x-yaml|xml|pdf|wasm|x-wasm|octet-stream)|image\/(png|jpeg|webp))/i;
+// Upload policy — single source of truth. Both 0 and negative env values mean
+// "unlimited" (DB CHECK already enforces `size_bytes > 0`). The mint response
+// echoes `max_bytes` so the frontend never has to hard-code the same number.
+const UPLOAD_MAX_BYTES = Math.max(0, Number(process.env.UPLOAD_MAX_BYTES ?? 0));
+const UPLOAD_MAX_PER_HOUR_PER_AGENT = Math.max(
+  1,
+  Number(process.env.UPLOAD_MAX_PER_HOUR_PER_AGENT ?? 100),
+); // soft DoS guard — count, not size
+
+// task_uploads table DDL kept inline so the route can self-heal when the
+// production DB hasn't been migrated to 029 yet. Idempotent. Mirrors
+// packages/shared/migrations/029_task_uploads.sql + 030_task_uploads_unlimited.
+const TASK_UPLOADS_DDL = `
+  CREATE TABLE IF NOT EXISTS task_uploads (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_id        UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    uploader_addr   TEXT NULL,
+    storage_path    TEXT NOT NULL,
+    original_name   TEXT NOT NULL,
+    mime_type       TEXT NOT NULL,
+    size_bytes      BIGINT NOT NULL CHECK (size_bytes > 0),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    consumed_at     TIMESTAMPTZ NULL,
+    expires_at      TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours')
+  );
+  CREATE INDEX IF NOT EXISTS task_uploads_agent_idx
+    ON task_uploads(agent_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS task_uploads_expires_idx
+    ON task_uploads(expires_at)
+    WHERE consumed_at IS NULL;
+`;
+let _taskUploadsEnsured = false;
 
 function sanitizeName(raw: string): string {
   // Strip path separators, collapse to a-zA-Z0-9._-, trim length.
@@ -383,9 +411,12 @@ function sanitizeName(raw: string): string {
 /**
  * POST /v3/agents/:id/uploads — mint a signed PUT URL for one workspace
  * file. The client uploads directly to Supabase Storage; the API never
- * proxies the bytes. Bucket is ensured idempotently on first call.
+ * proxies the bytes. Bucket + table are ensured idempotently on first call.
  *
- * Body: { original_name, mime_type, size_bytes }
+ * Accepts any MIME type and any size > 0; operators can still cap size via
+ * the UPLOAD_MAX_BYTES env (0 = unlimited, the default).
+ *
+ * Body: { original_name, mime_type?, size_bytes }
  * Resp: { upload_id, signed_url, storage_path, expires_in_sec, max_bytes }
  */
 v3.post('/agents/:id/uploads', async (req: Request, res: Response) => {
@@ -398,26 +429,41 @@ v3.post('/agents/:id/uploads', async (req: Request, res: Response) => {
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     return res.status(400).json({ error: 'size_bytes must be a positive number' });
   }
-  if (sizeBytes > UPLOAD_MAX_BYTES) {
+  if (UPLOAD_MAX_BYTES > 0 && sizeBytes > UPLOAD_MAX_BYTES) {
     return res.status(413).json({ error: `file exceeds ${UPLOAD_MAX_BYTES} bytes` });
   }
-  if (!UPLOAD_ALLOWED_MIME_RE.test(mimeType)) {
-    return res.status(415).json({ error: `mime_type ${mimeType} not allowed` });
-  }
+  // No MIME whitelist — accept everything. The bucket is private and signed
+  // URLs are scoped per upload, so we don't need server-side type policing.
 
-  // Validate agent + per-hour soft cap in one round-trip.
-  const guard = await pool.query(
-    `SELECT a.id, a.published, a.archived_at,
-            (SELECT COUNT(*)::int FROM task_uploads u
-              WHERE u.agent_id = a.id AND u.created_at > NOW() - INTERVAL '1 hour') AS hour_count
-       FROM agents a WHERE a.id = $1`,
-    [id],
-  );
-  const row = guard.rows[0];
-  if (!row || !row.published || row.archived_at) {
+  // Validate agent + per-hour soft cap in one round-trip. Tolerate the
+  // `task_uploads` table being absent on a not-yet-migrated DB by retrying
+  // without the sub-query.
+  let hourCount = 0;
+  let agentRow: { id: string; published: boolean; archived_at: string | null } | null;
+  try {
+    const guard = await pool.query(
+      `SELECT a.id, a.published, a.archived_at,
+              (SELECT COUNT(*)::int FROM task_uploads u
+                WHERE u.agent_id = a.id AND u.created_at > NOW() - INTERVAL '1 hour') AS hour_count
+         FROM agents a WHERE a.id = $1`,
+      [id],
+    );
+    agentRow = guard.rows[0] ?? null;
+    hourCount = guard.rows[0]?.hour_count ?? 0;
+  } catch (e) {
+    if ((e as { code?: string }).code !== '42P01') throw e;
+    // Table doesn't exist yet — first call after deploy. Fall back to plain
+    // agent lookup; the table will be created in the try-block below.
+    const fallback = await pool.query(
+      `SELECT id, published, archived_at FROM agents WHERE id = $1`,
+      [id],
+    );
+    agentRow = fallback.rows[0] ?? null;
+  }
+  if (!agentRow || !agentRow.published || agentRow.archived_at) {
     return res.status(404).json({ error: 'agent not found' });
   }
-  if (row.hour_count >= UPLOAD_MAX_PER_HOUR_PER_AGENT) {
+  if (hourCount >= UPLOAD_MAX_PER_HOUR_PER_AGENT) {
     return res.status(429).json({ error: 'agent upload cap reached, retry later' });
   }
 
@@ -432,28 +478,45 @@ v3.post('/agents/:id/uploads', async (req: Request, res: Response) => {
   try {
     const { getTaskUploadsStorage } = await import('../services/supabaseStorage');
     const storage = getTaskUploadsStorage();
-    await storage.ensureBucket({ public: false, fileSizeLimit: UPLOAD_MAX_BYTES });
+    // fileSizeLimit: undefined → no per-object cap at the bucket level.
+    // ensureBucket also lifts the cap on a pre-existing bucket (see service).
+    await storage.ensureBucket({ public: false, fileSizeLimit: undefined });
     const { signedUrl } = await storage.signedUploadUrl(storagePath);
 
-    await pool.query(
-      `INSERT INTO task_uploads (id, agent_id, uploader_addr, storage_path, original_name, mime_type, size_bytes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [uploadId, id, uploaderAddr, storagePath, originalName, mimeType, sizeBytes],
-    );
+    try {
+      await pool.query(
+        `INSERT INTO task_uploads (id, agent_id, uploader_addr, storage_path, original_name, mime_type, size_bytes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [uploadId, id, uploaderAddr, storagePath, originalName, mimeType, sizeBytes],
+      );
+    } catch (e) {
+      // Table missing on a stale-migration deploy — create it once, retry once.
+      if ((e as { code?: string }).code === '42P01' && !_taskUploadsEnsured) {
+        logger.warn({ agentId: id }, 'v3:uploads:bootstrap-table');
+        await pool.query(TASK_UPLOADS_DDL);
+        _taskUploadsEnsured = true;
+        await pool.query(
+          `INSERT INTO task_uploads (id, agent_id, uploader_addr, storage_path, original_name, mime_type, size_bytes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [uploadId, id, uploaderAddr, storagePath, originalName, mimeType, sizeBytes],
+        );
+      } else {
+        throw e;
+      }
+    }
 
     res.json({
       upload_id: uploadId,
       signed_url: signedUrl,
       storage_path: storagePath,
       expires_in_sec: 60,
-      max_bytes: UPLOAD_MAX_BYTES,
+      max_bytes: UPLOAD_MAX_BYTES, // 0 = unlimited; client should treat as no cap
     });
   } catch (err) {
-    // STORAGE_UNCONFIGURED → operator hasn't provisioned Supabase Storage.
-    // Surface a clear 503 instead of generic 500 so the workspace can show
-    // a useful message (and the user knows the inline path still works for
-    // text-y files ≤100KB).
     const e = err as { code?: string; message?: string };
+    // STORAGE_UNCONFIGURED → operator hasn't provisioned Supabase Storage.
+    // Surface a clear 503 so the workspace can show a useful message (the
+    // inline path still works for text-y files ≤100 KB).
     if (e?.code === 'STORAGE_UNCONFIGURED') {
       logger.warn({ agentId: id, reason: e.message }, 'v3:uploads:disabled');
       return res.status(503).json({
@@ -462,8 +525,15 @@ v3.post('/agents/:id/uploads', async (req: Request, res: Response) => {
           'Binary uploads are not configured on this deploy. Text-y files (txt, md, csv, json, yaml, xml) up to 100 KB still work via the inline path. To enable larger / binary uploads, the operator must set SUPABASE_SERVICE_ROLE_KEY.',
       });
     }
-    logger.error({ agentId: id, err: e?.message }, 'v3:uploads:failed');
-    res.status(500).json({ error: 'upload mint failed' });
+    // Anything else: log + surface the underlying cause so ops can act on
+    // it instead of staring at a generic "upload mint failed". `code` lets
+    // Postgres errors (42P01, 23514, …) be diagnosed at a glance.
+    logger.error({ agentId: id, err: e?.message, code: e?.code }, 'v3:uploads:failed');
+    res.status(500).json({
+      error: 'upload mint failed',
+      message: e?.message ?? 'unknown error',
+      code: e?.code ?? null,
+    });
   }
 });
 

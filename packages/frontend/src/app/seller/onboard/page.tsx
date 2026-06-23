@@ -30,7 +30,7 @@ import { useConnectedPrivacyMode } from '@/hooks/useConnectedPrivacyMode';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
 import { getAgent } from '@/lib/agents';
-import type { PrivacyMode } from '@fhe-ai-context/sdk';
+import type { PrivacyMode } from '@/hooks/useConnectedPrivacyMode';
 import {
   WorkflowComposer,
   type WorkflowDraft,
@@ -86,7 +86,7 @@ interface PublishResult {
   kind: KindId;
   verification_tier: 'basic' | 'verified' | 'tee_attested';
   chain: string;
-  privacy_mode: 'fhe' | 'metadata-only' | 'off';
+  privacy_mode: 'metadata-only' | 'off';
   privacy_source: 'auto' | 'manual';
   listing_url: string;
   knowledge_url: string | null;
@@ -626,7 +626,8 @@ function Step3({
         </summary>
         <div className="mt-2 space-y-1 text-sm text-on-surface">
           {([
-            ['fhe', 'Standard — Fhenix CoFHE on Arbitrum'],
+            ['metadata-only', 'Metadata-only — only chain metadata is public'],
+            ['off', 'Off — everything is public'],
           ] as Array<[PrivacyMode, string]>).map(([mode, label]) => (
             <label key={mode} className="flex items-center gap-2">
               <input

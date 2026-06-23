@@ -63,7 +63,17 @@ async function main() {
       );
       if (DRY || rows.rowCount === 0) continue;
 
-      const cols = Object.keys(rows.rows[0]);
+      // Intersect source columns with target columns so legacy-only fields
+      // (e.g. paid_calls.artifact_vault_namespace, agents.sui_seller_address)
+      // are dropped silently instead of failing every INSERT. Same fix
+      // pattern as 030_task_uploads_unlimited — schema drift is normal in
+      // multi-deploy migrations, the copier must tolerate it.
+      const targetCols = new Set(await listColumns(dst, table));
+      const cols = Object.keys(rows.rows[0]).filter((c) => targetCols.has(c));
+      if (cols.length === 0) {
+        console.warn(`  ${table}: no overlapping columns — skipping`);
+        continue;
+      }
       const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
       const colList = cols.map((c) => `"${c}"`).join(', ');
       const sql =
@@ -99,6 +109,15 @@ async function tableExists(c: Client, name: string): Promise<boolean> {
     [name],
   );
   return (r.rowCount ?? 0) > 0;
+}
+
+async function listColumns(c: Client, name: string): Promise<string[]> {
+  const r = await c.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = $1`,
+    [name],
+  );
+  return r.rows.map((x) => x.column_name);
 }
 
 main().catch((e) => {

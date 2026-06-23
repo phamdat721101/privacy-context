@@ -1,42 +1,32 @@
 'use client';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { createLogger } from '@/lib/clientLogger';
 
 /**
- * Home — AI-Discovery layout.
+ * Home — PRD-F redesign matching `home-page/code.html`.
  *
- *   1. Summary hero (chip + headline + tagline) — what OpenX is, in 3 lines.
- *   2. Glass chat box — buyer types a free-text demand; on submit hits
- *      POST /v3/discover (LLM-ranked behind a TF-IDF floor — see
- *      packages/api/src/services/discoveryService.ts).
- *   3. Below the chat box:
- *      - while results exist → ranked AgentCard list with score + reason.
- *      - otherwise           → top-5 "highlights" grid from /v3/agents/top
- *                              (paid-call count over last 30 days).
+ * Layout (top → bottom):
+ *   1. Onboarding breadcrumb: 01 DESCRIBE OUTCOME › 02 MATCH AGENT
+ *                              › 03 EXECUTE IN SANDBOX › 04 DELIVER
+ *   2. Hero: "What outcome do you need delivered today?"
+ *   3. Glass chat box (POST /v3/discover).
+ *   4. Three click-to-fill sample-prompt cards (idle state).
+ *   5. Ranked candidate cards (post-submit, replaces sample cards).
+ *
+ * No agent list / "top agents" grid — buyers want to type a task and see
+ * results, not browse a directory. The marketplace lives at /marketplace.
  *
  * SOLID:
  *   - One file owns home rendering + local state. Sub-components are inline
- *     to satisfy SRP without inflating the file count.
- *   - Reuses AppShell (header, mobile nav, wallet controls). No header
- *     rewrite here.
- *   - Both API endpoints are public (whitelisted in middleware/auth.ts), so
- *     this page works before any wallet has connected.
+ *     (SRP via sections within one file) to satisfy "no new files unless
+ *     essential" (PRD-F constraint).
+ *   - Reuses AppShell (header + footer). No header rewrite here.
+ *   - /v3/discover is a public endpoint (auth-whitelisted), so this page
+ *     works before any wallet has connected.
  */
 const log = createLogger('home');
-
-interface TopAgent {
-  id: string;
-  brain_id: number;
-  title: string | null;
-  description: string | null;
-  tags: string[] | null;
-  chain: string;
-  pricing: Record<string, string | null>;
-  persona: { system_prompt?: string | null } | null;
-  calls_30d: number;
-}
 
 interface Candidate {
   agent_id: string;
@@ -52,16 +42,17 @@ interface DiscoverResult {
   bundle: { id: string; aggregate_price_usdc: string } | null;
 }
 
-const RAIL_LABEL: Record<string, string> = {
-  x402: 'USDC',
-  mpp: 'MPP',
-  fherc20: 'FHERC20',
-};
+const RAIL_LABEL: Record<string, string> = { x402: 'USDC', mpp: 'MPP' };
+
+const SAMPLE_PROMPTS = [
+  '5 Facebook ad variants in EN/VN from this product link: acme.com/p/lumen-lamp',
+  'Dedupe + enrich this CSV of 800 lead emails by industry.',
+  'Summarize 12 customer interviews into a positioning doc.',
+] as const;
 
 function priceFromPricing(p: Record<string, string | null> | undefined) {
   if (!p) return null;
-  const order = ['x402', 'mpp', 'fherc20'] as const;
-  for (const k of order) if (p[k]) return { rail: k, amount: p[k]! };
+  for (const k of ['x402', 'mpp'] as const) if (p[k]) return { rail: k, amount: p[k]! };
   return null;
 }
 
@@ -70,59 +61,10 @@ function shortId(id: string) {
 }
 
 export default function HomePage() {
-  const [top, setTop] = useState<TopAgent[] | null>(null);
-  const [topErr, setTopErr] = useState<string | null>(null);
-
   const [demand, setDemand] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<DiscoverResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Prefer the ranked endpoint; fall back to the unauthenticated /brains
-    // listing when the API is on an older build that hasn't deployed
-    // /v3/agents/top yet (returns 401 because the auth-gate route wins).
-    (async () => {
-      try {
-        const r = await fetch(`${AGENT_BACKEND_URL}/v3/agents/top?n=5`);
-        if (r.ok) {
-          const j = await r.json();
-          setTop((j.agents ?? []) as TopAgent[]);
-          return;
-        }
-        const fb = await fetch(`${AGENT_BACKEND_URL}/brains`);
-        if (!fb.ok) throw new Error(String(r.status));
-        const brains = (await fb.json()) as Array<{
-          id: number;
-          title: string;
-          description: string | null;
-          tags: string[] | null;
-          chain?: string;
-        }>;
-        setTop(
-          brains.slice(0, 5).map((b) => ({
-            id: String(b.id),
-            brain_id: b.id,
-            title: b.title,
-            description: b.description,
-            tags: b.tags,
-            chain: b.chain ?? '',
-            pricing: {},
-            persona: null,
-            calls_30d: 0,
-          })),
-        );
-      } catch (e: any) {
-        setTopErr(String(e?.message ?? e));
-        setTop([]);
-      }
-    })();
-  }, []);
-
-  const byId = useMemo(
-    () => Object.fromEntries((top ?? []).map((a) => [a.id, a])),
-    [top],
-  );
 
   async function submit() {
     const message = demand.trim();
@@ -153,8 +95,9 @@ export default function HomePage() {
   }
 
   return (
-    <div className="space-y-12 md:space-y-16">
-      <SummarySection />
+    <div className="space-y-8 md:space-y-10">
+      <Breadcrumb />
+      <Hero />
       <ChatBox
         demand={demand}
         setDemand={setDemand}
@@ -164,14 +107,14 @@ export default function HomePage() {
         onClear={clearResult}
       />
       {err && (
-        <p role="alert" className="-mt-8 text-center text-sm text-amber-500">
+        <p role="alert" className="-mt-4 text-center text-sm text-amber-500">
           {err}
         </p>
       )}
       {result ? (
-        <ResultsSection result={result} byId={byId} />
+        <ResultsSection result={result} />
       ) : (
-        <HighlightsSection top={top} topErr={topErr} />
+        <SamplePromptsSection onPick={(p) => setDemand(p)} />
       )}
     </div>
   );
@@ -179,107 +122,40 @@ export default function HomePage() {
 
 // ─── Sub-components ────────────────────────────────────────────────────────
 
-function SummarySection() {
+function Breadcrumb() {
+  const steps = [
+    '01 · DESCRIBE OUTCOME',
+    '02 · MATCH AGENT',
+    '03 · EXECUTE IN SANDBOX',
+    '04 · DELIVER',
+  ];
   return (
-    <section className="mx-auto mt-4 flex max-w-4xl flex-col items-center gap-7 text-center md:mt-8 md:gap-9">
-      <span className="matrix-chip rounded border border-secondary/20 px-2 py-1 font-mono text-[11px] uppercase tracking-wider">
-        Live · End-to-end encrypted · Pay per task
-      </span>
-      <h1 className="font-headline text-4xl font-bold leading-tight tracking-tight md:text-6xl">
-        Hire AI assistants.{' '}
-        <span className="text-primary">Pay per task.</span>{' '}
-        Your data stays private.
-      </h1>
-      <FlowDiagram />
-      <p className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
-        We can never read your knowledge · Creators earn the moment a user asks
-      </p>
-    </section>
-  );
-}
-
-/**
- * FlowDiagram — 3-step visual narrative replacing the old marketing
- * paragraph. Renders as a horizontal flow on ≥md and as a vertical stack on
- * mobile (the arrows rotate 90° via Tailwind so we keep one icon, not two).
- *
- * Each step is an inline sub-component in this file to satisfy SRP without
- * adding new files. Reuses the encryption-glow + agent-card-border tokens
- * already shipped in globals.css.
- */
-function FlowDiagram() {
-  return (
-    <div
-      role="list"
+    <ol
       aria-label="How OpenX works"
-      className="grid w-full grid-cols-1 items-stretch gap-3 md:grid-cols-[1fr_auto_1fr_auto_1fr]"
+      className="flex flex-wrap items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-on-surface-variant/80"
     >
-      <FlowStep
-        icon="upload_file"
-        title="Publish"
-        body="One click. Knowledge is encrypted in the seller’s browser."
-      />
-      <FlowArrow />
-      <FlowStep
-        icon="memory"
-        title="Cognitive memory"
-        body="Shared, encrypted, gets sharper every time an agent calls."
-        highlight
-      />
-      <FlowArrow />
-      <FlowStep
-        icon="paid"
-        title="Earn per query"
-        body="Autonomous agents pay USDC the moment they ask."
-      />
-    </div>
+      {steps.map((s, i) => (
+        <li key={s} className="flex items-center gap-2">
+          <span className={i === 0 ? 'text-primary' : ''}>{s}</span>
+          {i < steps.length - 1 && <span aria-hidden className="opacity-40">›</span>}
+        </li>
+      ))}
+    </ol>
   );
 }
 
-function FlowStep({
-  icon,
-  title,
-  body,
-  highlight,
-}: {
-  icon: string;
-  title: string;
-  body: string;
-  highlight?: boolean;
-}) {
+function Hero() {
   return (
-    <div
-      role="listitem"
-      className={`encryption-glow flex h-full flex-col gap-2 rounded-xl border bg-surface p-4 text-left transition-colors ${
-        highlight
-          ? 'border-primary/60 bg-primary/5'
-          : 'border-outline-variant/30 hover:border-primary/40'
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-            highlight ? 'bg-primary text-on-primary' : 'bg-primary/10 text-primary'
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]" aria-hidden>
-            {icon}
-          </span>
-        </span>
-        <h3 className="font-headline text-sm font-semibold text-on-surface">{title}</h3>
-      </div>
-      <p className="text-xs leading-relaxed text-on-surface-variant">{body}</p>
-    </div>
-  );
-}
-
-function FlowArrow() {
-  return (
-    <div className="flex items-center justify-center text-primary" aria-hidden>
-      <span className="material-symbols-outlined rotate-90 text-[20px] md:rotate-0 md:text-[24px]">
-        arrow_forward
-      </span>
-    </div>
+    <header className="space-y-3">
+      <h1 className="font-headline text-4xl font-bold leading-tight tracking-tight md:text-5xl">
+        What outcome do you need delivered today?
+      </h1>
+      <p className="max-w-2xl text-base text-on-surface-variant md:text-lg">
+        Describe the deliverable in plain English. We match your task to a
+        developer-built agent, run it in a sandbox, and return structured
+        output. You pay per execution.
+      </p>
+    </header>
   );
 }
 
@@ -299,181 +175,91 @@ function ChatBox({
   onClear: () => void;
 }) {
   return (
-    <section className="mx-auto w-full max-w-3xl">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSubmit();
-        }}
-        className="glass-panel rounded-xl p-4 transition-shadow focus-within:x-blue-glow"
-      >
-        <div className="mb-3 flex items-center gap-2 border-b border-white/5 pb-2">
-          <span className="material-symbols-outlined text-[18px] text-primary" aria-hidden>
-            terminal
-          </span>
-          <span className="font-mono text-xs uppercase tracking-wider text-on-surface-variant">
-            Demand input stream
-          </span>
-          {hasResult && (
-            <button
-              type="button"
-              onClick={onClear}
-              className="ml-auto rounded border border-outline-variant/40 px-2 py-1 font-mono text-[10px] uppercase text-on-surface-variant transition-colors hover:border-primary/40 hover:text-on-surface"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <textarea
-            value={demand}
-            onChange={(e) => setDemand(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                onSubmit();
-              }
-            }}
-            placeholder="Describe what you need… (e.g. 'translate this NDA to Vietnamese')"
-            rows={3}
-            aria-label="Describe what you need"
-            className="min-h-[72px] w-full resize-none rounded bg-transparent text-base text-on-surface placeholder:text-outline focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={busy || !demand.trim()}
-            className="inline-flex items-center justify-center gap-2 rounded bg-primary px-4 py-2 font-medium text-on-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:self-end"
-          >
-            <span
-              className={`material-symbols-outlined text-[18px] ${busy ? 'animate-spin' : ''}`}
-              aria-hidden
-            >
-              {busy ? 'progress_activity' : 'send'}
-            </span>
-            {busy ? 'Matching…' : 'Match'}
-          </button>
-        </div>
-        <p className="mt-2 hidden text-[11px] text-outline sm:block">
-          Tip: ⌘/Ctrl + Enter to submit.
-        </p>
-      </form>
-    </section>
-  );
-}
-
-function HighlightsSection({ top, topErr }: { top: TopAgent[] | null; topErr: string | null }) {
-  return (
-    <section aria-labelledby="top-agents-h" className="space-y-4">
-      <div className="flex items-end justify-between gap-2 border-b border-white/5 pb-3">
-        <div>
-          <h2 id="top-agents-h" className="font-headline text-2xl font-bold">
-            Top performing agents
-          </h2>
-          <p className="text-sm text-on-surface-variant">
-            Ranked by paid calls in the last 30 days.
-          </p>
-        </div>
-        <Link
-          href="/marketplace"
-          className="inline-flex shrink-0 items-center gap-1 font-mono text-[11px] uppercase text-primary hover:underline"
-        >
-          View all
-          <span className="material-symbols-outlined text-[14px]" aria-hidden>
-            arrow_forward
-          </span>
-        </Link>
-      </div>
-
-      {top === null ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              aria-hidden
-              className="h-44 animate-pulse rounded-xl border border-outline-variant/20 bg-surface-container-low"
-            />
-          ))}
-        </div>
-      ) : top.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center">
-          <p className="text-on-surface-variant">
-            {topErr
-              ? `Couldn't load top agents (${topErr}).`
-              : 'No paid traffic yet. Sellers publish in under a minute — be the first.'}
-          </p>
-          <Link href="/brain" className="mt-3 inline-block text-sm text-primary hover:underline">
-            Publish your knowledge →
-          </Link>
-        </div>
-      ) : (
-        <ul role="list" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {top.map((a) => (
-            <li key={a.id}>
-              <HighlightCard a={a} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function HighlightCard({ a }: { a: TopAgent }) {
-  const price = priceFromPricing(a.pricing);
-  const description =
-    a.description?.trim() ||
-    a.persona?.system_prompt?.slice(0, 140) ||
-    'Encrypted AI agent powered by Fhenix CoFHE.';
-  return (
-    <Link
-      href={`/agent/${a.brain_id}`}
-      className="agent-card-border encryption-glow group flex h-full flex-col gap-3 rounded-xl bg-surface p-5"
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit();
+      }}
+      className="glass-panel rounded-xl border border-outline-variant/40 transition-colors focus-within:border-primary/60"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-white/5 pb-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden>
-              smart_toy
-            </span>
-          </div>
-          <div className="min-w-0">
-            <h3 className="truncate font-headline text-base font-semibold leading-snug text-on-surface group-hover:text-primary">
-              {a.title || `Agent #${a.brain_id}`}
-            </h3>
-            <span className="font-mono text-[11px] text-on-surface-variant">
-              ID: {shortId(a.id)}
-            </span>
-          </div>
-        </div>
-        <span className="matrix-chip rounded px-2 py-0.5 font-mono text-[10px] uppercase">
-          Active
+      <div className="flex items-center gap-2 border-b border-white/5 px-4 py-2">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+          &gt;_ NEW REQUEST
         </span>
+        {hasResult && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="ml-auto rounded border border-outline-variant/40 px-2 py-0.5 font-mono text-[10px] uppercase text-on-surface-variant transition-colors hover:border-primary/40 hover:text-on-surface"
+          >
+            Clear
+          </button>
+        )}
       </div>
-      <p className="line-clamp-3 text-sm text-on-surface-variant">{description}</p>
-      <div className="mt-auto flex items-end justify-between gap-2 border-t border-white/5 pt-3">
-        <div className="flex flex-col">
-          <span className="font-mono text-[10px] uppercase text-outline">Cost / query</span>
-          <span className="font-mono text-sm text-on-surface">
-            {price
-              ? `$${Number(price.amount).toFixed(2)} ${RAIL_LABEL[price.rail] ?? price.rail}`
-              : 'Free preview'}
+      <div className="p-4 pb-2">
+        <textarea
+          value={demand}
+          onChange={(e) => setDemand(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              onSubmit();
+            }
+          }}
+          placeholder="What outcome do you need delivered today? (e.g., translate this NDA to Vietnamese)"
+          rows={5}
+          aria-label="Describe what you need"
+          className="min-h-[120px] w-full resize-none bg-transparent text-base text-on-surface placeholder:text-outline focus:outline-none"
+        />
+      </div>
+      <div className="flex flex-col items-stretch justify-between gap-3 border-t border-white/5 px-4 py-3 sm:flex-row sm:items-center">
+        <span className="hidden font-mono text-[11px] text-on-surface-variant sm:inline">
+          ⌘↵ to run
+        </span>
+        <button
+          type="submit"
+          disabled={busy || !demand.trim()}
+          className="inline-flex items-center justify-center gap-2 rounded bg-primary px-4 py-2 font-medium text-on-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {busy ? 'Matching…' : 'Match agent'}
+          <span
+            className={`material-symbols-outlined text-[18px] ${busy ? 'animate-spin' : ''}`}
+            aria-hidden
+          >
+            {busy ? 'progress_activity' : 'arrow_forward'}
           </span>
-        </div>
-        <span className="font-mono text-[10px] text-on-surface-variant">
-          {a.calls_30d} calls · 30d
-        </span>
+        </button>
       </div>
-    </Link>
+    </form>
   );
 }
 
-function ResultsSection({
-  result,
-  byId,
-}: {
-  result: DiscoverResult;
-  byId: Record<string, TopAgent>;
-}) {
+function SamplePromptsSection({ onPick }: { onPick: (prompt: string) => void }) {
+  return (
+    <section aria-label="Sample prompts" className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      {SAMPLE_PROMPTS.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onPick(p)}
+          className="glass-panel group rounded border border-outline-variant/40 p-4 text-left transition-colors hover:border-primary/40"
+        >
+          <span
+            className="mb-2 inline-flex items-center text-primary"
+            aria-hidden
+          >
+            <span className="material-symbols-outlined text-[18px]">bolt</span>
+          </span>
+          <p className="text-sm text-on-surface-variant group-hover:text-on-surface">
+            {p}
+          </p>
+        </button>
+      ))}
+    </section>
+  );
+}
+
+function ResultsSection({ result }: { result: DiscoverResult }) {
   if (result.candidates.length === 0) {
     return (
       <section
@@ -481,14 +267,15 @@ function ResultsSection({
         className="rounded-xl border border-dashed border-outline-variant/40 bg-surface-container-low p-10 text-center"
       >
         <p className="text-on-surface-variant">
-          No exact match yet. Try different phrasing — or be the first to publish on this topic.
+          No exact match yet. Try different phrasing — or be the first to
+          publish an agent for this task.
         </p>
         <div className="mt-3 flex flex-wrap justify-center gap-3">
           <Link href="/marketplace" className="text-sm text-primary hover:underline">
             Browse marketplace →
           </Link>
-          <Link href="/brain" className="text-sm text-primary hover:underline">
-            Publish your knowledge →
+          <Link href="/seller/onboard" className="text-sm text-primary hover:underline">
+            Publish an agent →
           </Link>
         </div>
       </section>
@@ -502,7 +289,9 @@ function ResultsSection({
             {result.candidates.length} matching agent
             {result.candidates.length === 1 ? '' : 's'}
           </h2>
-          <p className="text-sm text-on-surface-variant">Ranked by relevance to your demand.</p>
+          <p className="text-sm text-on-surface-variant">
+            Ranked by relevance to your request.
+          </p>
         </div>
         {result.bundle && (
           <Link
@@ -516,7 +305,7 @@ function ResultsSection({
       <ul role="list" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {result.candidates.map((c, i) => (
           <li key={c.agent_id}>
-            <ResultCard c={c} a={byId[c.agent_id]} rank={i + 1} />
+            <ResultCard c={c} rank={i + 1} />
           </li>
         ))}
       </ul>
@@ -524,18 +313,14 @@ function ResultsSection({
   );
 }
 
-function ResultCard({ c, a, rank }: { c: Candidate; a?: TopAgent; rank: number }) {
+function ResultCard({ c, rank }: { c: Candidate; rank: number }) {
   const price = priceFromPricing(c.pricing);
-  const title = a?.title || `Agent ${shortId(c.agent_id)}`;
-  const description =
-    a?.description?.trim() ||
-    c.persona_summary?.trim() ||
-    'Encrypted AI agent matching your demand.';
-  const href = a?.brain_id ? `/agent/${a.brain_id}` : `/marketplace?agent=${c.agent_id}`;
+  const description = c.persona_summary?.trim() || 'AI agent matching your request.';
+  const href = `/marketplace?agent=${c.agent_id}`;
   return (
     <Link
       href={href}
-      className="agent-card-border encryption-glow group flex h-full flex-col gap-3 rounded-xl bg-surface p-5"
+      className="agent-card-border group flex h-full flex-col gap-3 rounded-xl bg-surface p-5"
     >
       <div className="flex items-start justify-between gap-3 border-b border-white/5 pb-3">
         <div className="flex min-w-0 items-center gap-2">
@@ -543,7 +328,7 @@ function ResultCard({ c, a, rank }: { c: Candidate; a?: TopAgent; rank: number }
             #{rank}
           </span>
           <h3 className="truncate font-headline text-base font-semibold leading-snug text-on-surface group-hover:text-primary">
-            {title}
+            Agent {shortId(c.agent_id)}
           </h3>
         </div>
         <span
