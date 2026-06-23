@@ -291,19 +291,28 @@ export async function buildUploadContext(
         logger.warn({ id: row.id, err: (err as Error).message }, 'upload:extract:failed');
       }
     }
-    // 2. Fallback: emit a signed-URL reference. The LLM may include the
-    //    URL in its answer for the buyer to download, but it cannot parse
-    //    the bytes itself — this branch is the "I tried, couldn't read it"
-    //    signal to the agent.
+    // 2. Fallback: emit a signed-URL reference plus an explicit "extraction
+    //    failed" directive. Without this, the LLM sees an opaque signed URL
+    //    and either hallucinates content or says "my brain is empty" — both
+    //    bad UX. Telling the model exactly what to do here turns the failure
+    //    into a clear, helpful response instead of a confused refusal.
     try {
       const signed = await storage.signedUrl(uri, 900);
       blocks.push(
-        `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes, binary): ${signed}`,
+        `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes): EXTRACTION_FAILED. ` +
+          `The file could not be parsed as text (likely a scanned-image PDF, password-protected, or unsupported format). ` +
+          `You CANNOT see the document content. Do not pretend you can. Do not say "my brain is empty". ` +
+          `Tell the user kindly that the file couldn't be read and ask them to either ` +
+          `(a) paste the source text directly into the chat, or ` +
+          `(b) re-upload as a text-based file (PDF with selectable text, .docx, .txt, or .md). ` +
+          `Once they provide the text, deliver the result as a .docx artifact per the FILE DELIVERY PROTOCOL above. ` +
+          `Direct download URL (for buyer reference only): ${signed}`,
       );
     } catch (err) {
       logger.warn({ id: row.id, err: (err as Error).message }, 'upload:signed:failed');
       blocks.push(
-        `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes) — could not be loaded.`,
+        `Reference document "${row.original_name}" (${row.mime_type}, ${row.size_bytes} bytes): EXTRACTION_FAILED — file could not be loaded. ` +
+          `Tell the user the upload couldn't be read and ask them to paste the source text directly.`,
       );
     }
   }
@@ -317,6 +326,120 @@ export async function buildUploadContext(
 // missing a library only kills that one format, never the whole pipeline.
 //
 // Adding a new format = one if-branch + one npm dep. SOLID-clean.
+
+// Cap for vision-OCR fallback (Bedrock/OpenAI request body limits ~25 MB).
+// Scanned PDFs above this skip OCR and surface as EXTRACTION_FAILED.
+const OCR_MAX_BYTES = Math.max(1, Number(process.env.OCR_PDF_MAX_BYTES ?? 20 * 1024 * 1024));
+// Hard ceiling on a single OCR call. Vision-LLM responses for ~50 page scans
+// run 60–90s; anything beyond 2 min is almost certainly a stuck connection
+// and must abort so the buyer sees a clean failure instead of the spinner.
+const OCR_TIMEOUT_MS = Math.max(5_000, Number(process.env.OCR_TIMEOUT_MS ?? 120_000));
+
+/**
+ * OCR fallback for scanned-image PDFs.
+ *
+ * Same provider cascade as `llmChat`: Bedrock Claude first (native PDF
+ * document support — no rasterizer needed), OpenAI vision second. No
+ * `tesseract.js`, no `pdfjs-dist`, no native binaries: "simple to deploy"
+ * stays simple. Returns extracted text or null on total failure; the
+ * caller routes null into the existing EXTRACTION_FAILED block.
+ *
+ * Timeouts: each provider is bounded by OCR_TIMEOUT_MS — a stuck Bedrock
+ * call falls through to OpenAI; a stuck OpenAI returns null. The buyer
+ * always sees a result within roughly 2× OCR_TIMEOUT_MS, never an infinite
+ * spinner.
+ *
+ * SOLID:
+ *   • SRP — one job: bytes → text via vision model.
+ *   • OCP — extra providers slot in as further if-branches.
+ */
+async function ocrPdfViaVision(buf: Buffer, name: string): Promise<string | null> {
+  if (buf.length > OCR_MAX_BYTES) {
+    logger.warn({ name, bytes: buf.length, cap: OCR_MAX_BYTES }, 'extract:pdf:ocr:over-cap');
+    return null;
+  }
+  const prompt =
+    'Extract ALL text from this document verbatim, preserving paragraph and line breaks. ' +
+    'Do not summarize. Do not add commentary or markdown fences. Output the raw text only. ' +
+    'If pages are images, OCR them. If unreadable or empty, output exactly: EMPTY.';
+  const base64 = buf.toString('base64');
+
+  // Provider 1 — Bedrock Claude (native PDF document content block).
+  const bedrockKey = process.env.BEDROCK_API_KEY;
+  if (bedrockKey) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), OCR_TIMEOUT_MS);
+    try {
+      const region = process.env.BEDROCK_REGION ?? 'us-east-1';
+      const model = process.env.BEDROCK_MODEL ?? 'us.anthropic.claude-opus-4-6-v1';
+      const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${model}/invoke`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bedrockKey}` },
+        body: JSON.stringify({
+          anthropic_version: 'bedrock-2023-05-31',
+          max_tokens: 16384,
+          messages: [
+            {
+              role: 'user',
+              content: [
+                { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+                { type: 'text', text: prompt },
+              ],
+            },
+          ],
+        }),
+        signal: ac.signal,
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { content?: Array<{ text?: string }> };
+        const text = (data.content?.[0]?.text ?? '').trim();
+        if (text && text !== 'EMPTY' && text.length >= 50) return text;
+      } else {
+        logger.warn(
+          { name, status: res.status, body: (await res.text()).slice(0, 200) },
+          'extract:pdf:ocr:bedrock-failed',
+        );
+      }
+    } catch (err) {
+      const isTimeout = (err as Error)?.name === 'AbortError';
+      logger.warn(
+        { name, err: (err as Error).message, timeoutMs: isTimeout ? OCR_TIMEOUT_MS : undefined },
+        isTimeout ? 'extract:pdf:ocr:bedrock-timeout' : 'extract:pdf:ocr:bedrock-threw',
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Provider 2 — OpenAI vision (Chat Completions accepts PDFs as `file`
+  // content on GPT-4o family). Same fallback semantics as llmChat().
+  const openaiKey = process.env.OPENAI_API_KEY;
+  if (openaiKey) {
+    try {
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: openaiKey, timeout: OCR_TIMEOUT_MS, maxRetries: 0 });
+      const completion = await openai.chat.completions.create({
+        model: process.env.OPENAI_VISION_MODEL ?? process.env.OPENAI_MODEL ?? 'gpt-4o',
+        max_tokens: 16384,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: prompt },
+              { type: 'file', file: { filename: name, file_data: `data:application/pdf;base64,${base64}` } },
+            ] as any,
+          } as any,
+        ],
+      });
+      const text = (completion.choices[0]?.message?.content ?? '').toString().trim();
+      if (text && text !== 'EMPTY' && text.length >= 50) return text;
+    } catch (err) {
+      logger.warn({ name, err: (err as Error).message }, 'extract:pdf:ocr:openai-threw');
+    }
+  }
+  return null;
+}
 
 async function tryExtractText(buf: Buffer, mime: string, name: string): Promise<string | null> {
   const lower = name.toLowerCase();
@@ -341,10 +464,19 @@ async function tryExtractText(buf: Buffer, mime: string, name: string): Promise<
     try {
       const pdfParse = ((await import('pdf-parse')) as { default: (b: Buffer) => Promise<{ text: string }> }).default;
       const r = await pdfParse(buf);
-      return r.text || null;
+      // Digital PDFs with embedded text — return immediately.
+      const trimmed = (r.text ?? '').trim();
+      if (trimmed.length >= 50) return r.text;
+      // Sparse/empty text → almost certainly a scanned-image PDF.
+      // Delegate to the existing vision-LLM (Claude on Bedrock accepts PDFs
+      // natively) instead of dragging in a tesseract + rasterizer stack.
+      // Null on total failure routes to the EXTRACTION_FAILED fallback.
+      return await ocrPdfViaVision(buf, name);
     } catch (e) {
       logger.warn({ err: (e as Error).message, name }, 'extract:pdf:failed');
-      return null;
+      // pdf-parse itself blew up (malformed, encrypted, …). Still try OCR
+      // before giving up — vision models tolerate many things pdf-parse won't.
+      return await ocrPdfViaVision(buf, name);
     }
   }
   // text-y MIMEs (text/*, json, csv, yaml, xml) — UTF-8 decode

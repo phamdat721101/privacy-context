@@ -5,6 +5,13 @@ import { KnowledgeIngestService } from './knowledge-ingest';
 const BEDROCK_REGION = 'us-east-1';
 const BEDROCK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
 
+// Hard ceiling on a single LLM call. Without this, a slow Bedrock response
+// (scanned-PDF OCR, long prompt) hangs the request indefinitely — the buyer
+// sees the spinner spin forever, Caddy keeps the socket open, and PM2 has
+// no signal to act on. 90s covers ~99% of real Claude responses; anything
+// longer should surface as an error to the buyer, not a silent hang.
+const LLM_TIMEOUT_MS = Math.max(5_000, Number(process.env.LLM_TIMEOUT_MS ?? 90_000));
+
 /**
  * Provider-cascading LLM call. Bedrock-first when `BEDROCK_API_KEY` is set;
  * on auth failure (401/403 = expired/revoked key) or network error we
@@ -17,6 +24,10 @@ const BEDROCK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
  *
  * Errors are surfaced with provider tags so ops can tell from one log line
  * whether Bedrock died, OpenAI died, or both. No silent fallback masking.
+ *
+ * Timeouts: both providers are bounded by LLM_TIMEOUT_MS. Hitting the
+ * timeout on Bedrock falls through to OpenAI (same semantics as a 5xx);
+ * hitting it on OpenAI throws — the caller decides how to recover.
  */
 export async function llmChat(system: string, messages: Array<{ role: string; content: string }>): Promise<string> {
   const bedrockKey = process.env.BEDROCK_API_KEY;
@@ -24,6 +35,8 @@ export async function llmChat(system: string, messages: Array<{ role: string; co
 
   // Provider 1 — Bedrock Claude. Skipped only when no key set.
   if (bedrockKey) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), LLM_TIMEOUT_MS);
     try {
       const url = `https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL}/invoke`;
       const res = await fetch(url, {
@@ -38,6 +51,7 @@ export async function llmChat(system: string, messages: Array<{ role: string; co
           system,
           messages: messages.map(m => ({ role: m.role, content: m.content })),
         }),
+        signal: ac.signal,
       });
       if (res.ok) {
         const data = await res.json();
@@ -51,10 +65,14 @@ export async function llmChat(system: string, messages: Array<{ role: string; co
       // eslint-disable-next-line no-console
       console.warn(`[llmChat] bedrock ${res.status}, falling back to openai: ${body.slice(0, 120)}`);
     } catch (err) {
-      // Network errors mirror auth-fail behaviour: fall through if we have a backup.
-      if (!openaiKey) throw err;
+      // AbortError === timeout: treat identical to a 5xx — try OpenAI if present.
+      const msg = (err as Error)?.message ?? String(err);
+      const isTimeout = (err as Error)?.name === 'AbortError';
+      if (!openaiKey) throw isTimeout ? new Error(`bedrock: timeout after ${LLM_TIMEOUT_MS}ms`) : err;
       // eslint-disable-next-line no-console
-      console.warn(`[llmChat] bedrock threw, falling back to openai: ${(err as Error).message}`);
+      console.warn(`[llmChat] bedrock ${isTimeout ? 'timed out' : 'threw'}, falling back to openai: ${msg}`);
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -63,7 +81,8 @@ export async function llmChat(system: string, messages: Array<{ role: string; co
     throw new Error('llmChat: no provider configured (set BEDROCK_API_KEY or OPENAI_API_KEY)');
   }
   const OpenAI = (await import('openai')).default;
-  const openai = new OpenAI({ apiKey: openaiKey });
+  // SDK-native timeout — same envelope as Bedrock above, no Promise.race needed.
+  const openai = new OpenAI({ apiKey: openaiKey, timeout: LLM_TIMEOUT_MS, maxRetries: 0 });
   try {
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',

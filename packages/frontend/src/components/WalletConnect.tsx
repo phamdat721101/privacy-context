@@ -32,10 +32,20 @@ export function WalletConnect() {
         <button
           onClick={() => addr && copyAddress(addr)}
           title={addr ?? 'Copy address'}
-          className="flex items-center gap-2 rounded-full border border-outline-variant/40 bg-surface-container-high px-3 py-1.5 font-mono text-xs text-primary transition-colors hover:border-primary/40"
+          className="flex max-w-full items-center gap-1.5 truncate rounded-full border border-outline-variant/40 bg-surface-container-high px-2.5 py-1.5 font-mono text-xs text-primary transition-colors hover:border-primary/40 sm:gap-2 sm:px-3"
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-secondary" />
-          {copied ? 'Copied' : addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '—'}
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" />
+          {copied ? (
+            'Copied'
+          ) : addr ? (
+            <>
+              {/* mobile: 4+3 = 7 chars · sm+: 6+4 = 10 chars */}
+              <span className="sm:hidden">{`${addr.slice(0, 4)}…${addr.slice(-3)}`}</span>
+              <span className="hidden sm:inline">{`${addr.slice(0, 6)}…${addr.slice(-4)}`}</span>
+            </>
+          ) : (
+            '—'
+          )}
         </button>
         <button
           onClick={logout}

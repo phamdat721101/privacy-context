@@ -37,10 +37,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-on-surface">
-      {/* Sticky top header */}
-      <header className="sticky top-0 z-40 border-b border-outline-variant/30 bg-background/85 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 md:px-8">
-          <Link href="/" className="flex items-center gap-2">
+      {/* Top header — `relative` on mobile (scrolls away to preserve vertical
+          space on small screens), `sticky` on md+ where horizontal real-estate
+          is plentiful. `overflow-hidden` on the inner row prevents the wallet
+          pill from pushing the layout past the viewport on narrow phones. */}
+      <header className="relative z-40 border-b border-outline-variant/30 bg-background/85 backdrop-blur md:sticky md:top-0">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 overflow-hidden px-3 sm:gap-4 sm:px-4 md:px-8">
+          <Link href="/" className="flex min-w-0 shrink-0 items-center gap-2">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="shrink-0">
               <path d="M12 3L4 7L12 11L20 7L12 3Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary"/>
               <path d="M4 17L12 21L20 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-primary"/>
@@ -71,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 shrink-0 items-center gap-2">
             <WalletConnect />
           </div>
         </div>
