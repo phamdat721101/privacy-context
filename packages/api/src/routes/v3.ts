@@ -848,6 +848,112 @@ v3.get('/dashboard/stats', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 import conciergeRouter from './v3-concierge';
 import commRouter from './v3-comm';
+// ---------------------------------------------------------------------------
+// Seller-async delivery callback (PRD-2 seller-callback extension).
+//
+// When a seller's endpoint returns {status:"pending"} to dispatchToSelfHosted,
+// OpenX parks a task in agent_tasks (status='running') and gives the seller
+// a callback URL of the form:
+//
+//   POST /v3/agents/:agent_id/tasks/:external_task_id/deliver
+//   Authorization: Bearer <task_token>           // HMAC issued by OpenX
+//   Content-Type:  application/json
+//   Body: { "answer": "...", "citations"?: number[], "artifacts"?: [...] }
+//
+// On success the row flips to status='complete' + buyers polling
+// /api/v1/<slug>/tasks/<external_task_id> get the final answer + the
+// existing inbox / notification fan-out fires (paid_call.completed already
+// handled at settlement time; we add task.completed here).
+//
+// Whitelisted in auth.ts because the seller's box has no Privy session.
+// HMAC bearer auth is the actual gate.
+// ---------------------------------------------------------------------------
+import { timingSafeEqual as _tsequal, createHmac as _hmac } from 'node:crypto';
+
+v3.post('/agents/:agent_id/tasks/:external_task_id/deliver', async (req: Request, res: Response) => {
+  const { agent_id, external_task_id } = req.params;
+  if (!/^[a-zA-Z0-9]{8,64}$/.test(external_task_id)) {
+    return res.status(400).json({ error: 'invalid_task_id' });
+  }
+
+  // 1. Lookup the parked task
+  const rowQ = await pool.query<{
+    id: string;
+    agent_id: string;
+    status: string;
+    seller_task_token: string | null;
+  }>(
+    `SELECT id, agent_id, status, seller_task_token
+       FROM agent_tasks
+      WHERE external_task_id = $1
+      LIMIT 1`,
+    [external_task_id],
+  );
+  if ((rowQ.rowCount ?? 0) === 0) return res.status(404).json({ error: 'task_not_found' });
+  const row = rowQ.rows[0];
+  if (row.agent_id !== agent_id) return res.status(404).json({ error: 'task_not_found' });
+
+  // 2. Verify HMAC bearer token (constant-time)
+  const expected = row.seller_task_token ?? _hmac(
+    'sha256',
+    process.env.OPENX_WEBHOOK_SECRET ?? 'dev-only-webhook-secret-please-rotate',
+  )
+    .update(external_task_id)
+    .digest('hex')
+    .slice(0, 32);
+  const header = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (header.length === 0 || header.length !== expected.length) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const a = Buffer.from(header);
+  const b = Buffer.from(expected);
+  if (!_tsequal(a, b)) return res.status(401).json({ error: 'unauthorized' });
+
+  // 3. Idempotency — already delivered, return current state.
+  if (row.status === 'complete' || row.status === 'failed') {
+    return res.status(200).json({ ok: true, status: row.status, idempotent: true });
+  }
+
+  // 4. Validate body
+  const { answer, citations, artifacts, error } = (req.body ?? {}) as {
+    answer?: unknown;
+    citations?: unknown;
+    artifacts?: unknown;
+    error?: unknown;
+  };
+
+  // Seller can also signal failure if their pipeline gave up.
+  if (typeof error === 'string' && error.trim().length > 0) {
+    await pool.query(
+      `UPDATE agent_tasks
+          SET status = 'failed', error_message = $2, completed_at = NOW()
+        WHERE id = $1`,
+      [row.id, error.slice(0, 1000)],
+    );
+    return res.status(200).json({ ok: true, status: 'failed' });
+  }
+
+  if (typeof answer !== 'string' || answer.trim().length === 0) {
+    return res.status(400).json({ error: 'answer_required' });
+  }
+
+  // 5. Persist + complete
+  const result = {
+    answer,
+    citations: Array.isArray(citations) ? citations.filter((n) => Number.isInteger(n)) : [],
+    artifacts: Array.isArray(artifacts) ? artifacts : [],
+    inference_source: 'seller_endpoint',
+  };
+  await pool.query(
+    `UPDATE agent_tasks
+        SET status = 'complete', result = $2::jsonb, completed_at = NOW()
+      WHERE id = $1`,
+    [row.id, JSON.stringify(result)],
+  );
+  logger.info({ external_task_id, agent_id }, 'seller-deliver:complete');
+  res.status(200).json({ ok: true, status: 'complete' });
+});
+
 v3.use('/concierge', conciergeRouter);
 v3.use('/', commRouter); // /threads, /inbox, /inbox/stream
 

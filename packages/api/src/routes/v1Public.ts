@@ -15,7 +15,7 @@
  */
 
 import express, { type Request, type Response, type NextFunction } from 'express';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 import { pool } from '../db';
 import { logger } from '../lib';
 import { llmChat } from '../services/chat';
@@ -608,13 +608,19 @@ export async function runInference(
   artifacts: ArtifactHandle[];
   inference_source: 'seller_endpoint' | 'openx_hosted_llm';
   seller_endpoint_error?: string;
+  status?: 'pending';
+  task_id?: string;
+  poll_url?: string;
+  message?: string;
+  estimated_seconds?: number;
 }> {
   // ── L2 self-hosted dispatcher ────────────────────────────────────────────
   // If the agent declares its own `endpoint_url`, OpenX is pure marketplace
-  // + payment routing — the seller's box does inference. On any failure
-  // (4xx, 5xx, timeout, empty answer) we capture the reason and fall
-  // through to OpenX's LLM so the buyer is never stranded; the failure
-  // reason rides back in the response so the seller can debug.
+  // + payment routing — the seller's box does inference. Three outcomes:
+  //   ok:true     → seller answered synchronously; return as-is.
+  //   ok:'pending'→ seller acknowledged, will deliver via /tasks/<id>/deliver.
+  //                 We surface a pending envelope; buyer polls.
+  //   ok:false    → seller call failed; capture reason + fall back to LLM.
   let seller_endpoint_error: string | undefined;
   if (agent.id) {
     const self = await dispatchToSelfHosted(agent.id, question, uploadIds);
@@ -627,8 +633,29 @@ export async function runInference(
           inference_source: 'seller_endpoint',
         };
       }
-      // Structural narrowing: only the {ok:false, reason} branch has no
-      // `answer` field, so TS narrows `self` here without needing `ok`.
+      if ('external_task_id' in self) {
+        const publicApiUrl = process.env.PUBLIC_API_URL ?? 'http://localhost:3001';
+        // Resolve the slug so the poll URL matches what the buyer sees.
+        const slugRow = await pool.query<{ slug: string | null }>(
+          `SELECT slug FROM agents WHERE id = $1 LIMIT 1`,
+          [agent.id],
+        );
+        const slug = slugRow.rows[0]?.slug ?? agent.id;
+        return {
+          // Empty placeholders satisfy the response contract; callers should
+          // branch on `status === 'pending'` before reading `answer`.
+          answer: '',
+          citations: [],
+          artifacts: [],
+          inference_source: 'seller_endpoint',
+          status: 'pending',
+          task_id: self.external_task_id,
+          poll_url: `${publicApiUrl}/api/v1/${slug}/tasks/${self.external_task_id}`,
+          message: self.message,
+          estimated_seconds: self.estimated_seconds,
+        };
+      }
+      // Structural narrowing leaves the {ok:false, reason} branch.
       seller_endpoint_error = self.reason;
     }
   }
@@ -696,16 +723,10 @@ function isSafeSellerUrl(raw: string): boolean {
   }
 }
 
-// dispatchToSelfHosted return contract — discriminated so runInference can
-// distinguish three states cleanly:
-//   null              → no endpoint_url configured for this agent (skip)
-//   {ok:true, ...}    → seller endpoint answered successfully
-//   {ok:false, reason}→ endpoint set but the call failed (4xx/5xx/timeout/empty
-//                       answer). runInference falls back to OpenX LLM AND
-//                       surfaces `reason` so the seller can debug their box.
 type SelfHostedResult =
   | { ok: true; answer: string; citations: number[]; artifacts: ArtifactHandle[] }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string }
+  | { ok: 'pending'; external_task_id: string; message: string; estimated_seconds: number };
 
 async function dispatchToSelfHosted(
   agentId: string,
@@ -724,13 +745,34 @@ async function dispatchToSelfHosted(
   }
   const persona = r.rows[0].persona;
 
+  // Pre-mint an external_task_id + HMAC token so the seller can call back
+  // /deliver asynchronously if their pipeline needs more than SELLER_TIMEOUT_MS.
+  // Sync sellers ignore both fields — additive contract, no breaking change.
+  const externalTaskId = randomUUID().replace(/-/g, '').slice(0, 24);
+  const taskToken = createHmac(
+    'sha256',
+    process.env.OPENX_WEBHOOK_SECRET ?? 'dev-only-webhook-secret-please-rotate',
+  )
+    .update(externalTaskId)
+    .digest('hex')
+    .slice(0, 32);
+  const callbackUrl = `${process.env.PUBLIC_API_URL ?? 'http://localhost:3001'}/v3/agents/${agentId}/tasks/${externalTaskId}/deliver`;
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SELLER_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-openx-agent-id': agentId },
-      body: JSON.stringify({ agent_id: agentId, question, persona, upload_ids: uploadIds }),
+      body: JSON.stringify({
+        agent_id: agentId,
+        task_id: externalTaskId,
+        task_token: taskToken,
+        callback_url: callbackUrl,
+        question,
+        persona,
+        upload_ids: uploadIds,
+      }),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -740,18 +782,49 @@ async function dispatchToSelfHosted(
       return { ok: false, reason };
     }
     const body = (await res.json().catch(() => ({}))) as {
+      status?: unknown;
       answer?: unknown;
+      message?: unknown;
+      estimated_seconds?: unknown;
       citations?: unknown;
       artifacts?: unknown;
     };
-    // Seller endpoints that merely *receive* the request without producing
-    // a usable answer (notification sinks, half-implemented agents) must
-    // not strand the buyer with a blank response.
+    // Async path — seller acknowledges, promises to /deliver later.
+    if (body.status === 'pending') {
+      const message = typeof body.message === 'string' && body.message.trim().length > 0
+        ? body.message
+        : 'Your request is being processed by the agent.';
+      const estimated_seconds =
+        typeof body.estimated_seconds === 'number' && body.estimated_seconds > 0
+          ? Math.min(86_400, Math.floor(body.estimated_seconds))
+          : 120;
+      // Park the task. Buyer polls /api/v1/<slug>/tasks/<external_task_id>;
+      // seller eventually POSTs the answer to <callback_url>/deliver.
+      await pool.query(
+        `INSERT INTO agent_tasks
+           (agent_id, buyer_wallet, payload, status,
+            estimated_completion_at, external_task_id, seller_task_token)
+         VALUES ($1, $2, $3::jsonb, 'running',
+                 NOW() + ($4 || ' seconds')::interval, $5, $6)
+         ON CONFLICT (external_task_id) WHERE external_task_id IS NOT NULL DO NOTHING`,
+        [
+          agentId,
+          'anonymous',
+          JSON.stringify({ question, uploadIds }),
+          String(estimated_seconds),
+          externalTaskId,
+          taskToken,
+        ],
+      );
+      logger.info({ agentId, external_task_id: externalTaskId, estimated_seconds }, 'self-hosted:pending');
+      return { ok: 'pending', external_task_id: externalTaskId, message, estimated_seconds };
+    }
+    // Sync path — seller delivered an answer directly.
     if (typeof body.answer !== 'string' || body.answer.trim().length === 0) {
       logger.warn({ agentId, url, status: res.status }, 'self-hosted:empty-answer-fallback');
       return {
         ok: false,
-        reason: 'seller endpoint returned 200 but no `answer` string in body',
+        reason: 'seller endpoint returned 200 but no `answer` string or `status:"pending"` in body',
       };
     }
     return {
@@ -1107,11 +1180,41 @@ router.get('/:slug/tasks/:task_id', async (req: Request, res: Response) => {
   if (process.env.FEATURE_BUYER_AGENT_COMM !== 'true') {
     return res.status(404).json({ error: 'not_found' });
   }
-  const t = await asyncTaskService.getTask(req.params.task_id);
+  // Two flavours of task_id may hit this route:
+  //   1. external_task_id — short opaque token issued by OpenX in the
+  //      seller-async flow (see dispatchToSelfHosted). Non-numeric.
+  //   2. BIGSERIAL id from the M3 buyer-initiated async branch. Numeric.
+  // We try (1) first because it's the seller's contract surface and
+  // therefore the more public path.
+  const param = String(req.params.task_id ?? '');
+  const ext = /^[a-zA-Z0-9]{8,64}$/.test(param)
+    ? await pool.query(
+        `SELECT t.id, t.agent_id, t.slug, t.status, t.result, t.error_message,
+                t.tee_attestation_hash, t.paid_call_id, t.created_at, t.completed_at,
+                t.estimated_completion_at
+           FROM agent_tasks t
+          WHERE t.external_task_id = $1
+          LIMIT 1`,
+        [param],
+      )
+    : { rows: [], rowCount: 0 } as { rows: any[]; rowCount: number };
+
+  const t = (ext.rowCount ?? 0) > 0
+    ? ext.rows[0]
+    : await asyncTaskService.getTask(param);
   if (!t) return res.status(404).json({ error: 'task_not_found' });
-  if (t.slug && t.slug !== req.params.slug) return res.status(404).json({ error: 'task_not_found' });
+
+  // When the row came from agent_tasks directly, t.slug may be unset
+  // (seller-async path stores agent_id only). Resolve from agent_id.
+  let slug = t.slug as string | null;
+  if (!slug && t.agent_id) {
+    const s = await pool.query<{ slug: string | null }>(`SELECT slug FROM agents WHERE id = $1 LIMIT 1`, [t.agent_id]);
+    slug = s.rows[0]?.slug ?? null;
+  }
+  if (slug && slug !== req.params.slug) return res.status(404).json({ error: 'task_not_found' });
+
   res.json({
-    task_id: t.id,
+    task_id: param,
     status: t.status,
     result: t.status === 'complete' ? t.result : null,
     error: t.status === 'failed' ? t.error_message : null,
@@ -1119,6 +1222,7 @@ router.get('/:slug/tasks/:task_id', async (req: Request, res: Response) => {
     paid_call_id: t.paid_call_id,
     created_at: t.created_at,
     completed_at: t.completed_at,
+    estimated_completion_at: t.estimated_completion_at ?? null,
   });
 });
 

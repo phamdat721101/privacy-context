@@ -77,6 +77,12 @@ interface RunResult {
   settled?: { method: string; txHash: string; demo: boolean; amount_usdc: string };
   inference_source?: 'seller_endpoint' | 'openx_hosted_llm';
   seller_endpoint_error?: string;
+  // PRD seller-async callback — seller acknowledged + will deliver via /deliver.
+  status?: 'pending';
+  task_id?: string;
+  poll_url?: string;
+  message?: string;
+  estimated_seconds?: number;
 }
 
 export default function AgentWorkspacePage() {
@@ -208,11 +214,60 @@ export default function AgentWorkspacePage() {
     try {
       const out = await callTry({});
       setResult(out);
+      // PRD seller-async callback — when the seller's endpoint defers with
+      // {status:'pending'}, poll the issued poll_url until the seller has
+      // POSTed back through /deliver. The buyer's UI shows the blue banner
+      // (rendered below) for the entire interval; on resolution we swap in
+      // the final answer transparently.
+      if (out.status === 'pending' && out.poll_url) {
+        await pollPending(out);
+      }
     } catch (e: any) {
       setError(e?.message ?? 'run failed');
     } finally {
       setRunning(false);
     }
+  }
+
+  // Polls the seller-async task; stops on `complete` or `failed` or after
+  // ~maxWaitMs. Backoff stays gentle (3 s → 6 s → 6 s …) so the buyer's
+  // browser doesn't hammer the API on a multi-minute pipeline.
+  async function pollPending(initial: RunResult): Promise<void> {
+    if (!initial.poll_url) return;
+    const start = Date.now();
+    const maxWaitMs = Math.min(15 * 60 * 1000, ((initial.estimated_seconds ?? 120) + 60) * 1000);
+    let delay = 3_000;
+    while (Date.now() - start < maxWaitMs) {
+      await new Promise((r) => setTimeout(r, delay));
+      delay = Math.min(6_000, delay + 1_000);
+      try {
+        const r = await fetch(initial.poll_url, { method: 'GET' });
+        if (!r.ok) continue;
+        const j = (await r.json()) as {
+          status: 'running' | 'complete' | 'failed' | 'pending';
+          result?: { answer?: string; citations?: number[]; artifacts?: ArtifactHandle[] } | null;
+          error?: string | null;
+        };
+        if (j.status === 'complete' && j.result?.answer) {
+          setResult((prev) => ({
+            ...(prev ?? initial),
+            status: undefined,
+            answer: j.result!.answer ?? '',
+            citations: j.result?.citations ?? [],
+            artifacts: j.result?.artifacts ?? [],
+          }));
+          return;
+        }
+        if (j.status === 'failed') {
+          setError(`Seller pipeline failed: ${j.error ?? 'unknown error'}`);
+          setResult((prev) => prev ? { ...prev, status: undefined, answer: '' } : prev);
+          return;
+        }
+      } catch {
+        /* transient network errors keep the loop running */
+      }
+    }
+    setError('Timed out waiting for seller to deliver. Try again or check with the seller.');
   }
 
   // ── render ───────────────────────────────────────────────────────────────
@@ -454,6 +509,23 @@ export default function AgentWorkspacePage() {
                       </button>
                     </div>
                   </div>
+                  {result.status === 'pending' && (
+                    <div className="rounded-lg border-l-4 border-blue-500 bg-blue-500/10 p-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-blue-500" />
+                        <p className="font-semibold text-blue-900 dark:text-blue-300">
+                          Your task is being processed by the agent
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-on-surface-variant">
+                        {result.message ?? 'The seller endpoint acknowledged your request and is working on the answer. This page is polling for the result — sit tight.'}
+                      </p>
+                      <p className="mt-2 text-[11px] text-on-surface-variant">
+                        Estimated wait: ~{result.estimated_seconds ?? 120}s · Task ID:{' '}
+                        <code className="font-mono">{result.task_id}</code>
+                      </p>
+                    </div>
+                  )}
                   {result.inference_source === 'openx_hosted_llm' && result.seller_endpoint_error && (
                     <div className="rounded-lg border-l-4 border-orange-500 bg-orange-500/10 p-3 text-sm">
                       <p className="font-semibold text-orange-900 dark:text-orange-300">

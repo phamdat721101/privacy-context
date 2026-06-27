@@ -102,6 +102,11 @@ const PUBLIC_PATHS: RegExp[] = [
   // self-hosted public agents. Permissionless; protected by an in-process
   // per-IP rate limiter + optional Cloudflare Turnstile gate.
   /^\/concierge\/onboard$/,
+  // /v3/agents/:agent_id/tasks/:external_task_id/deliver — seller-async
+  // callback. Authenticated by HMAC bearer token issued by OpenX when the
+  // task was parked. The seller's box has no Privy session, so we whitelist
+  // here and verify in the handler.
+  /^\/agents\/[^/]+\/tasks\/[^/]+\/deliver$/,
 ];
 
 /**
