@@ -3,18 +3,24 @@
 /**
  * /docs — agent-onboarding console.
  *
- * One canonical copy-paste prompt that any MCP-aware host (Claude Desktop,
- * Cursor, Codex, Bedrock AgentCore) can run to publish a marketplace listing
- * on the seller's behalf via the shipped /v3/marketplace/seller/publish
- * endpoint.
+ * ONE canonical onboarding prompt (Section C) that contains both flows:
  *
- * PRD-18: when the seller is logged in, the page mints a *scoped, single-use*
- * Fhenix onboard permit and bakes it into the prompt as the
- * `x-fhenix-permit` header value. The agent has zero placeholders to fill —
- * one click to generate, one click to copy, one paste to publish.
+ *   Path A — self-hosted: agent calls /v3/concierge/onboard with a
+ *            one-sentence description. No wallet, no MCP, no token.
+ *            Fastest path; lazy-bind wallet later at /redeem.
+ *
+ *   Path B — OpenX-hosted: agent uses the openx_* MCP tools to publish
+ *            a persona+pricing listing via /v3/marketplace/seller/publish.
+ *            Requires MCP host setup (Section A) and a scoped, single-use
+ *            OpenX onboard token (Section B) — 15-min TTL, baked into the
+ *            prompt's auth block when the seller is signed in.
+ *
+ * The agent picks the path based on whether the seller already has their
+ * own HTTPS endpoint. Section C renders the SAME prompt for both — only
+ * the auth-block placeholders differ when the wallet is connected.
  *
  * SOLID:
- *   - SRP: this file owns docs rendering. The permit mint is a thin local
+ *   - SRP: this file owns docs rendering. The token mint is a thin local
  *          adapter around the SDK's `mintOnboardPermit` — no new hook.
  *   - OCP: adding a host = one HostTab entry; adding a step = one Section.
  *   - DIP: the SDK function takes a viem WalletClient; we build it from the
@@ -22,7 +28,7 @@
  *          source of truth for the wallet-client recipe stays in viem.
  *
  * The manual wizard at /seller/onboard is preserved unchanged and linked
- * from Section D as a fallback.
+ * from Section E as a fallback.
  */
 
 import Link from 'next/link';
@@ -50,42 +56,63 @@ function buildPrompt(args: { wallet?: string; permit?: OnboardPermit | null }): 
   const wallet = args.wallet ?? '<PASTE_YOUR_WALLET_HERE>';
   const apiBase = AGENT_BACKEND_URL;
   const authBlock = args.permit
-    ? `Authentication (DO NOT MODIFY):
-  - Header:  x-fhenix-permit: ${args.permit.serialized}
+    ? `Wallet-bound auth (DO NOT MODIFY, only needed for Path B):
+  - Header:  x-openx-token: ${args.permit.serialized}
   - Wallet:  ${args.permit.walletAddress}
   - Expires: ${new Date(args.permit.expiresAtSec * 1000).toISOString()}  (single-use, 15 min)`
-    : `Authentication (sign in at ${apiBase}/docs to mint a token):
-  - Header:  x-fhenix-permit: <PASTE_ONBOARD_TOKEN_HERE>
+    : `Wallet-bound auth (only needed for Path B — sign in at ${apiBase}/docs to mint):
+  - Header:  x-openx-token: <PASTE_ONBOARD_TOKEN_HERE>
   - Wallet:  ${wallet}`;
 
   return `You are helping me publish an AI agent listing on OpenX
-(${apiBase}), the AI agent marketplace with cognitive memory.
+(${apiBase}), the AI agent marketplace.
 
-The OpenX MCP server is connected and exposes (among others):
-  • openx_marketplace_search(query, domain?, max?) — free, returns
-    LLM-ranked existing listings so we can avoid duplicates and pick a
-    price band.
-  • openx_seller_publish(listing, onboard_permit) — free, atomic publish.
-    Pass the onboard_permit value from the auth block below verbatim.
-  • openx_agent_invoke(slug | agent_id, input)    — paid, calls a
-    published agent (used after onboarding to verify).
+Pick ONE path based on what I have today. Ask me ONLY if it is ambiguous:
+
+────────────────────────────────────────────────────────────────────
+Path A — I already host my agent at an HTTPS endpoint (FAST, default)
+────────────────────────────────────────────────────────────────────
+Use this when I have my own /api endpoint and just want OpenX to be the
+marketplace + paywall. No wallet, no MCP, no token. One HTTP call.
+
+  POST ${apiBase}/v3/concierge/onboard
+  Headers: { 'content-type': 'application/json' }
+  Body: {
+    "prompt": "<ONE SENTENCE: name, what it does, USDC price/query, endpoint URL>",
+    "operator_email": "<my email (optional, for earnings notifications)>",
+    "notification_webhook_url": "<my HTTPS webhook (optional, receives paid_call + message events)>"
+  }
+
+Steps:
+  1. Draft the one-sentence prompt and SHOW it to me for approval.
+  2. POST the body. Expect 200 with:
+       { status:"live", agent_id, slug, agent_url, paywall_url,
+         verification_status, curl_example }
+  3. Print agent_url + paywall_url + curl_example.
+  4. Tell me: implement \`POST /openx/health\` on my endpoint to get the
+     "verified" badge; earnings accrue under OpenX's service wallet and
+     I bind my own wallet later at ${apiBase}/redeem.
+
+────────────────────────────────────────────────────────────────────
+Path B — I want OpenX to host the inference for me (advanced)
+────────────────────────────────────────────────────────────────────
+Use this when I do NOT have my own endpoint and want OpenX to run the
+agent for me — driven by a persona prompt + optional knowledge base.
+Requires the MCP server (Section A) and an onboard token (Section B).
+
+The OpenX MCP server exposes (among others):
+  • openx_marketplace_search(query, domain?, max?) — free, ranks
+    existing listings so we can avoid duplicates + pick a price band.
+  • openx_seller_publish(listing, onboard_permit) — free, atomic
+    publish. Pass the onboard_permit verbatim from the auth block.
+  • openx_agent_invoke(slug | agent_id, input) — paid, used to verify.
 
 ${authBlock}
 
-Your task is to publish ONE new listing on my behalf. Prefer the MCP tool;
-fall back to direct HTTP only if the MCP server is unavailable:
-
-  POST ${apiBase}/v3/marketplace/seller/publish
-  Headers: { 'content-type': 'application/json',
-             'x-fhenix-permit': '<value from the Authentication block>' }
-
 Steps:
-  1. Ask me ONE round of clarifying questions if and only if the listing
-     topic is ambiguous. Otherwise infer from context.
-  2. Call openx_marketplace_search to see adjacent listings in the same
-     domain. Pick a price 10–30% above the median for the domain unless
-     I specify.
-  3. Construct a JSON body matching this exact schema:
+  1. openx_marketplace_search to see adjacent listings in the same
+     domain. Pick a price 10–30 % above the median unless I specify.
+  2. Construct a JSON body matching this exact schema:
 
      {
        "title": string (3..120 chars),
@@ -96,38 +123,35 @@ Steps:
        "persona_system_prompt": string (≥10 chars),
        "persona_tools": string[] (≤10),
        "pricing_amount_usdc": string (e.g. "0.05"; > 0, ≤ 1000),
-       "pricing_rails": (subset of)
-                       ["x402","mpp","fherc20"],
-       "accept_private_payment": boolean
-                       (true → also expose Fhenix \`fherc20\` rail),
+       "pricing_rails": (subset of) ["x402","mpp"],
        "slug": string (optional, lowercase, [a-z0-9-], 3..40),
        "verification_tier": "basic"
      }
 
-  4. Call openx_seller_publish({ listing, onboard_permit }). SHOW ME the
-     listing JSON BEFORE calling so I can approve. Do not modify the
-     onboard_permit string.
-  5. On success the response will be:
-       { agent_id, slug, listing_url, knowledge_url,
-         mcp_invoke_snippet, manifest_yaml }
-     Print listing_url, knowledge_url, and mcp_invoke_snippet.
-     Tell me knowledge upload is OPTIONAL — the persona alone is enough
-     and the listing is already callable.
-  6. Run openx_agent_invoke({ slug, input: { q: "ping" } }) once to
-     confirm the listing is reachable. Expect a -32402 envelope on first
-     try (paymentGate enforces 402 before payment); that proves the
-     listing is live and gated correctly.
+  3. SHOW me the JSON before calling openx_seller_publish. Don't modify
+     the onboard_permit string — treat it as opaque.
+  4. On success print listing_url, knowledge_url, mcp_invoke_snippet.
+     Knowledge upload is OPTIONAL — persona alone is enough.
+  5. openx_agent_invoke({ slug, input: { q:"ping" } }) once — expect a
+     -32402 envelope first (paymentGate enforces 402 before payment);
+     that proves the listing is live and gated correctly.
 
-Constraints:
+  Fallback: if MCP is unavailable, POST directly:
+    POST ${apiBase}/v3/marketplace/seller/publish
+    Headers: { 'content-type':'application/json',
+               'x-openx-token':'<onboard token from the auth block>' }
+
+────────────────────────────────────────────────────────────────────
+Universal constraints (both paths)
+────────────────────────────────────────────────────────────────────
   - Do NOT publish anything I have not approved.
-  - Default rails to ["x402"] unless I explicitly ask for more.
-  - Default accept_private_payment to false. Ask if I want
-    confidential-amount payments via Fhenix.
-  - The onboard_permit is single-use. If publish returns 409
+  - Default pricing rails to ["x402"] unless I explicitly ask for more.
+  - On Path B: onboard_permit is single-use. If publish returns 409
     "onboard token already used", ask me to mint a new one at /docs.
-  - Never invent the onboard_permit value; treat it as opaque.
+  - Never invent secret values; treat them as opaque.
 
-My listing topic is:  <PASTE_TOPIC_HERE>
+My listing topic:  <PASTE_TOPIC_HERE>
+My existing endpoint URL (if any):  <PASTE_OR_LEAVE_BLANK>
 `;
 }
 
@@ -177,10 +201,10 @@ curl -X POST ${AGENT_BACKEND_URL}/v3/discover \\
   -H 'content-type: application/json' \\
   -d '{"message":"<your listing topic>","max_steps":5}'
 
-# 2. Publish (auth via the onboard permit you minted in Section B)
+# 2. Publish (auth via the onboard token you minted in Section B)
 curl -X POST ${AGENT_BACKEND_URL}/v3/marketplace/seller/publish \\
   -H 'content-type: application/json' \\
-  -H 'x-fhenix-permit: <ONBOARD_PERMIT>' \\
+  -H 'x-openx-token: <ONBOARD_TOKEN>' \\
   -d @listing.json
 
 # 3. Verify the 402 gate (proves listing is live + gated)
@@ -253,9 +277,10 @@ export default function DocsPage() {
           Onboard to OpenX in one prompt
         </h1>
         <p className="text-on-surface-variant md:text-lg">
-          Paste this into Claude Desktop, Cursor, or any MCP-aware host. Your agent searches the
-          marketplace for adjacent listings, drafts your persona, picks pricing, and publishes —
-          all on your behalf, via the shipped endpoints.
+          Paste one prompt into any agent — Claude, Cursor, ChatGPT, or a terminal. Your agent
+          picks the right path: if you already host your agent, it ships in one HTTP call; if you
+          want OpenX to host the inference, it wires the MCP tools and publishes with a
+          single-use token. Either way: live listing in ~10 – 60 seconds.
         </p>
       </header>
 
@@ -286,7 +311,7 @@ export default function DocsPage() {
       <Section
         letter="A"
         title="Connect the OpenX MCP server"
-        hint="One-time, ~30 seconds. Pick your host below."
+        hint="Optional. Only needed if you want OpenX to host your agent's inference (persona + knowledge base). Skip if you already have your own endpoint URL."
       >
         <HostTabs />
       </Section>
@@ -294,7 +319,7 @@ export default function DocsPage() {
       <Section
         letter="B"
         title="Mint your onboard token"
-        hint="One click to generate a scoped, single-use Fhenix permit (15-min TTL). Baked into the prompt below."
+        hint="Optional. Only needed for the OpenX-hosted path below. One click → scoped, single-use, 15-min TTL. Skip if you self-host."
       >
         <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-5">
           {!ready ? (
@@ -356,18 +381,23 @@ export default function DocsPage() {
         title="The onboarding prompt"
         hint={
           permit
-            ? 'Live wallet + onboard token are baked in. Copy → paste into your agent → done.'
-            : 'Generate a token in Section B to bake live auth into the prompt.'
+            ? 'Single prompt, two paths. Live wallet + onboard token are baked in for the OpenX-hosted path. Copy → paste into your agent → done.'
+            : 'Single prompt, two paths. Path A (self-hosted) works as-is. For the OpenX-hosted path, mint a token in Section B first.'
         }
       >
         <CodeBlock content={promptText} language="text" />
         <p className="mt-3 text-xs text-on-surface-variant">
-          What the agent will do, in order: clarify topic → search adjacent listings → propose
-          listing fields → request your approval → call{' '}
+          The agent picks one path based on what you have. <strong>Path A</strong> (default,
+          fastest): if you already host your agent at an HTTPS URL, one POST to{' '}
+          <code className="font-mono text-primary">/v3/concierge/onboard</code> publishes it under
+          OpenX&apos;s service wallet — no MCP, no token, lazy-bind your wallet later at{' '}
+          <code className="font-mono">/redeem</code>.{' '}
+          <strong>Path B</strong> (advanced): if you want OpenX to host the inference, the agent
+          uses the MCP tools wired in Section A with the onboard token from Section B —{' '}
+          <code className="font-mono text-primary">openx_marketplace_search</code> →{' '}
           <code className="font-mono text-primary">openx_seller_publish</code> with{' '}
-          <code className="font-mono text-primary">x-fhenix-permit</code> auth → verify via{' '}
-          <code className="font-mono text-primary">openx_agent_invoke</code> → return slug + MCP
-          invoke snippet.
+          <code className="font-mono text-primary">x-openx-token</code> auth →{' '}
+          <code className="font-mono text-primary">openx_agent_invoke</code> verify.
         </p>
       </Section>
 
@@ -411,30 +441,111 @@ export default function DocsPage() {
 
       <Section
         letter="F"
-        title="Privacy + tier reference"
-        hint="Optional context. Skip unless you're attaching encrypted knowledge after publish."
+        title="Receive buyer events on your own system"
+        hint="Set notification_webhook_url and OpenX POSTs every paid_call + buyer message to your URL — HMAC-signed, retried up to 7× over 36h, dead-lettered after that. No polling."
       >
-        <div className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface-container-low p-5 text-sm text-on-surface-variant">
-          <p>
-            <strong className="text-on-surface">Standard tier</strong> — Fhenix on Arbitrum.
-            Knowledge is AES-256-GCM-encrypted in your browser; the AES key is wrapped as a
-            Fhenix CoFHE <code className="font-mono text-primary">euint128</code> in{' '}
-            <code className="font-mono text-primary">BrainKeyVaultV2</code>. The platform is
-            cryptographically blind to the plaintext. Add knowledge at{' '}
-            <Link href="/brain" className="text-primary hover:underline">
-              /brain
-            </Link>
-            .
+        <div className="mb-4 rounded-lg border-l-4 border-yellow-500 bg-yellow-500/10 p-4 text-sm text-on-surface">
+          <p className="font-semibold text-yellow-900 dark:text-yellow-300">
+            ⚠ Webhook ≠ your-agent-answers
           </p>
-          <p>
-            <strong className="text-on-surface">Confidential payment</strong> — Fhenix{' '}
-            <code className="font-mono text-primary">euint64</code> via{' '}
-            <code className="font-mono text-primary">WrappedStablecoin.encryptedTransfer</code>.
-            Set <code className="font-mono">accept_private_payment: true</code> in the prompt to
-            expose the <code className="font-mono">fherc20</code> rail; the platform never sees
-            the payment amount.
+          <p className="mt-2 text-on-surface-variant">
+            Setting <code className="font-mono text-primary">notification_webhook_url</code>{' '}
+            only gives you <em>event pings</em> (paid call settled, message received). It does{' '}
+            <strong>NOT</strong> route the buyer&apos;s actual question to your code — OpenX&apos;s
+            LLM keeps answering.
+          </p>
+          <p className="mt-2 text-on-surface-variant">
+            To have <strong>YOUR endpoint</strong> answer buyer queries, also set{' '}
+            <code className="font-mono text-primary">endpoint_url</code>. PATCH them both in the
+            same request — see the curl below. The response includes an{' '}
+            <code className="font-mono text-primary">inference_source</code> field so you can
+            confirm:{' '}
+            <code className="font-mono">&quot;seller_endpoint&quot;</code> = your code answers,{' '}
+            <code className="font-mono">&quot;openx_hosted_llm&quot;</code> = OpenX answers.
           </p>
         </div>
+        <CodeBlock
+          content={`# Set on a NEW agent (Path A) — pass the URL in the onboard body:
+curl -X POST ${AGENT_BACKEND_URL}/v3/concierge/onboard \\
+  -H 'content-type: application/json' \\
+  -d '{
+    "prompt": "<one-sentence agent description with endpoint + price>",
+    "operator_email": "<you@example.com>",
+    "notification_webhook_url": "<https://your.example.com/openx-events>"
+  }'
+
+# Or on an EXISTING agent — PATCH BOTH fields together for the full
+# "my-code-answers + my-system-gets-pinged" mode:
+curl -X PATCH ${AGENT_BACKEND_URL}/v3/agents/<AGENT_ID> \\
+  -H 'content-type: application/json' \\
+  -H 'x-wallet-address: <YOUR_WALLET>' \\
+  -d '{
+    "endpoint_url":              "https://your.example.com/api",        # answers buyer queries
+    "notification_webhook_url":  "https://your.example.com/openx-events" # receives event pings
+  }'
+
+# The response will include:
+# {
+#   ...,
+#   "inference_source": "seller_endpoint",   # \xe2\x86\x90 confirms YOUR code answers, not OpenX's LLM
+#   "advisories": []                         # warns when only one of the two is set
+# }`}
+          language="bash"
+        />
+        <p className="mt-3 text-xs text-on-surface-variant">
+          <strong>Event envelope</strong> (POSTed as JSON):
+        </p>
+        <CodeBlock
+          content={`POST https://your.example.com/openx-events
+content-type: application/json
+x-openx-delivery-id: <sha256-of-event-key>
+x-openx-signature:   <hmac-sha256 of body using OPENX_WEBHOOK_SECRET>
+
+{
+  "event":     "paid_call.completed" | "message.created" | "task.completed" | "task.failed",
+  "agent_id":  "<uuid>",
+  "slug":      "<your-agent-slug>",
+  "timestamp": "<ISO 8601>",
+  "data":      { /* event-specific payload */ }
+}
+
+# paid_call.completed.data → { paid_call_id, slug, buyer, amount_usdc, tx_hash, network, method }
+# message.created.data     → { thread_id, message_id, sender_wallet, mode, body }`}
+          language="bash"
+        />
+        <p className="mt-3 text-xs text-on-surface-variant">
+          <strong>Inference request envelope</strong> (POSTed to{' '}
+          <code className="font-mono text-primary">endpoint_url</code> when a buyer pays):
+        </p>
+        <CodeBlock
+          content={`POST https://your.example.com/api
+content-type: application/json
+x-openx-agent-id: <uuid>
+
+{ "agent_id": "<uuid>", "question": "<buyer's question>",
+  "persona":  { "system_prompt": "...", "description": "..." },
+  "upload_ids": [] }
+
+# YOUR response must include a non-empty "answer" string:
+{ "answer":   "<your response>",
+  "citations": [0,1,2],         # optional
+  "artifacts": [] }              # optional
+
+# If you return 200 with no answer (or fail outright), OpenX
+# transparently falls back to its hosted LLM so the buyer is
+# never stranded — but the seller's log line
+# 'self-hosted:empty-answer-fallback' marks the bypass.`}
+          language="bash"
+        />
+        <p className="mt-3 text-xs text-on-surface-variant">
+          Verify the event signature server-side:{' '}
+          <code className="font-mono text-primary">
+            hmac.compare(req.headers[&apos;x-openx-signature&apos;], hmac.sha256(rawBody,
+            OPENX_WEBHOOK_SECRET))
+          </code>
+          . Idempotency: re-deliveries carry the same{' '}
+          <code className="font-mono">x-openx-delivery-id</code> — store + skip dupes.
+        </p>
       </Section>
     </div>
   );

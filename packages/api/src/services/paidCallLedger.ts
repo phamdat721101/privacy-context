@@ -11,6 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import { pool } from '../db';
 import { logger } from '../lib';
+import { notifyService } from './notifyService';
 
 /** Per (wallet × brain) freemium quota. 0 disables freemium entirely. */
 export const FREE_PREVIEW_LIMIT = Number(process.env.FREE_PREVIEW_LIMIT ?? 5);
@@ -37,6 +38,22 @@ export async function record(call: PaidCallRecord): Promise<boolean> {
   const fresh = (r.rowCount ?? 0) > 0;
   if (fresh) {
     logger.info({ slug: call.slug, txHash: call.txHash, method: call.method }, 'paidCall:recorded');
+    // Seller notification — fire-and-forget; never throws into the hot path.
+    // No-op when the agent has no notification_webhook_url set.
+    await notifyService.notify(
+      call.agentId,
+      'paid_call.completed',
+      {
+        paid_call_id: r.rows[0]?.id,
+        slug: call.slug,
+        buyer: call.buyer.toLowerCase(),
+        amount_usdc: call.amountUsdc,
+        tx_hash: call.txHash,
+        network: call.network,
+        method: call.method,
+      },
+      `paid_call:${call.network}:${call.txHash}`,
+    );
   } else {
     logger.debug({ txHash: call.txHash }, 'paidCall:duplicate');
   }

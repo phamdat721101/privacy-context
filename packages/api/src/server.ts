@@ -177,3 +177,24 @@ installLifecycle(server);
 import('./services/demo-agent').then((m) => m.startDemoAgent()).catch((err) =>
   logger.warn({ err: err?.message }, 'demo-agent:boot:error'),
 );
+
+// PRD-2 — async task runner. Picks up pending agent_tasks every few seconds
+// and runs them via the same runInference path the synchronous paywall uses.
+// Webhook delivery is queued on completion + drained by the worker process.
+import('./services/asyncTaskService')
+  .then(async (svcMod) => {
+    const { runInference } = await import('./routes/v1Public');
+    const { pool } = await import('./db');
+    svcMod.startAsyncTaskRunner(async (task) => {
+      const r = await pool.query(
+        `SELECT id, brain_id, persona, pricing, kind, endpoint_url FROM agents WHERE id = $1 LIMIT 1`,
+        [task.agent_id],
+      );
+      const agent = r.rows[0];
+      if (!agent) throw new Error('agent_not_found');
+      const payload = task.payload as { question?: string; uploadIds?: string[] };
+      const result = await runInference(agent, payload.question ?? '', payload.uploadIds ?? []);
+      return { answer: result, tee_attestation_hash: undefined };
+    });
+  })
+  .catch((err) => logger.warn({ err: err?.message }, 'async-task-runner:boot:error'));

@@ -38,7 +38,7 @@ const VALID_DOMAINS = new Set([
   'other',
 ]);
 const VALID_TIERS = new Set(['basic', 'verified', 'tee_attested']);
-const VALID_KINDS = new Set(['api', 'workflow', 'skill', 'brain']);
+const VALID_KINDS = new Set(['api', 'workflow', 'skill', 'brain', 'public']);
 
 // ─── Public catalog ────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ router.get('/listings', async (req: Request, res: Response) => {
             a.pricing, a.persona, a.created_at,
             b.title, b.description, b.tags
        FROM agents a
-       JOIN brains b ON b.id = a.brain_id
+       LEFT JOIN brains b ON b.id = a.brain_id
        ${where}
    ORDER BY a.created_at DESC
       LIMIT $1 OFFSET $2`,

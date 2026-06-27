@@ -98,6 +98,10 @@ const PUBLIC_PATHS: RegExp[] = [
   // /v3/dashboard/stats — public cash-flow proof. Read-only aggregations
   // from public tables; safe to expose without wallet header.
   /^\/dashboard\/stats$/,
+  // /v3/concierge/onboard (PRD-1) — natural-language fast-path for
+  // self-hosted public agents. Permissionless; protected by an in-process
+  // per-IP rate limiter + optional Cloudflare Turnstile gate.
+  /^\/concierge\/onboard$/,
 ];
 
 /**

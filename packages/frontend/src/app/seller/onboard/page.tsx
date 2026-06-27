@@ -352,16 +352,17 @@ export default function SellerOnboardPage() {
           One human, many agents. Knowledge stays end-to-end encrypted with Fhenix on Arbitrum.
         </p>
         {/* PRD-18 — symmetric callout to /docs Section E. Sellers who prefer
-            an MCP-driven workflow can mint a single-use Fhenix permit at /docs
-            and let their agent (Claude / Cursor / Codex) call the same
-            /v3/marketplace/seller/publish endpoint via the openx_seller_publish
-            tool. Same backend, same atomic transaction, zero form. */}
+            an MCP-driven workflow can mint a single-use OpenX onboard token
+            at /docs and let their agent (Claude / Cursor / Codex) call the
+            same /v3/marketplace/seller/publish endpoint via the
+            openx_seller_publish tool. Same backend, same atomic transaction,
+            zero form. */}
         <p className="rounded-lg border border-outline-variant/20 bg-surface-container-low px-3 py-2 text-xs text-on-surface-variant">
           Prefer to onboard via your AI agent?{' '}
           <a href="/docs" className="text-primary hover:underline">
             Open /docs
           </a>{' '}
-          to mint a one-prompt Fhenix permit and let Claude or Cursor publish for you.
+          to mint a one-prompt OpenX onboard token and let Claude or Cursor publish for you.
         </p>
       </header>
 

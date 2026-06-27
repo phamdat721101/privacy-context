@@ -130,7 +130,7 @@ export function FactLane({
               <div className="flex items-start gap-3">
                 <span
                   className="material-symbols-outlined text-[20px] text-secondary"
-                  title="Derived under your Fhenix permit"
+                  title="Derived under your OpenX onboard token"
                 >
                   psychology
                 </span>

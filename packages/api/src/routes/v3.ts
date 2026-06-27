@@ -131,23 +131,64 @@ v3.post('/agents/:id/publish', async (req: AuthRequest, res: Response) => {
 v3.patch('/agents/:id', async (req: AuthRequest, res: Response) => {
   const ctx = { wallet: req.user?.address, agentId: req.params.id };
   if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
-  const { persona, pricing } = req.body ?? {};
-  if (!persona && !pricing) return res.status(400).json({ error: 'persona or pricing required' });
+  const { persona, pricing, endpoint_url, notification_webhook_url } = req.body ?? {};
+  if (
+    persona === undefined &&
+    pricing === undefined &&
+    endpoint_url === undefined &&
+    notification_webhook_url === undefined
+  ) {
+    return res.status(400).json({ error: 'persona, pricing, endpoint_url, or notification_webhook_url required' });
+  }
   if (persona?.system_prompt && typeof persona.system_prompt === 'string' && persona.system_prompt.length > 4000) {
     return res.status(400).json({ error: 'system_prompt too long (max 4000 chars)' });
+  }
+  // URL safety — both fields must be HTTPS (or HTTP in dev) and not private/loopback.
+  const urlCheck = (u: unknown): string | null | undefined => {
+    if (u === undefined) return undefined;
+    if (u === null || u === '') return null;
+    if (typeof u !== 'string') return undefined;
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
+      const host = parsed.hostname.toLowerCase();
+      if (process.env.ALLOW_PRIVATE_ENDPOINTS !== '1') {
+        if (['localhost', '0.0.0.0', '::1'].includes(host)) return undefined;
+        if (host.endsWith('.internal') || host.endsWith('.local')) return undefined;
+        if (/^127\.|^10\.|^192\.168\.|^169\.254\./.test(host)) return undefined;
+        if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return undefined;
+      }
+      return u;
+    } catch {
+      return undefined;
+    }
+  };
+  const endpointSafe = urlCheck(endpoint_url);
+  const notifySafe = urlCheck(notification_webhook_url);
+  if (endpoint_url !== undefined && endpointSafe === undefined) {
+    return res.status(400).json({ error: 'invalid endpoint_url' });
+  }
+  if (notification_webhook_url !== undefined && notifySafe === undefined) {
+    return res.status(400).json({ error: 'invalid notification_webhook_url' });
   }
   try {
     const r = await pool.query(
       `UPDATE agents
           SET persona = COALESCE($3::jsonb, persona),
-              pricing = COALESCE($4::jsonb, pricing)
+              pricing = COALESCE($4::jsonb, pricing),
+              endpoint_url = CASE WHEN $5::int = 1 THEN $6 ELSE endpoint_url END,
+              notification_webhook_url = CASE WHEN $7::int = 1 THEN $8 ELSE notification_webhook_url END
         WHERE id = $1 AND owner_address = $2
-        RETURNING id, slug, persona, pricing`,
+        RETURNING id, slug, persona, pricing, endpoint_url, notification_webhook_url`,
       [
         req.params.id,
         req.user.address,
         persona ? JSON.stringify(persona) : null,
         pricing ? JSON.stringify(pricing) : null,
+        endpoint_url !== undefined ? 1 : 0,
+        endpointSafe ?? null,
+        notification_webhook_url !== undefined ? 1 : 0,
+        notifySafe ?? null,
       ],
     );
     if (r.rowCount === 0) {
@@ -160,7 +201,18 @@ v3.patch('/agents/:id', async (req: AuthRequest, res: Response) => {
       invalidateProvider(r.rows[0].slug);
     }
     logger.info(ctx, 'v3:agents:patch:ok');
-    res.json(r.rows[0]);
+    // Advisory — so sellers can SEE which engine answers their buyers.
+    // Avoids the confused-Nim path where the webhook is wired but inference
+    // still runs on OpenX's Bedrock because endpoint_url is null.
+    const row = r.rows[0] as { endpoint_url: string | null; notification_webhook_url: string | null };
+    const inference_source = row.endpoint_url ? 'seller_endpoint' : 'openx_hosted_llm';
+    const advisories: string[] = [];
+    if (!row.endpoint_url && row.notification_webhook_url) {
+      advisories.push(
+        'notification_webhook_url is set but endpoint_url is null — buyer queries are still answered by OpenX\'s LLM. To have YOUR endpoint answer queries, PATCH endpoint_url too.',
+      );
+    }
+    res.json({ ...r.rows[0], inference_source, advisories });
   } catch (err) {
     const e = err as Error & { code?: string };
     logger.error({ ...ctx, err: e.message, code: e.code }, 'v3:agents:patch:failed');
@@ -788,5 +840,15 @@ v3.get('/dashboard/stats', async (_req: Request, res: Response) => {
     res.status(500).json({ error: 'stats-failed' });
   }
 });
+
+// ---------------------------------------------------------------------------
+// Sub-routers (PRD-1 + PRD-2). Each is feature-flagged inside its own module;
+// when the flag is off the routes return 404 — same envelope as if the
+// router weren't mounted, so byte-identical rollback is just a flag flip.
+// ---------------------------------------------------------------------------
+import conciergeRouter from './v3-concierge';
+import commRouter from './v3-comm';
+v3.use('/concierge', conciergeRouter);
+v3.use('/', commRouter); // /threads, /inbox, /inbox/stream
 
 export default v3;
