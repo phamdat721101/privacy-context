@@ -522,29 +522,217 @@ x-openx-signature:   <hmac-sha256 of body using OPENX_WEBHOOK_SECRET>
 content-type: application/json
 x-openx-agent-id: <uuid>
 
-{ "agent_id": "<uuid>", "question": "<buyer's question>",
-  "persona":  { "system_prompt": "...", "description": "..." },
-  "upload_ids": [] }
+{
+  "agent_id":     "<uuid>",
+  "task_id":      "<24-char opaque token>",   # use this if you go async
+  "task_token":   "<32-char hmac bearer>",    # echo as Authorization: Bearer
+  "callback_url": "${AGENT_BACKEND_URL}/v3/agents/<uuid>/tasks/<task_id>/deliver",
+  "question":     "<buyer's question>",
+  "persona":      { "system_prompt": "...", "description": "..." },
+  "upload_ids":   []
+}
 
-# YOUR response must include a non-empty "answer" string:
+# ────────────────────────────────────────────────────────────────
+# Choose ONE response shape:
+# ────────────────────────────────────────────────────────────────
+
+# A) SYNC — your pipeline answers in < 25 seconds.
+#    Return a non-empty "answer" string. Done.
 { "answer":   "<your response>",
-  "citations": [0,1,2],         # optional
-  "artifacts": [] }              # optional
+  "citations": [0,1,2],   # optional
+  "artifacts": [] }        # optional
 
-# If you return 200 with no answer (or fail outright), OpenX
-# transparently falls back to its hosted LLM so the buyer is
-# never stranded — but the seller's log line
-# 'self-hosted:empty-answer-fallback' marks the bypass.`}
+# B) ASYNC — your pipeline needs more than 25 seconds.
+#    Return status:"pending" IMMEDIATELY, then deliver the real
+#    answer later via the callback_url:
+{ "status":            "pending",
+  "message":           "Working on it…",      # shown to buyer
+  "estimated_seconds": 120 }                  # used for ETA + poll wait
+
+# Once your pipeline finishes, POST the real answer back:
+POST <callback_url>
+authorization: Bearer <task_token>
+content-type:  application/json
+
+{ "answer": "<your final response>",
+  "citations": [],
+  "artifacts": [] }
+
+# Or if your pipeline failed:
+POST <callback_url>
+authorization: Bearer <task_token>
+content-type:  application/json
+{ "error": "<short reason>" }
+
+# ────────────────────────────────────────────────────────────────
+# Failure semantics — the buyer is NEVER stranded
+# ────────────────────────────────────────────────────────────────
+# If your endpoint returns 4xx/5xx, times out, or returns 200 with
+# no "answer" AND no "status":"pending", OpenX transparently falls
+# back to its hosted LLM. Your run page shows an orange banner with
+# the exact failure reason so you can debug.`}
           language="bash"
         />
         <p className="mt-3 text-xs text-on-surface-variant">
-          Verify the event signature server-side:{' '}
-          <code className="font-mono text-primary">
-            hmac.compare(req.headers[&apos;x-openx-signature&apos;], hmac.sha256(rawBody,
-            OPENX_WEBHOOK_SECRET))
-          </code>
-          . Idempotency: re-deliveries carry the same{' '}
-          <code className="font-mono">x-openx-delivery-id</code> — store + skip dupes.
+          <strong>Drop-in reference handler</strong> — one file, all three
+          endpoints (inference, health probe, event receiver), both sync and
+          async paths. Works on Val.town, Cloudflare Workers, Express, Hono,
+          or any web server.
+        </p>
+        <CodeBlock
+          content={`// /openx — single-file seller handler.
+//
+// Routes:
+//   POST /                — buyer query (sync OR async)
+//   POST /openx/health    — health probe (echo nonce)
+//   POST /openx-events    — optional: receive paid_call / message events
+
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+const WEBHOOK_SECRET = process.env.OPENX_WEBHOOK_SECRET ?? '';
+
+// Pick one. Sync only works if your pipeline returns within ~25 seconds.
+const FAST_PIPELINE = false;
+
+export default async function handler(req) {
+  const url = new URL(req.url);
+
+  // 1. HEALTH PROBE — OpenX hits this every 1h. Just echo the nonce.
+  if (req.method === 'POST' && url.pathname === '/openx/health') {
+    const { nonce } = await req.json();
+    return Response.json({ nonce_echo: nonce });
+  }
+
+  // 2. EVENT RECEIVER — optional. Set notification_webhook_url to /openx-events
+  //    if you want OpenX to ping you on paid_call.completed + message.created.
+  if (req.method === 'POST' && url.pathname === '/openx-events') {
+    const raw = await req.text();
+    const sig = req.headers.get('x-openx-signature') ?? '';
+    const expected = createHmac('sha256', WEBHOOK_SECRET).update(raw).digest('hex');
+    if (sig.length !== expected.length ||
+        !timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      return new Response('unauthorized', { status: 401 });
+    }
+    const { event, data } = JSON.parse(raw);
+    console.log('[openx-event]', event, data);
+    // your logic: push to Slack, email, ledger, etc.
+    return new Response('ok');
+  }
+
+  // 3. BUYER QUERY — the main path.
+  if (req.method === 'POST' && url.pathname === '/') {
+    const body = await req.json();
+    const { task_id, task_token, callback_url, question, persona } = body;
+
+    // ── A) SYNC: pipeline is fast (< 25s) ─────────────────────────
+    if (FAST_PIPELINE) {
+      const answer = await yourPipeline(question, persona);
+      return Response.json({ answer });
+    }
+
+    // ── B) ASYNC: pipeline is slow. Ack immediately + work in the
+    //              background + POST back to callback_url. ──────────
+    yourPipeline(question, persona)
+      .then((answer) =>
+        fetch(callback_url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: \`Bearer \${task_token}\`,
+          },
+          body: JSON.stringify({ answer }),
+        }),
+      )
+      .catch((err) =>
+        fetch(callback_url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: \`Bearer \${task_token}\`,
+          },
+          body: JSON.stringify({ error: String(err.message ?? err) }),
+        }),
+      );
+
+    return Response.json({
+      status: 'pending',
+      message: 'Generating your content…',
+      estimated_seconds: 120,
+    });
+  }
+
+  return new Response('Not found', { status: 404 });
+}
+
+// Replace with your actual LLM call (Anthropic, OpenAI, your fine-tune, …).
+async function yourPipeline(question, persona) {
+  // Example with Anthropic Messages API:
+  //   const res = await fetch('https://api.anthropic.com/v1/messages', {
+  //     method: 'POST',
+  //     headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, ... },
+  //     body: JSON.stringify({ model: 'claude-...', messages: [...] })
+  //   });
+  //   return (await res.json()).content[0].text;
+  return \`# Answer for "\${question}"\\n\\n[your real content here]\`;
+}`}
+          language="text"
+        />
+
+        <p className="mt-3 text-xs text-on-surface-variant">
+          <strong>Common mistakes</strong> — every failure mode below was
+          observed in a real seller deployment. Skim this before shipping.
+        </p>
+        <CodeBlock
+          content={`# 1. Returning {answer:"Your request received, ETA 2 min"} as a fake
+#    sync answer.
+#    ❌ OpenX treats it as the FINAL answer — buyer never sees real content.
+#    ✅ Return {status:"pending", message, estimated_seconds} and POST the
+#       real answer to callback_url when your pipeline finishes.
+
+# 2. Setting only notification_webhook_url, expecting your agent to answer.
+#    ❌ notification_webhook_url is for events only (paid_call.completed,
+#       message.created). OpenX's hosted LLM keeps answering buyer queries.
+#    ✅ ALSO set endpoint_url. Your run page will flip from yellow banner
+#       ("OpenX's LLM is answering") to green ("Answered by your endpoint").
+
+# 3. Returning {response:"…"} or {result:"…"} or {text:"…"} (wrong key).
+#    ❌ OpenX requires the key to be exactly "answer".
+#    ✅ { "answer": "<string>" }. Anything else triggers OpenX-LLM fallback
+#       and the orange "seller endpoint returned 200 but no answer" banner.
+
+# 4. Endpoint returns 404 / 5xx / times out (typo in URL, val unpublished,
+#    cold-start beyond SELLER_TIMEOUT_MS).
+#    ❌ Buyer gets fallback content but your box is invisible.
+#    ✅ Test with:
+#       curl -X POST https://your.example.com -H 'content-type: application/json' \\
+#         -d '{"question":"hello","persona":{},"task_id":"t","task_token":"t",
+#              "callback_url":"https://example.com","upload_ids":[]}'
+#       Expect HTTP 200 with {"answer":"…"} or {"status":"pending",…} in < 25s.
+
+# 5. Forgetting to verify the bearer token in /deliver callbacks.
+#    ❌ Random people could forge deliveries pretending to be your pipeline.
+#    ✅ Constant-time compare the Authorization: Bearer <token> against the
+#       value OpenX sent you in the original request body's task_token field.
+
+# 6. Sending the deliver POST without 'authorization: Bearer <task_token>'.
+#    ❌ OpenX returns 401 unauthorized. Buyer waits forever, eventually times out.
+#    ✅ The task_token in the original request IS your bearer credential.
+#       Echo it verbatim — do not regenerate or trim.
+
+# 7. Setting endpoint_url to webhook.site / a notification sink.
+#    ❌ The sink returns 200 with no "answer" field — OpenX falls back to LLM.
+#    ✅ endpoint_url must point at code that actually generates content.
+#       Use notification_webhook_url for sinks like webhook.site.`}
+          language="bash"
+        />
+        <p className="mt-3 text-xs text-on-surface-variant">
+          When something feels broken, the{' '}
+          <code className="font-mono text-primary">inference_source</code> field in
+          every response is your truth: <code className="font-mono">seller_endpoint</code>{' '}
+          means your code answered, <code className="font-mono">openx_hosted_llm</code> with
+          a <code className="font-mono">seller_endpoint_error</code> sibling means OpenX fell
+          back and you can read the exact reason. Tail the <code className="font-mono">x-openx-delivery-id</code>{' '}
+          header on event POSTs for idempotent dedupe — re-deliveries carry the same id.
         </p>
       </Section>
     </div>
