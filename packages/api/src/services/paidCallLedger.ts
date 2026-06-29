@@ -23,7 +23,8 @@ export interface PaidCallRecord {
   amountUsdc: string;          // decimal string, e.g. "0.01"
   txHash: string;
   network: string;             // 'arbitrum-sepolia' | 'base-sepolia' | …
-  method: 'exact' | 'fherc20' | 'demo' | 'free'; // x402 / FHERC20 confidential / free try-it / freemium
+  method: 'exact' | 'fherc20' | 'demo' | 'free' | 'credit'; // x402 / FHERC20 confidential / free try-it / freemium / credit-debit
+  sellerId?: number | null;    // when set + method='credit', creditService will have accrued
 }
 
 /** Returns true if a fresh row was inserted, false if it was a duplicate. */

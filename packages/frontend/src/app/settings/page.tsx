@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
+import { useCredits } from '@/hooks/useCredits';
+import { TopUpModal } from '@/components/TopUpModal';
 import {
   AGENT_BACKEND_URL,
   BRAIN_KEY_VAULT_ADDRESS,
@@ -63,6 +65,8 @@ export default function SettingsPage() {
       </section>
 
       <MyActivitySection wallet={userAddress} />
+
+      <CreditsSection wallet={userAddress} />
 
       <section className="space-y-3">
         <h2 className="font-headline text-lg font-semibold">Contracts (Arbitrum Sepolia)</h2>
@@ -224,5 +228,140 @@ function KpiCard({ label, value, hint }: { label: string; value: string; hint?: 
       <div className="mt-1 font-headline text-2xl font-semibold text-on-surface">{value}</div>
       {hint && <div className="mt-1 text-xs text-on-surface-variant">{hint}</div>}
     </div>
+  );
+}
+
+// ─── CreditsSection (PRD-G) ─────────────────────────────────────────────
+//
+// Surfaces the buyer's credit balance + history + a discoverable Top-up
+// button. Hidden entirely when the API reports `credit system disabled`
+// (404 on /v3/credits/me, gated by FEATURE_CREDIT_SYSTEM).
+//
+// SRP: this component renders. Balance reads live in useCredits; purchases
+// live in TopUpModal. No duplication of payment logic here.
+
+interface LedgerRow {
+  id: number;
+  kind: 'welcome' | 'purchase' | 'spend' | 'refund' | 'payout';
+  amount_usdc: string;
+  agent_id: string | null;
+  tx_hash: string | null;
+  created_at: string;
+}
+
+const KIND_LABEL: Record<LedgerRow['kind'], string> = {
+  welcome: 'Welcome bonus',
+  purchase: 'Top-up',
+  spend: 'Agent hire',
+  refund: 'Refund',
+  payout: 'Payout',
+};
+
+function CreditsSection({ wallet }: { wallet: `0x${string}` | undefined }) {
+  const credits = useCredits();
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [history, setHistory] = useState<LedgerRow[] | null>(null);
+
+  useEffect(() => {
+    if (!wallet || !credits.enabled) return;
+    fetch(`${AGENT_BACKEND_URL}/v3/credits/history?limit=10`, {
+      headers: { 'x-wallet-address': wallet },
+    })
+      .then((r) => (r.ok ? r.json() : { rows: [] }))
+      .then((j) => setHistory(j.rows ?? []))
+      .catch(() => setHistory([]));
+  }, [wallet, credits.enabled, credits.balance]);
+
+  if (!credits.enabled) return null;
+
+  return (
+    <section className="space-y-3 rounded-xl border border-outline-variant/30 bg-surface p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-headline text-lg font-semibold">Credits</h2>
+          <p className="text-sm text-on-surface-variant">
+            1 credit = $1 USDC. Pay once, run agents until your balance runs out.
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="font-headline text-3xl font-bold">{credits.display}</div>
+          <div className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+            {credits.welcomeGranted ? 'incl. welcome bonus' : 'balance'}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTopUpOpen(true)}
+          className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary/80"
+        >
+          Top up
+        </button>
+        <button
+          type="button"
+          onClick={() => credits.refetch()}
+          className="rounded-full border border-outline-variant/40 px-4 py-2 text-sm transition-colors hover:border-primary/40"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {history && history.length > 0 && (
+        <div className="overflow-hidden rounded-lg border border-outline-variant/20">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-container-high text-left font-mono text-[10px] uppercase text-on-surface-variant">
+              <tr>
+                <th className="px-3 py-2">When</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2 text-right">Amount</th>
+                <th className="px-3 py-2">Tx</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((row) => {
+                const amt = Number(row.amount_usdc);
+                return (
+                  <tr key={row.id} className="border-t border-outline-variant/20">
+                    <td className="px-3 py-2 font-mono text-xs text-on-surface-variant">
+                      {new Date(row.created_at).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2">{KIND_LABEL[row.kind]}</td>
+                    <td
+                      className={`px-3 py-2 text-right font-mono ${
+                        amt >= 0 ? 'text-emerald-500' : 'text-on-surface'
+                      }`}
+                    >
+                      {amt >= 0 ? '+' : ''}
+                      ${amt.toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-on-surface-variant">
+                      {row.tx_hash && !row.tx_hash.startsWith('credit-') ? (
+                        <Link
+                          href={`https://sepolia.arbiscan.io/tx/${row.tx_hash}`}
+                          target="_blank"
+                          rel="noopener"
+                          className="text-primary hover:underline"
+                        >
+                          {row.tx_hash.slice(0, 8)}…
+                        </Link>
+                      ) : (
+                        <span>—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <TopUpModal
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        onSuccess={() => credits.refetch()}
+      />
+    </section>
   );
 }

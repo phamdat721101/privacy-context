@@ -101,6 +101,9 @@ interface AgentRow {
   /** Chain stamped at create time. Used to render the correct chain id in
    *  agent.json so AI buyers know which network's USDC to settle in. */
   chain: string | null;
+  /** PRD-G — seller revenue is accrued to this seller_id when a credit
+   *  debit fires. Null for legacy v1 brains or platform demos. */
+  seller_id: number | null;
 }
 
 interface CachedProvider {
@@ -110,7 +113,7 @@ interface CachedProvider {
 }
 
 const providerCache = new Map<string, CachedProvider>();
-const RESERVED_SLUGS = new Set(['api', 'admin', 'health', 'metrics', 'well-known', 'platform']);
+const RESERVED_SLUGS = new Set(['api', 'admin', 'health', 'metrics', 'well-known', 'platform', 'credits']);
 
 function isReserved(slug: string): boolean {
   return RESERVED_SLUGS.has(slug.toLowerCase());
@@ -119,7 +122,7 @@ function isReserved(slug: string): boolean {
 async function loadAgent(slug: string): Promise<AgentRow | null> {
   if (isReserved(slug)) return null;
   const r = await pool.query(
-    `SELECT id, slug, brain_id, owner_address, persona, pricing, daily_request_cap, published, chain
+    `SELECT id, slug, brain_id, owner_address, persona, pricing, daily_request_cap, published, chain, seller_id
        FROM agents WHERE slug = $1 AND published = true AND archived_at IS NULL`,
     [slug],
   );
@@ -1257,6 +1260,44 @@ router.use('/:slug', async (req: Request, res: Response, next: NextFunction) => 
         (req as any).receipt = { method: 'free', txHash: 'free-preview' };
         logger.info({ slug: provider.agent.slug, buyer, freeLeft: freeLeft - 1 }, 'v1Public:freemium-pass');
         return next();
+      }
+    }
+  }
+
+  // PRD-G — credit-first debit. Buyer identifies via X-BUYER (same convention
+  // as the freemium gate). When balance is sufficient, we debit silently
+  // and short-circuit the n-payment middleware. Insufficient balance falls
+  // through to the x402 / fherc20 paywalls untouched.
+  if (process.env.FEATURE_CREDIT_SYSTEM === 'true') {
+    const buyer = (req.headers['x-buyer'] as string | undefined)?.toLowerCase();
+    const price = provider.agent.pricing?.x402;
+    if (buyer && price && Number(price) > 0) {
+      try {
+        const credits = await import('../services/creditService');
+        const debit = await credits.tryDebit({
+          wallet_address: buyer,
+          amount_usdc: price,
+          agent_id: provider.agent.id,
+          seller_id: (provider.agent as any).seller_id ?? null,
+        });
+        if (debit.ok) {
+          await ledger.record({
+            agentId: provider.agent.id,
+            slug: provider.agent.slug,
+            buyer,
+            amountUsdc: price,
+            txHash: `credit-${debit.ledger_id}`,
+            network: process.env.X402_NETWORK ?? 'arbitrum-sepolia',
+            method: 'credit',
+            sellerId: (provider.agent as any).seller_id ?? null,
+          });
+          res.setHeader('X-Credit-Balance', debit.new_balance);
+          (req as any).receipt = { method: 'credit', txHash: `credit-${debit.ledger_id}` };
+          logger.info({ slug: provider.agent.slug, buyer, new_balance: debit.new_balance }, 'v1Public:credit-pass');
+          return next();
+        }
+      } catch (err) {
+        logger.warn({ err: (err as Error).message }, 'v1Public:credit-debit:failed');
       }
     }
   }

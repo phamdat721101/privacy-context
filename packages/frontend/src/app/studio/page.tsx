@@ -40,6 +40,13 @@ export default function StudioPage() {
   const hasPermit = !!userAddress;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [archivedAgents, setArchivedAgents] = useState<ArchivedAgent[]>([]);
+  const [creditBalance, setCreditBalance] = useState<{
+    seller_id: number;
+    accrued_usdc: string;
+    withdrawn_usdc: string;
+    withdrawable_usdc: string;
+    last_withdraw_at: string | null;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
   // Tab state — URL-driven via ?tab=creator|user. Defaults are role-aware
@@ -123,6 +130,9 @@ export default function StudioPage() {
           });
         setAgents(merged);
         setArchivedAgents(hiddenBrains);
+        // PRD-G — credit_balance is null when the seller has no
+        // accrual yet (no credit-debit hires) OR when the API flag is off.
+        setCreditBalance((dash?.credit_balance as typeof creditBalance) ?? null);
       })
       .finally(() => setLoading(false));
   }, [userAddress]);
@@ -303,6 +313,23 @@ export default function StudioPage() {
       {tab === 'creator' && (
         <>
           <EarningsTile userAddress={userAddress} agents={agents} />
+          <SellerCreditTile
+            userAddress={userAddress}
+            balance={creditBalance}
+            onWithdrawn={() => {
+              // Refetch the dashboard so the tile reflects the new
+              // withdrawn + withdrawable values without a hard reload.
+              if (!userAddress) return;
+              fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard`, {
+                headers: { 'x-wallet-address': userAddress },
+              })
+                .then((r) => (r.ok ? r.json() : null))
+                .then((d) =>
+                  setCreditBalance((d?.credit_balance as typeof creditBalance) ?? null),
+                )
+                .catch(() => {/* silent */});
+            }}
+          />
 
           {!hasPermit ? (
             // PRD-F: Permit-gate removed. Show a simple sign-in prompt.
@@ -686,6 +713,141 @@ function EarningsTile({ userAddress, agents }: { userAddress: `0x${string}` | un
           })}
         </ul>
       </div>
+    </section>
+  );
+}
+
+// ─── SellerCreditTile (PRD-G) ───────────────────────────────────────────
+//
+// Renders accrued / withdrawn / withdrawable from
+// /v3/marketplace/seller/dashboard.credit_balance + a single Withdraw
+// button that POSTs /v3/marketplace/seller/withdraw. The button is
+// disabled below the $5 minimum + during cooldown.
+//
+// SRP: this tile owns the seller cash-out UI. Balance reads live on the
+// parent's dashboard fetch (no extra round-trip on mount). Inline
+// sub-component per the page's "no new files" convention (see EarningsTile).
+
+interface SellerCreditBalance {
+  seller_id: number;
+  accrued_usdc: string;
+  withdrawn_usdc: string;
+  withdrawable_usdc: string;
+  last_withdraw_at: string | null;
+}
+
+function SellerCreditTile({
+  userAddress,
+  balance,
+  onWithdrawn,
+}: {
+  userAddress: `0x${string}` | undefined;
+  balance: SellerCreditBalance | null;
+  onWithdrawn: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [lastTx, setLastTx] = useState<string | null>(null);
+
+  // Hide the tile entirely when the API didn't return credit_balance
+  // (flag off OR no seller row OR no accrual yet). Sellers see the
+  // standard EarningsTile in either case.
+  if (!balance) return null;
+
+  const withdrawable = Number(balance.withdrawable_usdc);
+  const accrued = Number(balance.accrued_usdc);
+  const withdrawn = Number(balance.withdrawn_usdc);
+  const minWithdraw = 5;
+  const cooldownOk =
+    !balance.last_withdraw_at ||
+    (Date.now() - new Date(balance.last_withdraw_at).getTime()) / 1000 > 300;
+  const canWithdraw = withdrawable >= minWithdraw && cooldownOk && !busy;
+
+  async function withdraw() {
+    if (!userAddress) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/withdraw`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-wallet-address': userAddress },
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        if (j.error === 'cooldown_active') {
+          setErr(`Cooldown — try again in ${j.retry_after_seconds}s.`);
+        } else if (j.error === 'below_minimum') {
+          setErr(`Need at least $${j.minimum_usdc} to withdraw.`);
+        } else if (j.error === 'payout_not_configured') {
+          setErr('Payout wallet not configured on the API. Contact platform admin.');
+        } else {
+          setErr(j.detail ?? j.error ?? `HTTP ${r.status}`);
+        }
+        return;
+      }
+      setLastTx(j.tx_hash);
+      onWithdrawn();
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-secondary/30 bg-secondary/5 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-on-surface-variant">
+            Credit earnings (PRD-G)
+          </div>
+          <div className="mt-1 font-headline text-3xl font-bold">
+            ${withdrawable.toFixed(2)}
+            <span className="ml-2 font-mono text-xs text-on-surface-variant">withdrawable</span>
+          </div>
+          <div className="mt-1 font-mono text-[11px] text-on-surface-variant">
+            accrued ${accrued.toFixed(2)} · withdrawn ${withdrawn.toFixed(2)}
+            {balance.last_withdraw_at && (
+              <> · last {new Date(balance.last_withdraw_at).toLocaleString()}</>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={withdraw}
+          disabled={!canWithdraw}
+          className="rounded-full bg-secondary px-4 py-2 text-sm font-medium text-on-secondary transition-colors hover:bg-secondary/80 disabled:cursor-not-allowed disabled:opacity-50"
+          title={
+            !cooldownOk
+              ? 'Cooldown active (5 min between withdrawals).'
+              : withdrawable < minWithdraw
+              ? `Min withdraw $${minWithdraw}`
+              : busy
+              ? 'Withdrawing…'
+              : 'Send USDC to your wallet on Arbitrum Sepolia'
+          }
+        >
+          {busy ? 'Withdrawing…' : `Withdraw $${withdrawable.toFixed(2)}`}
+        </button>
+      </div>
+      {lastTx && (
+        <p className="mt-3 font-mono text-[11px] text-on-surface-variant">
+          ✓ paid out —{' '}
+          <Link
+            href={`https://sepolia.arbiscan.io/tx/${lastTx}`}
+            target="_blank"
+            rel="noopener"
+            className="text-primary hover:underline"
+          >
+            {lastTx.slice(0, 10)}…{lastTx.slice(-6)}
+          </Link>
+        </p>
+      )}
+      {err && (
+        <p role="alert" className="mt-3 text-sm text-amber-500">
+          {err}
+        </p>
+      )}
     </section>
   );
 }

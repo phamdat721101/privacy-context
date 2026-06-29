@@ -338,6 +338,9 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
     agents: agents.rows,
     archived_agents: archived.rows,
     earnings: earnings.rows[0] ?? { last_7d: '0', last_30d: '0', all_time: '0', calls_7d: 0 },
+    credit_balance: sellerId !== null
+      ? await (await import('../services/creditService')).getSellerBalance(Number(sellerId))
+      : null,
   });
 });
 
@@ -574,6 +577,100 @@ router.get('/buyer/me/tasks', async (req: AuthRequest, res: Response) => {
     limit,
     offset,
   });
+});
+
+// ─── PRD-G — seller withdraw ────────────────────────────────────────────
+//
+// Reads the seller's withdrawable balance, validates threshold + cooldown,
+// signs an ERC-20 USDC `transfer` from PLATFORM_PAYOUT_PRIVATE_KEY (falls
+// back to PLATFORM_SIGNER_PRIVATE_KEY) on Arbitrum Sepolia, and books the
+// result via creditService.markPayout — all on success.
+//
+// SOLID:
+//   * SRP — this handler orchestrates the steps; it doesn't own balance
+//     mutation (creditService) or chain config (env).
+//   * Idempotency — credit_ledger UNIQUE(kind, tx_hash) makes retries safe.
+
+router.post('/seller/withdraw', async (req: AuthRequest, res: Response) => {
+  if (!req.user?.address) return res.status(401).json({ error: 'auth required' });
+  if (process.env.FEATURE_CREDIT_SYSTEM !== 'true') {
+    return res.status(404).json({ error: 'credit system disabled' });
+  }
+  const owner = req.user.address.toLowerCase();
+  const sellerRow = await pool.query(
+    `SELECT id FROM sellers WHERE wallet_address = $1`,
+    [owner],
+  );
+  if (sellerRow.rowCount === 0) return res.status(404).json({ error: 'no seller profile' });
+  const sellerId = Number(sellerRow.rows[0].id);
+
+  const credits = await import('../services/creditService');
+  const bal = await credits.getSellerBalance(sellerId);
+  const withdrawable = Number(bal.withdrawable_usdc);
+
+  const minWithdraw = Number(process.env.SELLER_WITHDRAW_MIN_USDC ?? '5');
+  if (withdrawable < minWithdraw) {
+    return res.status(400).json({
+      error: 'below_minimum',
+      withdrawable_usdc: bal.withdrawable_usdc,
+      minimum_usdc: String(minWithdraw),
+    });
+  }
+  const cooldownSec = Number(process.env.SELLER_WITHDRAW_COOLDOWN_SECONDS ?? '300');
+  if (bal.last_withdraw_at) {
+    const elapsed = (Date.now() - new Date(bal.last_withdraw_at).getTime()) / 1000;
+    if (elapsed < cooldownSec) {
+      return res.status(429).json({
+        error: 'cooldown_active',
+        retry_after_seconds: Math.ceil(cooldownSec - elapsed),
+      });
+    }
+  }
+
+  // On-chain transfer (ethers v6).
+  const { ethers } = await import('ethers');
+  const rpc = process.env.ARBITRUM_SEPOLIA_RPC ?? 'https://sepolia-rollup.arbitrum.io/rpc';
+  const usdcAddr = process.env.X402_USDC_ADDRESS ?? '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d';
+  const payoutKey = process.env.PLATFORM_PAYOUT_PRIVATE_KEY ?? process.env.PLATFORM_SIGNER_PRIVATE_KEY;
+  if (!payoutKey) {
+    logger.warn('seller:withdraw: no payout key configured');
+    return res.status(503).json({ error: 'payout_not_configured' });
+  }
+  try {
+    const provider = new ethers.JsonRpcProvider(rpc);
+    const wallet = new ethers.Wallet(payoutKey, provider);
+    const usdc = new ethers.Contract(
+      usdcAddr,
+      ['function transfer(address to, uint256 amount) returns (bool)'],
+      wallet,
+    );
+    // USDC has 6 decimals on Arbitrum Sepolia.
+    const amountUnits = ethers.parseUnits(withdrawable.toFixed(6), 6);
+    const tx = await usdc.transfer(owner, amountUnits);
+    const receipt = await tx.wait();
+    const txHash = (receipt?.hash ?? tx.hash) as string;
+
+    await credits.markPayout({
+      seller_id: sellerId,
+      seller_wallet_address: owner,
+      amount_usdc: withdrawable,
+      tx_hash: txHash,
+    });
+
+    logger.info(
+      { seller_id: sellerId, wallet: owner, amount: withdrawable, tx_hash: txHash },
+      'seller:withdraw:ok',
+    );
+    res.json({
+      ok: true,
+      amount_usdc: withdrawable.toFixed(6),
+      tx_hash: txHash,
+      network: process.env.X402_NETWORK ?? 'arbitrum-sepolia',
+    });
+  } catch (err) {
+    logger.error({ err: (err as Error).message, seller_id: sellerId }, 'seller:withdraw:failed');
+    res.status(500).json({ error: 'on_chain_transfer_failed', detail: (err as Error).message });
+  }
 });
 
 export default router;

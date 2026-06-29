@@ -95,6 +95,10 @@ const PUBLIC_PATHS: RegExp[] = [
   // req.user nor wallet-scoped data and is invoked from /marketplace
   // before any wallet has connected.
   /^\/discover$/,
+  // /v3/credits/config (PRD-G) — public, read-only addresses + pack list
+  // needed by the browser top-up modal to build a USDC.transfer call.
+  // No sensitive data; same posture as /platform.
+  /^\/credits\/config$/,
   // /v3/dashboard/stats — public cash-flow proof. Read-only aggregations
   // from public tables; safe to expose without wallet header.
   /^\/dashboard\/stats$/,
@@ -156,6 +160,7 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
         permitJti: jti,
         permitExpSec: expiration === Infinity ? undefined : expiration,
       };
+      await ensureCreditAccountIfEnabled(req, issuer);
       return next();
     } catch {
       return res.status(401).json({ error: 'permit verification failed' });
@@ -188,5 +193,40 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
   }
 
   req.user = { address, hasPermit, permitReason };
+  await ensureCreditAccountIfEnabled(req, address);
   next();
 };
+
+/**
+ * PRD-G — lazy welcome-bonus grant.
+ *
+ * Fires on every authenticated request when FEATURE_CREDIT_SYSTEM=true.
+ * `creditService.ensureAccount` is idempotent: it only writes when the
+ * account row is missing OR when we see a new Privy user id we can link.
+ * The welcome bonus is granted exactly once per Privy user (or once per
+ * wallet when `WELCOME_GRANT_WALLET_ONLY=true`).
+ *
+ * Errors are logged + swallowed so a credit-service hiccup never blocks an
+ * authed read. The credit system is additive; flipping the flag off
+ * reverts to byte-identical behaviour.
+ */
+async function ensureCreditAccountIfEnabled(req: AuthRequest, walletAddress: string): Promise<void> {
+  if (process.env.FEATURE_CREDIT_SYSTEM !== 'true') return;
+  try {
+    const [credits, libMod] = await Promise.all([
+      import('../services/creditService'),
+      import('../lib'),
+    ]);
+    const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+    const privy_user_id = bearer ? await libMod.verifyPrivyToken(bearer) : null;
+    await credits.ensureAccount({ wallet_address: walletAddress, privy_user_id });
+  } catch (err) {
+    // Single-line warn; no stack — this is non-fatal scaffolding.
+    // We deliberately do not import the logger at module top because the
+    // permit module load above already shows lazy-import is the project norm.
+    try {
+      const { logger } = await import('../lib');
+      logger.warn({ err: (err as Error).message }, 'auth:ensureCreditAccount:failed');
+    } catch {/* noop */}
+  }
+}

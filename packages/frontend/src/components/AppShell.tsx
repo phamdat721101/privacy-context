@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { usePrivy } from '@privy-io/react-auth';
 import { WalletConnect } from './WalletConnect';
+import { TopUpModal } from './TopUpModal';
+import { useCredits } from '@/hooks/useCredits';
 
 interface NavItem {
   href: string;
@@ -32,6 +35,8 @@ function isActive(pathname: string, href: string) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { authenticated } = usePrivy();
+  const credits = useCredits();
+  const [topUpOpen, setTopUpOpen] = useState(false);
 
   const items = NAV_ITEMS.filter((item) => !item.requiresAuth || authenticated);
 
@@ -75,10 +80,33 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="flex min-w-0 shrink-0 items-center gap-2">
+            {authenticated && credits.enabled && (
+              <button
+                type="button"
+                onClick={() => setTopUpOpen(true)}
+                aria-label="Credits — click to top up"
+                className={`hidden items-center gap-1 rounded-full border px-3 py-1 font-mono text-xs transition-colors sm:flex ${
+                  credits.isLow
+                    ? 'border-amber-500/60 text-amber-500 hover:border-amber-400'
+                    : 'border-outline-variant/40 text-on-surface-variant hover:border-primary/60 hover:text-on-surface'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[16px]">
+                  account_balance_wallet
+                </span>
+                {credits.display}
+              </button>
+            )}
             <WalletConnect />
           </div>
         </div>
       </header>
+
+      <TopUpModal
+        open={topUpOpen}
+        onClose={() => setTopUpOpen(false)}
+        onSuccess={() => credits.refetch()}
+      />
 
       {/* Page body — `flex-1` makes main grow so the footer sticks to the
           bottom of the viewport when content is short. Mobile keeps the

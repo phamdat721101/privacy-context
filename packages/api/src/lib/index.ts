@@ -26,6 +26,7 @@ export {
   type DepStatus,
 } from './observability';
 export { installLifecycle } from './lifecycle';
+export { verifyPrivyToken } from './privyAuth';
 
 // Re-export runtime-utils primitives — single source of truth.
 export {

@@ -957,4 +957,137 @@ v3.post('/agents/:agent_id/tasks/:external_task_id/deliver', async (req: Request
 v3.use('/concierge', conciergeRouter);
 v3.use('/', commRouter); // /threads, /inbox, /inbox/stream
 
+// ---------------------------------------------------------------------------
+// PRD-G — /v3/credits/me + /v3/credits/history
+// ---------------------------------------------------------------------------
+//
+// Auth-gated by the parent `/v3` mount. Returns the buyer's current credit
+// balance + welcome-grant status + paginated ledger.
+//
+// SOLID: this file owns the HTTP shape only. Balance / history reads are
+// delegated to creditService — no raw SQL leaks into the route.
+
+v3.get('/credits/me', async (req: AuthRequest, res: Response) => {
+  const wallet = req.user?.address;
+  if (!wallet) return res.status(401).json({ error: 'auth required' });
+  const credits = await import('../services/creditService');
+  if (!credits.isEnabled()) {
+    return res.status(404).json({ error: 'credit system disabled' });
+  }
+  // ensureAccount is idempotent + lazy-grants welcome; safe to call here
+  // on every /me read so the frontend can be the source of truth.
+  const account = await credits.ensureAccount({ wallet_address: wallet });
+  res.json({
+    wallet,
+    balance_usdc: account.balance_usdc,
+    welcome_granted: account.welcome_granted,
+    privy_bound: !!account.privy_user_id,
+  });
+});
+
+v3.get('/credits/history', async (req: AuthRequest, res: Response) => {
+  const wallet = req.user?.address;
+  if (!wallet) return res.status(401).json({ error: 'auth required' });
+  const credits = await import('../services/creditService');
+  if (!credits.isEnabled()) {
+    return res.status(404).json({ error: 'credit system disabled' });
+  }
+  const acc = await credits.getBalance(wallet);
+  if (!acc) return res.json({ rows: [] });
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 200);
+  const offset = Math.max(Number(req.query.offset ?? 0), 0);
+  const rows = await credits.listHistory(acc.id, { limit, offset });
+  res.json({ rows, limit, offset });
+});
+
+// PRD-G — public read-only config for the browser top-up modal. The
+// addresses + packs the frontend needs to build a USDC.transfer call.
+// Public path (no wallet header required) — added to PUBLIC_PATHS in auth.ts.
+v3.get('/credits/config', async (_req: Request, res: Response) => {
+  res.json({
+    enabled: process.env.FEATURE_CREDIT_SYSTEM === 'true',
+    payout_address: process.env.PLATFORM_PAYOUT_ADDRESS ?? null,
+    usdc_address:
+      process.env.X402_USDC_ADDRESS ?? '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
+    chain_id: Number(process.env.X402_CHAIN_ID ?? '421614'),
+    packs: String(process.env.CREDIT_TOPUP_PACKS ?? '25,50,100')
+      .split(',')
+      .map((n) => Number(n.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0),
+  });
+});
+
+// PRD-G — browser top-up verify-and-credit. Buyer sends USDC to
+// PLATFORM_PAYOUT_ADDRESS via viem/wagmi, then POSTs the tx_hash here.
+// We verify the on-chain ERC-20 Transfer log (from, to, amount) and call
+// creditService.grant(). Idempotent on UNIQUE(kind, tx_hash).
+//
+// Security: `from` MUST equal the authed wallet, so one buyer cannot
+// claim another buyer's transfer. `to` MUST equal PLATFORM_PAYOUT_ADDRESS,
+// and `value` MUST equal the requested pack exactly.
+v3.post('/credits/topup', async (req: AuthRequest, res: Response) => {
+  const wallet = req.user?.address;
+  if (!wallet) return res.status(401).json({ error: 'auth required' });
+  const credits = await import('../services/creditService');
+  if (!credits.isEnabled()) return res.status(404).json({ error: 'credit system disabled' });
+
+  const { tx_hash, pack_usdc } = (req.body ?? {}) as { tx_hash?: string; pack_usdc?: number };
+  if (!tx_hash || typeof tx_hash !== 'string' || !pack_usdc) {
+    return res.status(400).json({ error: 'tx_hash + pack_usdc required' });
+  }
+  const packs = String(process.env.CREDIT_TOPUP_PACKS ?? '25,50,100')
+    .split(',')
+    .map((n) => Number(n.trim()));
+  if (!packs.includes(Number(pack_usdc))) {
+    return res.status(400).json({ error: 'invalid_pack', valid: packs });
+  }
+  const payout = (process.env.PLATFORM_PAYOUT_ADDRESS ?? '').toLowerCase();
+  if (!payout) return res.status(503).json({ error: 'payout_address_not_configured' });
+
+  const { ethers } = await import('ethers');
+  const rpc = process.env.ARBITRUM_SEPOLIA_RPC ?? 'https://sepolia-rollup.arbitrum.io/rpc';
+  const usdcAddr = (process.env.X402_USDC_ADDRESS ??
+    '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d').toLowerCase();
+  const provider = new ethers.JsonRpcProvider(rpc);
+  let receipt;
+  try {
+    receipt = await provider.getTransactionReceipt(tx_hash);
+  } catch (err) {
+    return res.status(502).json({ error: 'rpc_error', detail: (err as Error).message });
+  }
+  if (!receipt || receipt.status !== 1) {
+    return res.status(400).json({ error: 'tx_not_found_or_failed' });
+  }
+
+  const transferTopic = ethers.id('Transfer(address,address,uint256)');
+  const expected = ethers.parseUnits(String(pack_usdc), 6);
+  let matched = false;
+  for (const log of receipt.logs) {
+    if (log.address.toLowerCase() !== usdcAddr) continue;
+    if (log.topics[0] !== transferTopic) continue;
+    const from = ('0x' + log.topics[1].slice(26)).toLowerCase();
+    const to = ('0x' + log.topics[2].slice(26)).toLowerCase();
+    const value = BigInt(log.data);
+    if (from === wallet.toLowerCase() && to === payout && value === expected) {
+      matched = true;
+      break;
+    }
+  }
+  if (!matched) {
+    return res.status(400).json({
+      error: 'transfer_not_matched',
+      expected: { from: wallet, to: payout, amount: expected.toString() },
+    });
+  }
+
+  const granted = await credits.grant({
+    wallet_address: wallet,
+    amount_usdc: Number(pack_usdc),
+    kind: 'purchase',
+    tx_hash,
+    meta: { pack: pack_usdc, source: 'browser-topup' },
+  });
+  res.json({ ok: true, ...granted });
+});
+
 export default v3;

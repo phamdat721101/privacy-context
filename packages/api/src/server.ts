@@ -14,6 +14,7 @@ import v3Router from './routes/v3';
 import v3MarketplaceRouter from "./routes/v3-marketplace";
 import v4Router from './routes/v4';
 import v1PublicRouter from './routes/v1Public';
+import creditsTopupRouter from './routes/credits-topup';
 import mcpRouter from './routes/mcp';
 import {
   logger,
@@ -62,6 +63,11 @@ if (process.env.FEATURE_FHE_PAY === 'true' || process.env.FEATURE_GASLESS_ONBOAR
     'v4:mounted',
   );
 }
+
+// /api/v1/credits — PUBLIC, x402-paywalled credit top-up. Mounted BEFORE
+// /api/v1 so the per-slug router doesn't try to resolve `credits` as a slug.
+// Per PRD-G.
+app.use('/api/v1/credits', creditsTopupRouter);
 
 // /api/v1 — PUBLIC, x402-paywalled brain endpoints. NO parent auth — the
 // paywall (n-payment middleware) is the auth. Per PRD-1.

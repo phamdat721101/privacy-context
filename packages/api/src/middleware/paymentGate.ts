@@ -116,7 +116,7 @@ export async function paymentGate(req: PriceableRequest, res: Response, next: Ne
   if (!agentId) return res.status(400).json({ error: 'agent id required' });
 
   const r = await pool.query(
-    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at
+    `SELECT id, brain_id, owner_address, chain, persona, pricing, kya_required, min_reputation, published, created_at, slug, seller_id
      FROM agents WHERE id = $1 AND published = true AND archived_at IS NULL`,
     [agentId],
   );
@@ -136,6 +136,44 @@ export async function paymentGate(req: PriceableRequest, res: Response, next: Ne
         req.receipt = { rail: 'x402', tx_or_receipt: 'free-preview', amount_usdc: '0' };
         logger.info({ agentId: agent.id, buyer, freeLeft: freeLeft - 1 }, 'paymentGate:freemium-pass');
         return next();
+      }
+    }
+  }
+
+  // PRD-G — credit-first debit. When the credit system is on AND the buyer
+  // has enough balance, debit silently and continue. On insufficient balance
+  // we fall through to 402 so the frontend can prompt for a top-up.
+  if (process.env.FEATURE_CREDIT_SYSTEM === 'true') {
+    const buyer = req.user?.address;
+    const price = (agent.pricing as any)?.x402 ?? (agent.pricing as any)?.mpp;
+    if (buyer && price && Number(price) > 0) {
+      try {
+        const credits = await import('../services/creditService');
+        const debit = await credits.tryDebit({
+          wallet_address: buyer,
+          amount_usdc: price,
+          agent_id: agent.id,
+          seller_id: (agent as any).seller_id ?? null,
+        });
+        if (debit.ok) {
+          await ledger.record({
+            agentId: agent.id,
+            slug: (agent as any).slug ?? '',
+            buyer,
+            amountUsdc: String(price),
+            txHash: `credit-${debit.ledger_id}`,
+            network: process.env.X402_NETWORK ?? 'arbitrum-sepolia',
+            method: 'credit',
+            sellerId: (agent as any).seller_id ?? null,
+          });
+          res.setHeader('X-Credit-Balance', debit.new_balance);
+          req.receipt = { rail: 'x402', tx_or_receipt: `credit-${debit.ledger_id}`, amount_usdc: String(price) };
+          logger.info({ agentId: agent.id, buyer, new_balance: debit.new_balance }, 'paymentGate:credit-pass');
+          return next();
+        }
+        // ok:false with reason 'insufficient' — fall through to 402.
+      } catch (err) {
+        logger.warn({ err: (err as Error).message }, 'paymentGate:credit-debit:failed');
       }
     }
   }
