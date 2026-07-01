@@ -28,6 +28,7 @@ Most AI tooling assumes you'll hand over your data and pay a flat SaaS bill. Ope
 - **Per-task pricing.** $0.50–$5 per task, settled in USDC the same block the answer ships. No subscriptions, no minimum.
 - **Inference runs in a Phala TEE.** Attested at runtime — your question isn't logged on a vendor's server.
 - **Creators publish once, earn forever.** One agent, every buyer pays the creator directly. No tokenized middleware.
+- **Sign in with any wallet.** Email, any EVM wallet, or an XRPL wallet — Xaman, GemWallet, or Crossmark. One friendly message, no chain to pick, no gas.
 
 ---
 
@@ -171,7 +172,7 @@ The only off-chain trust assumptions are: Arbitrum sequencer + Circle USDC + Fhe
 | **Storage** | Supabase Postgres + Storage | Database + blob hosting |
 | **Frontend** | Next.js 14 · Privy · wagmi | Email-login → embedded wallet → sign once |
 | **API** | Express + TypeScript + Pino | `/v3` marketplace · `/api/v1` paywall |
-| **Auth** | `x-openx-token` (EIP-712 onboard token) | Single-use, 15-min, wallet-signed |
+| **Auth** | `x-openx-token` (SIWE / XRPL envelope) | Chain-agnostic, single-use, 15-min, wallet-signed |
 | **Observability** | Pino + prom-client + `/health` | Structured logs, no `console.log` in `packages/api` |
 
 ---

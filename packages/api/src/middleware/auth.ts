@@ -1,23 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import type { PermitReason } from '../fhe/permits';
+import {
+  decodeEnvelope,
+  verifyOnboardToken,
+  type OnboardChain,
+} from '../services/onboardTokenService';
+import { getXamanClient } from '../services/xamanClient';
 
 /**
- * PRD-F — single source of truth for the agent auth header. Renamed from
- * the legacy `x-fhenix-permit` per Q2=a (semantics unchanged; verification
- * still calls verifyPermit() which is now an EIP-712 recover under the hood).
+ * PRD-H — chain-agnostic auth. Single header, single verify path.
  */
 export const AUTH_HEADER = 'x-openx-token';
 
 export interface AuthRequest extends Request {
   user?: {
     address: string;
+    /** Which chain the envelope was signed on. Downstream code branches on this. */
+    chain: OnboardChain;
     hasPermit: boolean;
     permitReason?: PermitReason;
-    /** PRD-18 — single-use jti carried inside the onboard permit's `name`.
-     *  Forwarded to sellerPublishService.publish() for atomic consumption. */
+    /** Single-use jti carried inside the envelope's nonce field. */
     permitJti?: string;
-    /** PRD-18 — issuance ceiling (epoch seconds) recorded in
-     *  onboard_permits_spent.expires_at. */
+    /** Issuance ceiling (epoch seconds) recorded in onboard_permits_spent. */
     permitExpSec?: number;
   };
 }
@@ -111,6 +115,10 @@ const PUBLIC_PATHS: RegExp[] = [
   // task was parked. The seller's box has no Privy session, so we whitelist
   // here and verify in the handler.
   /^\/agents\/[^/]+\/tasks\/[^/]+\/deliver$/,
+  // PRD-H — onboard-token issuance surfaces.
+  /^\/onboard\/nonce$/,
+  /^\/onboard\/xaman\/create$/,
+  /^\/onboard\/xaman\/[^/]+$/,
 ];
 
 /**
@@ -131,40 +139,39 @@ const PERMIT_AUTH_REQUIRED: RegExp[] = [
 export const auth = async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (PUBLIC_PATHS.some((re) => re.test(req.path))) return next();
 
-  // ─── Permit-auth path (preferred when header present) ──────────────────
-  // The permit IS the proof of identity: verifyPermit() (without an
-  // expectedIssuer) cryptographically derives the wallet address from the
-  // signed blob. No need for x-wallet-address; spoofing is impossible.
-  // Accept the new header (canonical), with a one-release grace window for
-  // the legacy `x-fhenix-permit` so deployed agents don't break overnight.
-  const permitHeader = req.headers[AUTH_HEADER] ?? req.headers['x-fhenix-permit'];
-  const serialized = typeof permitHeader === 'string' ? permitHeader : null;
-  if (serialized && serialized.length > 100) {
-    try {
-      const mod = await import('../fhe/permits');
-      const result = await mod.verifyPermit(serialized);
-      if (result.valid === false) {
-        return res.status(401).json({ error: 'invalid permit', reason: result.reason });
-      }
-      const { issuer, jti, name, expiration } = result.permit;
-      // Scope is enforced here: only `openx-onboard:*` permits may auth via
-      // this header. Full-scope permits (legacy /v2/inference) keep using the
-      // x-wallet-address path with a server-side hasPermit() lookup.
-      if (!jti || !name?.startsWith(mod.ONBOARD_SCOPE_PREFIX)) {
-        return res.status(401).json({ error: 'permit scope mismatch', reason: 'scope_mismatch' });
-      }
-      req.user = {
-        address: issuer,
-        hasPermit: true,
-        permitReason: 'onchain_authorized',
-        permitJti: jti,
-        permitExpSec: expiration === Infinity ? undefined : expiration,
-      };
-      await ensureCreditAccountIfEnabled(req, issuer);
-      return next();
-    } catch {
-      return res.status(401).json({ error: 'permit verification failed' });
+  // PRD-H — hard-reject legacy `x-fhenix-permit`. Old clients get a clear
+  // migration hint instead of a silent "invalid" bounce.
+  if (req.headers['x-fhenix-permit']) {
+    return res.status(401).json({
+      error: 'legacy_token_rejected',
+      reason: 'Use x-openx-token (SIWE / XRPL envelope). See /docs.',
+    });
+  }
+
+  // ─── Onboard-token path (canonical) ────────────────────────────────────
+  const headerVal = req.headers[AUTH_HEADER];
+  const raw = typeof headerVal === 'string' ? headerVal : Array.isArray(headerVal) ? headerVal[0] : null;
+  const envelope = raw ? decodeEnvelope(raw) : null;
+  if (envelope) {
+    const xamanClient = getXamanClient();
+    const result = await verifyOnboardToken(envelope, {
+      expectedDomain: process.env.SIWE_DOMAIN,
+      xaman: xamanClient?.verifier,
+    });
+    if (!result.ok) {
+      const reason = 'reason' in result ? result.reason : 'signature_invalid';
+      return res.status(401).json({ error: 'invalid_token', reason });
     }
+    req.user = {
+      address: result.token.address,
+      chain: result.token.chain,
+      hasPermit: true,
+      permitReason: 'onchain_authorized',
+      permitJti: result.token.jti,
+      permitExpSec: result.token.expiresAtSec,
+    };
+    await ensureCreditAccountIfEnabled(req, result.token.address);
+    return next();
   }
 
   // ─── Permit-auth gate (PRD-18 §6) ──────────────────────────────────────
@@ -192,7 +199,7 @@ export const auth = async (req: AuthRequest, res: Response, next: NextFunction) 
     /* permit module load failure is non-fatal here */
   }
 
-  req.user = { address, hasPermit, permitReason };
+  req.user = { address, chain: 'evm', hasPermit, permitReason };
   await ensureCreditAccountIfEnabled(req, address);
   next();
 };

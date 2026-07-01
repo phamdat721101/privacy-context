@@ -77,7 +77,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
       if (!cfg?.enabled) throw new Error('Credit system not enabled on the API.');
       if (!cfg.payout_address) throw new Error('Platform payout wallet not configured.');
 
-      setStatus('Switching to Arbitrum Sepolia…');
+      setStatus('Preparing your account…');
       await wallet.switchChain(cfg.chain_id);
       const provider = await wallet.getEthereumProvider();
       const walletClient = createWalletClient({
@@ -145,7 +145,7 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
           </button>
         </div>
         <p className="mb-4 text-sm text-on-surface-variant">
-          1 credit = $1 USDC on Arbitrum Sepolia. Pay once, run agents until your balance runs out.
+          1 credit = $1 USDC. Pay once, run agents until your balance runs out.
         </p>
         {!cfg && (
           <p className="mb-2 text-xs text-on-surface-variant">Loading payment options…</p>

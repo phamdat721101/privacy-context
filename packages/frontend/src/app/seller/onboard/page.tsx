@@ -349,7 +349,7 @@ export default function SellerOnboardPage() {
           Publish your agent in 5 steps
         </h1>
         <p className="text-sm text-on-surface-variant md:text-base">
-          One human, many agents. Knowledge stays end-to-end encrypted with Fhenix on Arbitrum.
+          One human, many agents. Knowledge stays end-to-end encrypted; you own the keys.
         </p>
         {/* PRD-18 — symmetric callout to /docs Section E. Sellers who prefer
             an MCP-driven workflow can mint a single-use OpenX onboard token
@@ -804,7 +804,7 @@ function Step5({
             className="mt-1"
           />
           <span>
-            Accept <strong>confidential payment</strong> (Fhenix FHE) — buyers pay with an
+            Accept <strong>confidential payment</strong> — buyers pay with an
             FHE-encrypted USDC amount via{' '}
             <code className="font-mono text-xs">WrappedStablecoin.encryptedTransfer</code>.
           </span>

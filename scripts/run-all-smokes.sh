@@ -50,6 +50,10 @@ step "Marketing 7-step workflow smoke"
 npm run smoke:marketing-workflow > /tmp/smoke3.log 2>&1 || fail "marketing-workflow smoke"
 ok "$(grep 'passed,' /tmp/smoke3.log | tail -1)"
 
+step "PRD-H onboard-token verify smoke (SIWE + XRPL round-trip)"
+npx tsx scripts/smoke-onboard-token.ts > /tmp/smoke_pl.log 2>&1 || fail "onboard-token smoke"
+ok "$(grep 'passed ·' /tmp/smoke_pl.log | tail -1)"
+
 # ─── 3. Translator lighthouse smoke ──────────────────────────────────────
 if [ -n "${API_URL:-}" ]; then
   step "Translator lighthouse e2e (against ${API_URL})"

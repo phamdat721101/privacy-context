@@ -1,29 +1,26 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
 import { useCredits } from '@/hooks/useCredits';
 import { TopUpModal } from '@/components/TopUpModal';
-import {
-  AGENT_BACKEND_URL,
-  BRAIN_KEY_VAULT_ADDRESS,
-  KNOWLEDGE_REGISTRY_ADDRESS,
-  SUBSCRIPTION_CONTROLLER_ADDRESS,
-} from '@/lib/contracts';
+import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
-const CONTRACTS = [
-  { name: 'BrainKeyVault', address: BRAIN_KEY_VAULT_ADDRESS },
-  { name: 'KnowledgeBaseRegistry', address: KNOWLEDGE_REGISTRY_ADDRESS },
-  { name: 'SubscriptionController', address: SUBSCRIPTION_CONTROLLER_ADDRESS },
-];
+interface LinkedWallet {
+  chain: 'evm' | 'xrpl';
+  address: string;
+  is_payout: boolean;
+  linked_at: string;
+  last_seen_at: string;
+}
 
 /**
- * Settings — account, encryption, contracts.
+ * Settings — account, linked wallets.
  *
- * Single-tier post-Sui-removal: every brain is encrypted with Fhenix CoFHE
- * on Arbitrum. The PermitManager handles the encryption authorization;
- * the contracts panel surfaces the on-chain addresses for the curious.
+ * Post-PRD-H: one OpenX profile per human, N linked wallets across chains.
+ * Contract addresses are hidden from end users — the platform speaks in
+ * accounts and receipts.
  */
 export default function SettingsPage() {
   const { authenticated, ready, login, logout } = usePrivy();
@@ -69,39 +66,74 @@ export default function SettingsPage() {
       <CreditsSection wallet={userAddress} />
 
       <section className="space-y-3">
-        <h2 className="font-headline text-lg font-semibold">Contracts (Arbitrum Sepolia)</h2>
-        <div className="overflow-hidden rounded-xl border border-outline-variant/30 bg-surface">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-container-high text-left font-mono text-[10px] uppercase text-on-surface-variant">
-              <tr>
-                <th className="px-4 py-2">Name</th>
-                <th className="px-4 py-2">Address</th>
-                <th className="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {CONTRACTS.map((c) => (
-                <tr key={c.name} className="border-t border-outline-variant/20">
-                  <td className="px-4 py-3 font-medium">{c.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">{c.address || '—'}</td>
-                  <td className="px-4 py-3 text-right">
-                    {c.address && (
-                      <Link
-                        href={`https://sepolia.arbiscan.io/address/${c.address}`}
-                        target="_blank"
-                        rel="noopener"
-                        className="text-xs text-primary hover:underline"
-                      >
-                        View ↗
-                      </Link>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <h2 className="font-headline text-lg font-semibold">Linked accounts</h2>
+        <LinkedWalletsPanel />
       </section>
+    </div>
+  );
+}
+
+// ─── Linked wallets — PRD-H ──────────────────────────────────────────────
+
+function LinkedWalletsPanel() {
+  const [wallets, setWallets] = useState<LinkedWallet[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refetch = useCallback(async () => {
+    try {
+      const r = await fetch(`${AGENT_BACKEND_URL}/v3/user/me`, { credentials: 'include' });
+      if (r.status === 401) { setWallets(null); return; }
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const body = await r.json();
+      setWallets(Array.isArray(body.wallets) ? body.wallets : []);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, []);
+
+  useEffect(() => { refetch(); }, [refetch]);
+
+  if (error) {
+    return <p className="text-sm text-error">Couldn&apos;t load accounts: {error}</p>;
+  }
+  if (!wallets) {
+    return (
+      <p className="text-sm text-on-surface-variant">
+        Sign in with the button above to see your linked accounts.
+      </p>
+    );
+  }
+  if (wallets.length === 0) {
+    return <p className="text-sm text-on-surface-variant">No linked accounts yet.</p>;
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-outline-variant/30 bg-surface">
+      <table className="w-full text-sm">
+        <thead className="bg-surface-container-high text-left font-mono text-[10px] uppercase text-on-surface-variant">
+          <tr>
+            <th className="px-4 py-2">Kind</th>
+            <th className="px-4 py-2">Address</th>
+            <th className="px-4 py-2">Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          {wallets.map((w) => (
+            <tr key={`${w.chain}:${w.address}`} className="border-t border-outline-variant/20">
+              <td className="px-4 py-3 font-medium uppercase text-xs">{w.chain}</td>
+              <td className="px-4 py-3 font-mono text-xs text-on-surface-variant">{w.address}</td>
+              <td className="px-4 py-3 text-xs">
+                {w.is_payout ? (
+                  <span className="rounded bg-primary/10 px-2 py-0.5 text-primary">Payout</span>
+                ) : (
+                  <span className="text-on-surface-variant">Linked</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

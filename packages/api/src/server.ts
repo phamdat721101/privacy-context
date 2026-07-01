@@ -11,6 +11,7 @@ import chatRouter from './routes/chat';
 import openapiRouter from './routes/openapi';
 import v2Router from './routes/v2';
 import v3Router from './routes/v3';
+import v3OnboardRouter from './routes/v3-onboard';
 import v3MarketplaceRouter from "./routes/v3-marketplace";
 import v4Router from './routes/v4';
 import v1PublicRouter from './routes/v1Public';
@@ -43,6 +44,7 @@ app.use('/v2', auth, agentKya, v2Router);
 
 // v3 API — agentic marketplace internal API. Per-route ownership/KYA gating
 // happens inside the sub-router.
+app.use('/v3', auth, agentKya, v3OnboardRouter);
 app.use('/v3', auth, agentKya, v3Router);
 
 // /v3/marketplace — seller-first marketplace v1 (PRD-A/B/C).

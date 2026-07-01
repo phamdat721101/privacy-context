@@ -32,18 +32,12 @@
  */
 
 import Link from 'next/link';
-import { useCallback, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { usePrivyEvmAddress, usePrivyEvmWallet } from '@/hooks/useActiveWallet';
-import { createWalletClient, custom } from 'viem';
-import { arbitrumSepolia as viemArbitrumSepolia } from 'viem/chains';
-import {
-  arbitrumSepolia,
-  mintOnboardPermit,
-  type OnboardPermit,
-} from '@fhe-ai-context/sdk';
-import { ARBITRUM_SEPOLIA_CHAIN_ID } from '@/lib/networks';
-import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
+import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
+import { useOnboardToken, type OnboardWalletKind } from '@/hooks/useOnboardToken';
+import type { OnboardToken } from '@fhe-ai-context/sdk';
+import { AGENT_BACKEND_URL } from '@/lib/contracts';
 
 // ─── The canonical onboarding prompt ─────────────────────────────────────
 //
@@ -52,7 +46,7 @@ import { BRAIN_KEY_VAULT_ADDRESS, AGENT_BACKEND_URL } from '@/lib/contracts';
 // auth section changes shape. Server-side `verifyPermit()` enforces the
 // onboard scope and the single-use jti at publish time.
 
-function buildPrompt(args: { wallet?: string; permit?: OnboardPermit | null }): string {
+function buildPrompt(args: { wallet?: string; permit?: OnboardToken | null }): string {
   const wallet = args.wallet ?? '<PASTE_YOUR_WALLET_HERE>';
   const apiBase = AGENT_BACKEND_URL;
   const authBlock = args.permit
@@ -60,8 +54,8 @@ function buildPrompt(args: { wallet?: string; permit?: OnboardPermit | null }): 
   - Header:  x-openx-token: ${args.permit.serialized}
   - Wallet:  ${args.permit.walletAddress}
   - Expires: ${new Date(args.permit.expiresAtSec * 1000).toISOString()}  (single-use, 15 min)`
-    : `Wallet-bound auth (only needed for Path B — sign in at ${apiBase}/docs to mint):
-  - Header:  x-openx-token: <PASTE_ONBOARD_TOKEN_HERE>
+    : `Wallet-bound auth (only needed for Path B — sign in at ${apiBase}/docs to enable):
+  - Header:  x-openx-token: <PASTE_ACCESS_KEY_HERE>
   - Wallet:  ${wallet}`;
 
   return `You are helping me publish an AI agent listing on OpenX
@@ -220,51 +214,18 @@ curl -X POST ${AGENT_BACKEND_URL}/v3/agents/<agent_id>/chat \\
 export default function DocsPage() {
   const { authenticated, ready, login } = usePrivy();
   const userAddress = usePrivyEvmAddress();
-  const evmWallet = usePrivyEvmWallet();
+  const onboard = useOnboardToken();
+  const { token, status, error: mintError, availability, generate } = onboard;
 
-  const [permit, setPermit] = useState<OnboardPermit | null>(null);
-  const [minting, setMinting] = useState(false);
-  const [mintError, setMintError] = useState<string | null>(null);
+  const promptText = buildPrompt({ wallet: userAddress ?? token?.walletAddress, permit: token });
+  const expiresInMin = token ? Math.max(0, Math.round((token.expiresAtSec * 1000 - Date.now()) / 60000)) : 0;
 
-  /**
-   * Mint a scoped onboard permit via the SDK. Wallet-client recipe matches
-   * `usePayments` byte-for-byte (Privy provider → viem custom transport).
-   * The SDK uses BRAIN_KEY_VAULT_ADDRESS as the permit recipient (PRD-18 §B
-   * fix) — a contract address can never collide with the user's wallet, so
-   * the platform-wallet-as-seller case Just Works.
-   */
-  const generate = useCallback(async () => {
-    if (!userAddress || !evmWallet) {
-      setMintError('Wallet not connected');
-      return;
-    }
-    setMintError(null);
-    setMinting(true);
-    try {
-      await evmWallet.switchChain(ARBITRUM_SEPOLIA_CHAIN_ID);
-      const provider = await evmWallet.getEthereumProvider();
-      const walletClient = createWalletClient({
-        chain: viemArbitrumSepolia,
-        transport: custom(provider),
-        account: userAddress,
-      });
-
-      const next = await mintOnboardPermit(
-        { contractAddress: BRAIN_KEY_VAULT_ADDRESS },
-        arbitrumSepolia,
-        walletClient,
-      );
-      setPermit(next);
-    } catch (e) {
-      const err = e as { shortMessage?: string; message?: string };
-      setMintError(err?.shortMessage ?? err?.message ?? 'Mint failed');
-    } finally {
-      setMinting(false);
-    }
-  }, [userAddress, evmWallet]);
-
-  const promptText = buildPrompt({ wallet: userAddress, permit });
-  const expiresInMin = permit ? Math.max(0, Math.round((permit.expiresAtSec * 1000 - Date.now()) / 60000)) : 0;
+  const walletButtons: Array<{ kind: OnboardWalletKind; label: string; hint: string }> = useMemo(() => ([
+    { kind: 'evm',       label: 'Sign in with wallet or email', hint: 'Privy, MetaMask, any EVM wallet' },
+    { kind: 'gem',       label: 'GemWallet',                    hint: 'XRPL browser extension' },
+    { kind: 'xaman',     label: 'Xaman',                        hint: 'Scan QR from your phone' },
+    { kind: 'crossmark', label: 'Crossmark',                    hint: 'XRPL browser extension' },
+  ]), []);
 
   return (
     <div className="mx-auto max-w-3xl space-y-10">
@@ -295,7 +256,7 @@ export default function DocsPage() {
         </div>
         <p className="text-sm text-on-surface-variant">
           Sign in with email or Google — your account is secured automatically and the platform
-          covers gas on Arbitrum Sepolia. No seed phrase, no faucet, no network switch.
+          covers fees. No seed phrase, no network switch, no chain to pick.
         </p>
         <Link
           href="/seller/onboard"
@@ -318,58 +279,57 @@ export default function DocsPage() {
 
       <Section
         letter="B"
-        title="Mint your onboard token"
-        hint="Optional. Only needed for the OpenX-hosted path below. One click → scoped, single-use, 15-min TTL. Skip if you self-host."
+        title="Enable this device"
+        hint="Optional. Only needed for the OpenX-hosted path below. One signature, no fees, expires in 15 min. Any EVM wallet or XRPL wallet works."
       >
         <div className="rounded-xl border border-outline-variant/30 bg-surface-container-low p-5">
           {!ready ? (
-            <p className="text-sm text-on-surface-variant">Loading wallet…</p>
-          ) : !authenticated ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={login}
-                className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90"
-              >
-                Sign in to mint
-              </button>
-              <span className="text-xs text-on-surface-variant">
-                Sign-in is required so the permit is bound to your wallet on-chain.
-              </span>
-            </div>
-          ) : permit ? (
+            <p className="text-sm text-on-surface-variant">Loading…</p>
+          ) : token ? (
             <div className="space-y-2 text-sm">
               <p className="text-on-surface">
                 <span className="material-symbols-outlined align-middle text-primary text-[16px]" aria-hidden>
                   check_circle
                 </span>{' '}
-                Token minted · expires in <strong>{expiresInMin} min</strong> · single-use
+                Access key ready · expires in <strong>{expiresInMin} min</strong> · single-use
               </p>
               <p className="text-xs text-on-surface-variant">
-                Wallet: <code className="font-mono">{permit.walletAddress}</code>
+                Account: <code className="font-mono">{token.walletAddress}</code>
               </p>
               <button
                 type="button"
-                onClick={generate}
-                disabled={minting}
-                className="text-xs text-primary hover:underline disabled:opacity-50"
+                onClick={() => onboard.reset()}
+                className="text-xs text-primary hover:underline"
               >
-                {minting ? 'Re-minting…' : 'Mint a fresh token'}
+                Generate a new access key
               </button>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={generate}
-                disabled={minting || !userAddress || !evmWallet}
-                className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {minting ? 'Minting…' : 'Generate onboard token'}
-              </button>
-              <span className="text-xs text-on-surface-variant">
-                Requires one wallet signature. Token is single-use and expires in 15 min.
-              </span>
+            <div className="space-y-3">
+              <p className="text-xs text-on-surface-variant">
+                Sign one plain-text message · no network switch · no gas fee. Pick your wallet.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {walletButtons.map(({ kind, label, hint }) => {
+                  const enabled = availability[kind];
+                  const busy = status === 'generating';
+                  return (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => {
+                        if (kind === 'evm' && !authenticated) { login(); return; }
+                        generate(kind);
+                      }}
+                      disabled={busy || !enabled}
+                      className="flex flex-col items-start rounded-lg border border-outline-variant/40 bg-surface p-3 text-left transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <span className="text-sm font-medium text-on-surface">{label}</span>
+                      <span className="text-[11px] text-on-surface-variant">{hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
           {mintError && <p className="mt-3 text-xs text-error">⚠ {mintError}</p>}
@@ -380,9 +340,9 @@ export default function DocsPage() {
         letter="C"
         title="The onboarding prompt"
         hint={
-          permit
-            ? 'Single prompt, two paths. Live wallet + onboard token are baked in for the OpenX-hosted path. Copy → paste into your agent → done.'
-            : 'Single prompt, two paths. Path A (self-hosted) works as-is. For the OpenX-hosted path, mint a token in Section B first.'
+          token
+            ? 'Single prompt, two paths. Live account + access key are baked in for the OpenX-hosted path. Copy → paste into your agent → done.'
+            : 'Single prompt, two paths. Path A (self-hosted) works as-is. For the OpenX-hosted path, enable this device in Section B first.'
         }
       >
         <CodeBlock content={promptText} language="text" />

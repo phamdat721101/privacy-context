@@ -37,6 +37,7 @@
     "docker:build": "docker compose build --parallel",
     "deploy": "./scripts/deploy.sh",
     "smoke:auth": "tsx scripts/smoke-auth.ts",
+    "smoke:onboard-token": "tsx scripts/smoke-onboard-token.ts",
     "smoke:chunks-auth": "tsx scripts/smoke-chunks-auth.ts",
     "smoke:x402": "tsx scripts/smoke-x402.ts",
     "smoke:credit-e2e": "tsx scripts/smoke-credit-e2e.ts",

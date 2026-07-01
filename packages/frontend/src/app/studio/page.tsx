@@ -824,7 +824,7 @@ function SellerCreditTile({
               ? `Min withdraw $${minWithdraw}`
               : busy
               ? 'Withdrawing…'
-              : 'Send USDC to your wallet on Arbitrum Sepolia'
+              : 'Send USDC to your account to top up'
           }
         >
           {busy ? 'Withdrawing…' : `Withdraw $${withdrawable.toFixed(2)}`}

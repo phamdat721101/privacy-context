@@ -62,7 +62,7 @@ const SLUG_RE = /^[a-z0-9-]{3,30}$/;
 // renders the wizard's selected `network` value (price hint, receipt
 // page, etc.). Adding a rail = one entry; no other UI needs editing.
 const NETWORK_LABEL: Record<WizardConfig['network'], string> = {
-  'arbitrum-sepolia': 'Arbitrum Sepolia',
+  'arbitrum-sepolia': 'OpenX (USDC settlement)',
 };
 
 async function checkSlugAvailable(slug: string, walletAddress?: string): Promise<{ available: boolean; reason?: string }> {
@@ -98,7 +98,7 @@ function UsdcFaucetBanner({
       <div className="flex-1">
         <p className="font-medium">You'll need test USDC to receive payments.</p>
         <p className="mt-0.5 text-xs text-on-surface-variant">
-          Current balance: <span className="font-mono">${display}</span> on Arbitrum Sepolia.
+          Current balance: <span className="font-mono">${display}</span>.
         </p>
       </div>
       <a
@@ -413,7 +413,7 @@ function Step2(props: {
           onChange={(e) => props.onNetwork(e.target.value as WizardConfig['network'])}
           className="w-full rounded-full border border-outline-variant/40 bg-surface-container-low px-4 py-2.5 text-sm focus:border-primary/60 focus:outline-none"
         >
-          <option value="arbitrum-sepolia">Arbitrum Sepolia (USDC, x402)</option>
+          <option value="arbitrum-sepolia">USDC (x402)</option>
           <option value="sui-testnet">Sui Testnet (USDC)</option>
           <option value="sui-mainnet">Sui Mainnet (USDC)</option>
         </select>

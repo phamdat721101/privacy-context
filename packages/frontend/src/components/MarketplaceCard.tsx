@@ -7,7 +7,7 @@ import Link from 'next/link';
  *
  * Three product types share one card shape (brain / skill / workflow). The
  * Sui-only `reflective` type and the "Switch to Sui" prompt are removed —
- * every product runs on Arbitrum + Fhenix.
+ * every product runs on OpenX-settled USDC.
  */
 export type MarketplaceCardType = 'brain' | 'skill' | 'workflow';
 

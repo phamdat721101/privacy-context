@@ -9,8 +9,10 @@
     "start": "next start"
   },
   "dependencies": {
+    "@crossmarkio/sdk": "^0.4.0",
     "@fhe-ai-context/sdk": "*",
     "@fhe-ai-context/ui": "*",
+    "@gemwallet/api": "^3.8.0",
     "@privy-io/react-auth": "^2.0.0",
     "@privy-io/wagmi": "^1.0.0",
     "@tanstack/react-query": "^5.0.0",

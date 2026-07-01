@@ -3,7 +3,7 @@
 /**
  * useTier — single-tier post-Sui-removal.
  *
- * Every published brain is now Fhenix CoFHE on Arbitrum (the historical
+ * Every published brain is now served through the same OpenX runtime (the historical
  * "standard" tier). The hook stays so existing callers compile; it always
  * returns `'standard'`. `setTier` is a no-op.
  */
