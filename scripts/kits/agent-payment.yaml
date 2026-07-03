@@ -1,0 +1,47 @@
+slug: agent-payment
+name: agent-payment (ClawUp)
+description: Multi-agent payment coordinator — delegate budgets, split settlements, register ERC-8004 identity.
+homepage_url: https://github.com/phamdat721701/agent-payment
+license: MIT
+authors: [pham]
+trigger_type: user
+leading_word: clawUp
+audit_score: 0.92
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: '@openx/agent-payment'
+github_repo: phamdat721701/agent-payment
+install_command: npx @openx/agent-payment init
+cost_install: free
+cost_per_use: variable
+
+version:
+  version: 0.3.2
+  release_date: 2026-06-30T00:00:00Z
+  skill_md_url: https://github.com/phamdat721701/agent-payment/blob/main/SKILL.md
+  skill_md_lines: 95
+  reference_urls: []
+  changelog: v0.3.2 adds ERC-8004 identity + Claw Connect budgets.
+
+capabilities:
+  - capability_id: erc-8004-identity
+    name: Register ERC-8004 agent identity
+    description: Emit an on-chain identity registration so the agent has a reputation-portable address.
+    chains: [base, arbitrum]
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: budget-delegate
+    name: Delegate a spending budget
+    description: Grant a child agent a signed budget with per-call + total caps.
+    chains: [base, arbitrum]
+    stablecoins: [USDC]
+    eval_task_ids: []
+  - capability_id: split-settle
+    name: Split a payment across N recipients
+    description: Single settlement transaction that pays multiple wallets with pro-rata weights.
+    chains: [base, arbitrum, xrpl]
+    stablecoins: [USDC, RLUSD]
+    eval_task_ids: []

@@ -1,0 +1,48 @@
+slug: payment-skill
+name: payment-skill
+description: Model-invoked skill wrapping n-payment for LLM hosts (Claude, Cursor, Kiro).
+homepage_url: https://github.com/phamdat721701/payment-skill
+license: MIT
+authors: [pham]
+trigger_type: model
+leading_word: paidTool
+audit_score: 0.88
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: '@openx/payment-skill'
+github_repo: phamdat721701/payment-skill
+install_command: npx @openx/payment-skill install
+cost_install: free
+cost_per_use: variable
+
+version:
+  version: 0.7.0
+  release_date: 2026-06-15T00:00:00Z
+  skill_md_url: https://github.com/phamdat721701/payment-skill/blob/main/SKILL.md
+  skill_md_lines: 120
+  reference_urls:
+    - https://github.com/phamdat721701/payment-skill/blob/main/reference/paidtool.md
+  changelog: v0.7 splits the monolith into 8 focused sub-skills.
+
+capabilities:
+  - capability_id: paidtool-invoke
+    name: Invoke a paidTool via x402
+    description: Wraps `fetchWithPayment` in the SKILL.md prompt so models can call paid endpoints without leaving chat.
+    chains: [base, arbitrum, xrpl, solana]
+    stablecoins: [USDC, RLUSD]
+    eval_task_ids: [call-paidtool]
+  - capability_id: paidtool-discover
+    name: Search x402 bazaar
+    description: List available paid endpoints matching a query string.
+    chains: [base, arbitrum]
+    stablecoins: [USDC]
+    eval_task_ids: []
+  - capability_id: paidtool-transfer
+    name: Transfer USDC between wallets
+    description: Direct wallet-to-wallet USDC transfer via signed permit.
+    chains: [base, base-sepolia, arbitrum, arbitrum-sepolia]
+    stablecoins: [USDC]
+    eval_task_ids: [transfer-usdc]

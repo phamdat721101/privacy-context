@@ -76,14 +76,19 @@ chatRouter.post('/', requireFields('userAddress', 'message', 'serializedPermit')
     }
 
     // --- Process chat or skill ---
-    const skill = detectSkill(message);
+    const resolved = await detectSkill(message);
     let response: string;
 
-    if (skill) {
-      if (!hasActiveLicense(userAddress, skill.publicSkillIndex)) {
-        response = `🔒 This request requires the "${skill.name}" skill.\n\nPurchase a license from the Skill Marketplace to unlock:\n• ${skill.description}\n\nVisit /marketplace to browse available skills.`;
+    if (resolved) {
+      const publicSkillIndex =
+        resolved.kind === 'hardcoded' ? resolved.skill.publicSkillIndex : 0;
+      const skillName = resolved.skill.name;
+      const skillDescription = resolved.skill.description;
+      const licensed = resolved.kind === 'dynamic' || hasActiveLicense(userAddress, publicSkillIndex);
+      if (!licensed) {
+        response = `🔒 This request requires the "${skillName}" skill.\n\nPurchase a license from the Skill Marketplace to unlock:\n• ${skillDescription}\n\nVisit /marketplace to browse available skills.`;
       } else {
-        response = await executeSkill(skill, message, ctx, memory);
+        response = await executeSkill(resolved, message, ctx, memory);
       }
     } else {
       const systemPrompt = buildSystemPrompt(ctx, memory);

@@ -6,6 +6,7 @@ import { discover, searchAgents } from '../services/discoveryService';
 import { streamBundle } from '../services/hostedRunner';
 import { pool } from '../db';
 import { logger } from '../lib';
+import { AgentTrainingService } from '../services/agentTrainingService';
 import type { AuthRequest } from '../middleware/auth';
 
 /**
@@ -1088,6 +1089,109 @@ v3.post('/credits/topup', async (req: AuthRequest, res: Response) => {
     meta: { pack: pack_usdc, source: 'browser-topup' },
   });
   res.json({ ok: true, ...granted });
+});
+
+// ---------------------------------------------------------------------------
+// Agent Training Pipeline v1.0 — kit registry + per-agent SKILL.md inventory.
+// All 6 endpoints gated behind FEATURE_AGENT_TRAINING_PIPELINE. When the flag
+// is off the router returns 501 for the whole namespace — byte-identical
+// rollback because no other code path references these routes.
+// ---------------------------------------------------------------------------
+
+const trainingPipeline = new AgentTrainingService({ pool, logger });
+
+function trainingEnabled(): boolean {
+  return process.env.FEATURE_AGENT_TRAINING_PIPELINE === 'true';
+}
+
+function ownerAddress(req: AuthRequest): string | null {
+  const header = (req.headers['x-wallet-address'] as string | undefined) ?? '';
+  return req.user?.address ?? (header ? header.toLowerCase() : null);
+}
+
+function handleTrainingError(res: Response, err: unknown, tag: string): void {
+  const e = err as Error & { status?: number; audit?: unknown };
+  const status = e.status ?? 500;
+  if (status >= 500) logger.error({ err: e.message, tag }, 'v3:training:error');
+  else logger.warn({ err: e.message, tag }, 'v3:training:client-error');
+  res.status(status).json({ error: e.message, ...(e.audit ? { audit: e.audit } : {}) });
+}
+
+v3.get('/kits', async (_req: Request, res: Response) => {
+  if (!trainingEnabled()) return res.status(501).json({ error: 'feature_disabled' });
+  try {
+    const kits = await trainingPipeline.listKits();
+    res.json({ kits });
+  } catch (err) {
+    handleTrainingError(res, err, 'kits:list');
+  }
+});
+
+v3.get('/kits/:slug', async (req: Request, res: Response) => {
+  if (!trainingEnabled()) return res.status(501).json({ error: 'feature_disabled' });
+  try {
+    const detail = await trainingPipeline.getKitBySlug(String(req.params.slug));
+    if (!detail) return res.status(404).json({ error: 'kit_not_found' });
+    res.json(detail);
+  } catch (err) {
+    handleTrainingError(res, err, 'kits:get');
+  }
+});
+
+v3.get('/agents/:id/skills', async (req: Request, res: Response) => {
+  if (!trainingEnabled()) return res.status(501).json({ error: 'feature_disabled' });
+  try {
+    const skills = await trainingPipeline.listAgentSkills(String(req.params.id));
+    res.json({ skills });
+  } catch (err) {
+    handleTrainingError(res, err, 'skills:list');
+  }
+});
+
+v3.post('/agents/:id/skills', async (req: AuthRequest, res: Response) => {
+  if (!trainingEnabled()) return res.status(501).json({ error: 'feature_disabled' });
+  const owner = ownerAddress(req);
+  if (!owner) return res.status(401).json({ error: 'wallet_required' });
+  const content = String(req.body?.skill_md_content ?? '');
+  if (!content) return res.status(400).json({ error: 'skill_md_content required' });
+  const kitSlugs = Array.isArray(req.body?.kit_slugs) ? (req.body.kit_slugs as string[]) : [];
+  try {
+    const out = await trainingPipeline.uploadAgentSkill(String(req.params.id), owner, {
+      skill_md_content: content,
+      kit_slugs: kitSlugs,
+    });
+    res.json(out);
+  } catch (err) {
+    handleTrainingError(res, err, 'skills:upload');
+  }
+});
+
+v3.delete('/agents/:id/skills/:slug', async (req: AuthRequest, res: Response) => {
+  if (!trainingEnabled()) return res.status(501).json({ error: 'feature_disabled' });
+  const owner = ownerAddress(req);
+  if (!owner) return res.status(401).json({ error: 'wallet_required' });
+  try {
+    const ok = await trainingPipeline.archiveAgentSkill(
+      String(req.params.id),
+      owner,
+      String(req.params.slug),
+    );
+    if (!ok) return res.status(404).json({ error: 'skill_not_found_or_already_archived' });
+    res.json({ ok: true });
+  } catch (err) {
+    handleTrainingError(res, err, 'skills:archive');
+  }
+});
+
+v3.get('/agents/:id/introspect', async (req: Request, res: Response) => {
+  if (!trainingEnabled()) return res.status(501).json({ error: 'feature_disabled' });
+  try {
+    const view = await trainingPipeline.introspectAgent(String(req.params.id));
+    if (!view) return res.status(404).json({ error: 'agent_not_found' });
+    res.json(view);
+  } catch (err) {
+    handleTrainingError(res, err, 'introspect');
+  }
 });
 
 export default v3;

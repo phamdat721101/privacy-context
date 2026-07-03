@@ -87,6 +87,44 @@ export function buildSystemPrompt(
   return `${base}\n${ARTIFACT_PROTOCOL}`;
 }
 
+/**
+ * Dynamic-skill picker (Agent Training Pipeline v1.0).
+ *
+ * Returns the highest-audit-score active skill's system_prompt whose
+ * `trigger_patterns` (case-insensitive substring) match the message. Returns
+ * null when the feature flag is off, when the agent has no active skills,
+ * or when no pattern matches — the paywall path then falls back to the
+ * existing persona.system_prompt behavior.
+ *
+ * Kept as a top-level helper (not a service method) so it's a single ~15
+ * line function that a code reviewer can audit in one glance. Uses the
+ * shared `pool` — no extra service instantiation on the hot path.
+ */
+export async function pickDynamicSkillPrompt(
+  agentId: string,
+  message: string,
+): Promise<string | null> {
+  if (process.env.FEATURE_AGENT_TRAINING_PIPELINE !== 'true') return null;
+  const r = await pool.query<{ system_prompt: string; trigger_patterns: string[] }>(
+    `SELECT system_prompt, trigger_patterns
+       FROM agent_skills
+      WHERE agent_id = $1 AND status = 'active'
+      ORDER BY audit_score DESC
+      LIMIT 20`,
+    [agentId],
+  );
+  if (r.rowCount === 0) return null;
+  const lower = message.toLowerCase();
+  for (const row of r.rows) {
+    const patterns = Array.isArray(row.trigger_patterns) ? row.trigger_patterns : [];
+    if (patterns.length === 0) continue;
+    if (patterns.some((p) => typeof p === 'string' && p && lower.includes(p.toLowerCase()))) {
+      return row.system_prompt;
+    }
+  }
+  return null;
+}
+
 // ─── n-payment provider cache (one per slug, lazy) ─────────────────────────
 
 interface AgentRow {
@@ -666,7 +704,18 @@ export async function runInference(
   const chunks = await KnowledgeIngestService.loadChunks(agent.brain_id);
   const ranked = rankChunks(question, chunks).slice(0, 5);
   const context = ranked.map((c) => c.content).filter(Boolean).join('\n---\n');
-  const system = buildSystemPrompt(agent.persona, context);
+  // Dynamic-skill hook (Agent Training Pipeline v1.0): if the agent has an
+  // active SKILL.md-format skill whose trigger patterns match the question,
+  // prepend its system_prompt to the persona prompt. No-op when flag off or
+  // agent has no dynamic skills — the hardcoded persona path is preserved.
+  const dynamicPrompt = agent.id ? await pickDynamicSkillPrompt(agent.id, question) : null;
+  const enrichedPersona = dynamicPrompt
+    ? {
+        ...agent.persona,
+        system_prompt: `${dynamicPrompt}\n\n${(agent.persona?.system_prompt ?? '').trim()}`.trim(),
+      }
+    : agent.persona;
+  const system = buildSystemPrompt(enrichedPersona, context);
   const uploadCtx =
     agent.id && uploadIds.length
       ? await buildUploadContext(agent.id, uploadIds)

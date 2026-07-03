@@ -1,0 +1,47 @@
+slug: ows
+name: Open Wallet Standard (OWS)
+description: Local-first multi-chain wallet lifecycle — create wallets, derive addresses, sign transactions across 11 chain families.
+homepage_url: https://github.com/open-wallet-standard/core
+license: MIT
+authors: [pham]
+trigger_type: user
+leading_word: openWallet
+audit_score: 0.86
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: '@open-wallet-standard/core'
+github_repo: open-wallet-standard/core
+install_command: npm install @open-wallet-standard/core
+cost_install: free
+cost_per_use: free
+
+version:
+  version: 1.3.2
+  release_date: 2026-06-12T00:00:00Z
+  skill_md_url: https://github.com/open-wallet-standard/core/blob/main/SKILL.md
+  skill_md_lines: 190
+  reference_urls: []
+  changelog: v1.3.2 adds Filecoin + Cosmos IBC helpers.
+
+capabilities:
+  - capability_id: ows-create
+    name: Create a wallet
+    description: Generate seed + derive keys for a given chain family.
+    chains: [ethereum, solana, xrpl, sui, bitcoin, cosmos, tron, ton, spark, filecoin, stellar]
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: ows-sign
+    name: Sign a message or transaction
+    description: Chain-aware sign for tx or arbitrary message payloads.
+    chains: [ethereum, solana, xrpl, sui, bitcoin, cosmos, tron, ton, spark, filecoin, stellar]
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: ows-transfer
+    name: Transfer native or ERC-20 tokens
+    description: Send tokens across supported chains with a single API.
+    chains: [ethereum, solana, xrpl]
+    stablecoins: [USDC, RLUSD]
+    eval_task_ids: [transfer-usdc]

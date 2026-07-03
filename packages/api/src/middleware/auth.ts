@@ -77,6 +77,14 @@ const PUBLIC_PATHS: RegExp[] = [
   /^(?:\/marketplace)?\/workflows\/[^/]+$/,
   // /v3/marketplace/workflows/:slug/recent — anonymized last-N runs.
   /^(?:\/marketplace)?\/workflows\/[^/]+\/recent$/,
+  // Agent Training Pipeline v1.0 — public read paths for kit registry +
+  // per-agent skill lists + introspection. Writes (POST/DELETE on
+  // /agents/:id/skills) still fall through to the auth middleware, which
+  // requires `x-wallet-address`. The service layer enforces ownership.
+  /^\/kits$/,
+  /^\/kits\/[^/]+$/,
+  /^\/agents\/[^/]+\/introspect$/,
+  /^\/agents\/[^/]+\/skills$/,
   // /v3/agents/:id/try — PRD-2 free, rate-limited demo invocation. The
   // rate limiter (in v3.ts) is the abuse defense here.
   /^\/agents\/[^/]+\/try$/,

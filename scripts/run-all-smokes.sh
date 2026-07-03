@@ -63,6 +63,11 @@ if [ -n "${API_URL:-}" ]; then
   step "PRD-E workspace e2e (uploads + recent-calls + try)"
   npm run smoke:workspace-e2e > /tmp/smoke5.log 2>&1 || fail "workspace-e2e smoke"
   ok "workspace e2e passed"
+
+  step "Agent Training Pipeline v1.0 e2e (kit registry + skill upload + introspect)"
+  npm run smoke:agent-training-pipeline > /tmp/smoke6.log 2>&1 \
+    || (cat /tmp/smoke6.log && fail "agent-training-pipeline smoke")
+  ok "agent-training-pipeline smoke passed"
 else
   printf "${color_yellow}⚠  API_URL not set — skipping translator-e2e + workspace-e2e (set API_URL to run)${color_reset}\n"
 fi

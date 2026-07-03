@@ -49,8 +49,10 @@
     "smoke:marketplace-seller-first": "tsx scripts/smoke-marketplace-seller-first.ts",
     "smoke:translator-e2e": "tsx scripts/smoke-translator-e2e.ts",
     "smoke:workspace-e2e": "tsx scripts/smoke-workspace-e2e.ts",
+    "smoke:agent-training-pipeline": "tsx scripts/smoke-agent-training-pipeline.ts",
     "seed:translator": "tsx scripts/seed-translator-agent.ts",
     "seed:curated-brain": "tsx scripts/seed-curated-brain.ts",
+    "seed:kits": "tsx scripts/seed-agent-kits.ts",
     "migrate:to-supabase": "tsx scripts/migrate-to-supabase.ts",
     "db:migrate": "bash -c 'for f in packages/shared/migrations/*.sql; do psql \"$DATABASE_URL\" -f \"$f\" || true; done'",
     "demo:agentic-market": "tsx scripts/demo-agentic-market.ts"

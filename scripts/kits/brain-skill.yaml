@@ -1,0 +1,47 @@
+slug: brain-skill
+name: brain-skill
+description: Persistent second-brain memory skill — read/write knowledge chunks with signed permits.
+homepage_url: https://github.com/phamdat721701/brain-skill
+license: MIT
+authors: [pham]
+trigger_type: model
+leading_word: rememberChunk
+audit_score: 0.90
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: '@openx/brain-skill'
+github_repo: phamdat721701/brain-skill
+install_command: npx @openx/brain-skill install
+cost_install: free
+cost_per_use: variable
+
+version:
+  version: 0.1.0
+  release_date: 2026-06-27T00:00:00Z
+  skill_md_url: https://github.com/phamdat721701/brain-skill/blob/main/SKILL.md
+  skill_md_lines: 140
+  reference_urls: []
+  changelog: v0.1 ships with 7 MCP tools + 8-host installer.
+
+capabilities:
+  - capability_id: brain-remember
+    name: Store a memory chunk
+    description: Ingest a plaintext chunk to the caller-owned brain.
+    chains: [arbitrum-sepolia]
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: brain-recall
+    name: Recall memory by semantic search
+    description: Return top-K memories matching a natural-language query.
+    chains: [arbitrum-sepolia]
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: brain-audit
+    name: Run the SKILL.md 4-pillar audit
+    description: Validate any SKILL.md file against the Matt Pocock rubric.
+    chains: []
+    stablecoins: []
+    eval_task_ids: []

@@ -13,6 +13,9 @@ import {
 } from '@/lib/agents';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import OnboardPanel from '@/components/studio/OnboardPanel';
+import KitBrowser from '@/components/studio/KitBrowser';
+import SkillsPanel from '@/components/studio/SkillsPanel';
 
 /** Hidden assistant row. Combines two sources:
  *  - dashboard.archived_agents (v2 listings with rich metadata)
@@ -26,7 +29,7 @@ interface ArchivedAgent {
   archived_at: string | null;
 }
 
-type StudioTab = 'creator' | 'user';
+type StudioTab = 'onboard' | 'creator' | 'user';
 
 export default function StudioPage() {
   const { authenticated, ready, login } = usePrivy();
@@ -52,6 +55,7 @@ export default function StudioPage() {
   // Tab state — URL-driven via ?tab=creator|user. Defaults are role-aware
   // (set after first dashboard fetch resolves so we know if user is a creator).
   const [tab, setTab] = useState<StudioTab>('creator');
+  const [kitBrowserOpen, setKitBrowserOpen] = useState(false);
 
   useEffect(() => {
     if (!userAddress) return;
@@ -142,7 +146,7 @@ export default function StudioPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const t = new URLSearchParams(window.location.search).get('tab');
-    if (t === 'creator' || t === 'user') {
+    if (t === 'creator' || t === 'user' || t === 'onboard') {
       setTab(t);
       return;
     }
@@ -288,11 +292,11 @@ export default function StudioPage() {
           + New agent
         </Link>
       </div>
-      {/* Tab strip — Creator | User. URL-driven via ?tab=user|creator. */}
+      {/* Tab strip — Onboard | Creator | User. URL-driven via ?tab=onboard|creator|user. */}
       <div className="flex gap-1 border-b border-outline-variant/30">
-        {(['creator', 'user'] as const).map((t) => {
+        {(['onboard', 'creator', 'user'] as const).map((t) => {
           const active = tab === t;
-          const label = t === 'creator' ? 'Creator' : 'User';
+          const label = t === 'creator' ? 'Creator' : t === 'user' ? 'User' : 'Onboard';
           return (
             <button
               key={t}
@@ -309,6 +313,8 @@ export default function StudioPage() {
           );
         })}
       </div>
+
+      {tab === 'onboard' && <OnboardPanel />}
 
       {tab === 'creator' && (
         <>
@@ -366,6 +372,13 @@ export default function StudioPage() {
                   </h2>
                   <div className="flex items-center gap-3">
                     {status && <span className="text-xs text-on-surface-variant">{status}</span>}
+                    <button
+                      type="button"
+                      onClick={() => setKitBrowserOpen(true)}
+                      className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs text-primary hover:bg-primary/20"
+                    >
+                      Browse 7 web3 kits
+                    </button>
                     {agents.length > 0 && (
                       <button
                         type="button"
@@ -392,50 +405,55 @@ export default function StudioPage() {
                     {agents.map((a) => (
                       <div
                         key={a.id}
-                        className="encryption-glow flex items-center justify-between gap-3 rounded-xl border border-outline-variant/30 bg-surface p-4"
+                        className="encryption-glow flex flex-col gap-3 rounded-xl border border-outline-variant/30 bg-surface p-4"
                       >
-                        <Link href={`/agent/${a.id}`} className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="material-symbols-outlined text-primary">smart_toy</span>
-                            <div className="min-w-0">
-                              <div className="truncate font-headline font-semibold">{a.title}</div>
-                              <div className="font-mono text-[11px] text-on-surface-variant">
-                                {a.slug ? '✓ Published' : '🔒 Private draft'}
+                        <div className="flex items-center justify-between gap-3">
+                          <Link href={`/agent/${a.id}`} className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="material-symbols-outlined text-primary">smart_toy</span>
+                              <div className="min-w-0">
+                                <div className="truncate font-headline font-semibold">{a.title}</div>
+                                <div className="font-mono text-[11px] text-on-surface-variant">
+                                  {a.slug ? '✓ Published' : '🔒 Private draft'}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </Link>
-                        {a.slug && (
-                          <Link
-                            href={`/agent/${a.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Open public detail page (what users see)"
-                            className="rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-secondary transition-colors hover:bg-secondary/20"
-                          >
-                            public ↗
                           </Link>
+                          {a.slug && (
+                            <Link
+                              href={`/agent/${a.id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Open public detail page (what users see)"
+                              className="rounded-full border border-secondary/30 bg-secondary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-secondary transition-colors hover:bg-secondary/20"
+                            >
+                              public ↗
+                            </Link>
+                          )}
+                          <label className="cursor-pointer rounded-full border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary">
+                            Upload
+                            <input
+                              type="file"
+                              accept=".txt,.md,.csv"
+                              onChange={(e) => handleUpload(e, a.id)}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => onHide(a.id, a.title)}
+                            title="Hide this assistant from the marketplace. Receipts are preserved; you can restore any time."
+                            className="rounded-full border border-outline-variant/40 px-2 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-error/40 hover:text-error"
+                          >
+                            <span className="material-symbols-outlined text-[16px]" aria-hidden>
+                              visibility_off
+                            </span>
+                            <span className="sr-only">Hide</span>
+                          </button>
+                        </div>
+                        {a.v3AgentId && userAddress && (
+                          <SkillsPanel agentId={a.v3AgentId} ownerAddress={userAddress} />
                         )}
-                        <label className="cursor-pointer rounded-full border border-outline-variant/40 px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-primary/40 hover:text-primary">
-                          Upload
-                          <input
-                            type="file"
-                            accept=".txt,.md,.csv"
-                            onChange={(e) => handleUpload(e, a.id)}
-                            className="hidden"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => onHide(a.id, a.title)}
-                          title="Hide this assistant from the marketplace. Receipts are preserved; you can restore any time."
-                          className="rounded-full border border-outline-variant/40 px-2 py-1.5 text-xs text-on-surface-variant transition-colors hover:border-error/40 hover:text-error"
-                        >
-                          <span className="material-symbols-outlined text-[16px]" aria-hidden>
-                            visibility_off
-                          </span>
-                          <span className="sr-only">Hide</span>
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -492,6 +510,8 @@ export default function StudioPage() {
       )}
 
       {tab === 'user' && <UserTabBody walletAddress={userAddress} />}
+
+      <KitBrowser open={kitBrowserOpen} onClose={() => setKitBrowserOpen(false)} />
     </div>
   );
 }

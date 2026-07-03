@@ -1,0 +1,62 @@
+slug: n-payment
+name: n-payment SDK
+description: Agentic payment SDK for web3 — 27 chains, x402 + RLUSD + MPT + XLS-65 vault + Wormhole NTT.
+homepage_url: https://github.com/phamdat721701/n-payment
+license: MIT
+authors: [pham]
+trigger_type: user
+leading_word: fetchWithPayment
+audit_score: 0.94
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: n-payment
+github_repo: phamdat721701/n-payment
+install_command: npm install n-payment
+cost_install: free
+cost_per_use: variable
+
+version:
+  version: 0.29.1
+  release_date: 2026-06-21T00:00:00Z
+  skill_md_url: https://github.com/phamdat721701/n-payment/blob/main/SKILL.md
+  skill_md_lines: 80
+  reference_urls:
+    - https://github.com/phamdat721701/n-payment/blob/main/reference/x402-flow.md
+    - https://github.com/phamdat721701/n-payment/blob/main/reference/rlusd-multichain.md
+    - https://github.com/phamdat721701/n-payment/blob/main/reference/mpt-issuance.md
+  changelog: v0.29.1 adds Wormhole NTT bridging + XRPL RLUSD helper.
+
+capabilities:
+  - capability_id: x402-payment
+    name: Pay via x402 protocol
+    description: Call any HTTP endpoint that returns 402; auto-settles USDC on any supported chain.
+    chains: [base, base-sepolia, arbitrum, arbitrum-sepolia, xrpl, solana]
+    stablecoins: [USDC, RLUSD, USDT]
+    eval_task_ids: [pay-x402]
+  - capability_id: mpt-issuance
+    name: Mint Multi-Purpose Token on XRPL
+    description: Emit an MPT issuance transaction; returns MPTokenIssuanceID.
+    chains: [xrpl-mainnet, xrpl-testnet]
+    stablecoins: []
+    eval_task_ids: [mint-mpt]
+  - capability_id: rlusd-multichain
+    name: Fetch RLUSD balance across chains
+    description: Aggregate RLUSD balances on 6 chains in a single call.
+    chains: [xrpl, base, arbitrum, ethereum, solana, stellar]
+    stablecoins: [RLUSD]
+    eval_task_ids: [fetch-rlusd-balance]
+  - capability_id: xls-65-vault
+    name: Deposit into XLS-65 Single Asset Vault
+    description: Move USDC/RLUSD into an on-chain single-asset vault position.
+    chains: [xrpl-devnet]
+    stablecoins: [USDC, RLUSD]
+    eval_task_ids: []
+  - capability_id: wormhole-ntt
+    name: Bridge via Wormhole Native Token Transfer
+    description: Move USDC + RLUSD across 6 chains with a single signature.
+    chains: [ethereum, arbitrum, base, solana, xrpl, stellar]
+    stablecoins: [USDC, RLUSD]
+    eval_task_ids: []

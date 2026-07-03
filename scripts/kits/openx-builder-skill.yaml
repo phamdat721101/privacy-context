@@ -1,0 +1,47 @@
+slug: openx-builder-skill
+name: openx-builder-skill
+description: Coding-agent AutoAgent loop — proposes changes, replays against a golden set, keeps only strict improvements.
+homepage_url: https://github.com/phamdat721701/openx-builder-skill
+license: MIT
+authors: [pham]
+trigger_type: user
+leading_word: autoAgentLoop
+audit_score: 0.91
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: '@openx/builder-skill'
+github_repo: phamdat721701/openx-builder-skill
+install_command: npx @openx/builder-skill init
+cost_install: free
+cost_per_use: variable
+
+version:
+  version: 0.1.0
+  release_date: 2026-06-28T00:00:00Z
+  skill_md_url: https://github.com/phamdat721701/openx-builder-skill/blob/main/SKILL.md
+  skill_md_lines: 160
+  reference_urls: []
+  changelog: v0.1 wraps Alfonso Graziano's AutoAgent pattern for OpenX agents.
+
+capabilities:
+  - capability_id: autoagent-loop
+    name: Run an AutoAgent proposal-and-validate loop
+    description: Propose N variants, replay against a golden dataset, keep only strict improvements.
+    chains: []
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: eval-from-traces
+    name: Cluster failure modes from paid_calls
+    description: Pull last N paid_calls, cluster failures, surface top-3 fix candidates.
+    chains: []
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: publish-agent
+    name: Publish an agent via /v3/concierge/onboard
+    description: One-command publish for an existing spec.
+    chains: [arbitrum-sepolia]
+    stablecoins: []
+    eval_task_ids: []

@@ -1,0 +1,59 @@
+slug: xrpl-builder
+name: xrpl-builder
+description: XRPL-native MCP tool suite — 27 tools spanning account queries, MPT issuance, XLS-56 batch, XLS-65 vault, XLS-66 lending.
+homepage_url: https://github.com/phamdat721701/xrpl-builder
+license: MIT
+authors: [pham]
+trigger_type: user
+leading_word: xrplBuilder
+audit_score: 0.89
+audit_pillars_pass:
+  trigger: true
+  structure: true
+  steering: true
+  pruning: true
+npm_package: '@openx/xrpl-builder'
+github_repo: phamdat721701/xrpl-builder
+install_command: npx @openx/xrpl-builder init
+cost_install: free
+cost_per_use: variable
+
+version:
+  version: 0.26.0
+  release_date: 2026-06-30T00:00:00Z
+  skill_md_url: https://github.com/phamdat721701/xrpl-builder/blob/main/SKILL.md
+  skill_md_lines: 175
+  reference_urls: []
+  changelog: v0.26 adds 4 XLS-65/66 tools on top of the 23-tool baseline.
+
+capabilities:
+  - capability_id: xrpl-query
+    name: Query XRPL account state
+    description: account_info + account_lines + account_objects in one call.
+    chains: [xrpl-mainnet, xrpl-testnet]
+    stablecoins: []
+    eval_task_ids: [query-xrpl]
+  - capability_id: xrpl-mpt
+    name: Mint / transfer Multi-Purpose Tokens
+    description: "Full MPT lifecycle: issue, hold, transfer, destroy."
+    chains: [xrpl-mainnet, xrpl-testnet]
+    stablecoins: []
+    eval_task_ids: [mint-mpt]
+  - capability_id: xrpl-xls56-batch
+    name: Submit XLS-56 Batch transactions
+    description: Multi-step atomic Batch tx once XLS-56 activates on mainnet.
+    chains: [xrpl-devnet, xrpl-testnet]
+    stablecoins: []
+    eval_task_ids: []
+  - capability_id: xrpl-xls65-vault
+    name: Deposit / withdraw XLS-65 Single Asset Vault
+    description: Vault position lifecycle helpers.
+    chains: [xrpl-devnet]
+    stablecoins: [USDC, RLUSD]
+    eval_task_ids: []
+  - capability_id: xrpl-xls66-lending
+    name: XLS-66 lending protocol helpers
+    description: Deposit, borrow, repay against XRPL lending pool.
+    chains: [xrpl-devnet]
+    stablecoins: [RLUSD]
+    eval_task_ids: []

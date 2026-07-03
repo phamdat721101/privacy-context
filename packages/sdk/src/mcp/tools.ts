@@ -191,6 +191,88 @@ export const TOOLS: ToolDef[] = [
       });
     },
   },
+
+  // ─── Agent Training Pipeline v1.0 — introspection tools ────────────────
+  // Agents query the training-pipeline surface: 7 web3 kits + per-agent
+  // SKILL.md inventory. Free (no paywall). Feature flag gates the underlying
+  // API endpoints — if the flag is off, these tools surface a 501 error.
+  {
+    name: 'openx_list_kits',
+    description:
+      'List all active web3 agent-kits registered on OpenX. Each kit ships with SKILL.md-quality metadata + a capability list.',
+    paid: false,
+    inputSchema: { type: 'object', properties: {} },
+    handler: async ({ openx }) => openxApiFetch(openx, '/v3/kits', 'GET'),
+  },
+  {
+    name: 'openx_get_kit_details',
+    description:
+      'Fetch full metadata for a single OpenX agent-kit: kit + latest version + capability list. Use before acquiring skills bound to the kit.',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: { kit_slug: tStr },
+      required: ['kit_slug'],
+    },
+    handler: async ({ openx, args }) => {
+      const slug = String(args.kit_slug ?? '').trim();
+      if (!slug) throw new Error('kit_slug required');
+      return openxApiFetch(openx, `/v3/kits/${encodeURIComponent(slug)}`, 'GET');
+    },
+  },
+  {
+    name: 'openx_agent_introspect',
+    description:
+      'Return the calling agent\'s profile bundled with its acquired skills and mapped kits. The agent_id is required (the caller is any authenticated seller).',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: { agent_id: tStr },
+      required: ['agent_id'],
+    },
+    handler: async ({ openx, args }) => {
+      const id = String(args.agent_id ?? '').trim();
+      if (!id) throw new Error('agent_id required');
+      return openxApiFetch(openx, `/v3/agents/${encodeURIComponent(id)}/introspect`, 'GET');
+    },
+  },
+  {
+    name: 'openx_list_my_skills',
+    description:
+      'List all active SKILL.md-format skills acquired by an agent, ordered by most recent first.',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: { agent_id: tStr },
+      required: ['agent_id'],
+    },
+    handler: async ({ openx, args }) => {
+      const id = String(args.agent_id ?? '').trim();
+      if (!id) throw new Error('agent_id required');
+      return openxApiFetch(openx, `/v3/agents/${encodeURIComponent(id)}/skills`, 'GET');
+    },
+  },
+  {
+    name: 'openx_list_my_kits',
+    description:
+      'List the kits an agent is bound to (derived from the agent\'s acquired skills) with capability_ids and first-used timestamp.',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: { agent_id: tStr },
+      required: ['agent_id'],
+    },
+    handler: async ({ openx, args }) => {
+      const id = String(args.agent_id ?? '').trim();
+      if (!id) throw new Error('agent_id required');
+      const view = (await openxApiFetch(
+        openx,
+        `/v3/agents/${encodeURIComponent(id)}/introspect`,
+        'GET',
+      )) as { kits?: unknown[] };
+      return { kits: view?.kits ?? [] };
+    },
+  },
 ];
 
 // Re-export MemoryId so MCP consumers don't need a second import.
