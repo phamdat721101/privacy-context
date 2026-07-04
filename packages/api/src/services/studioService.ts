@@ -384,10 +384,17 @@ export class StudioService {
       started_at: string;
       finished_at: string | null;
     }>(
+      // Filter out pure-noise runs: status='failed' with $0 cost means
+      // the pipeline aborted before any LLM call fired (usually a schema
+      // or fixture bug that's already been patched). Real failures — ones
+      // that spent LLM money mid-flight — still surface via cost>0. User-
+      // facing statuses (approved / pending_approval / rejected) always
+      // surface regardless of cost.
       `SELECT id, status, cost_usdc::text, phases_completed, diff_count,
               hires_analyzed, started_at, finished_at
          FROM auto_dream_runs
         WHERE agent_id = $1
+          AND (status <> 'failed' OR cost_usdc > 0)
         ORDER BY started_at DESC
         LIMIT 20`,
       [agentId],
