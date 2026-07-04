@@ -142,12 +142,12 @@ function auditSkillMd(content: string, frontmatter: Record<string, unknown>): Sk
     reasons.push(`structure: SKILL.md has ${lines.length} lines (max ${MAX_SKILL_MD_LINES}); split branching detail into reference files`);
   }
 
-  // Pillar 3 — Steering (leading word declared + repeated in body)
-  const leadingWord = String(frontmatter.leading_word ?? '').trim();
+  // Pillar 3 — Steering (leading word declared or derivable + repeated in body)
+  const leadingWord = deriveLeadingWord(frontmatter);
   const body = lines.slice(frontmatter ? Object.keys(frontmatter).length + 2 : 0).join('\n');
   const leadingWordPass =
     leadingWord.length > 0 && new RegExp(escapeRegex(leadingWord), 'i').test(body);
-  if (!leadingWord) reasons.push('steering: `leading_word` missing from frontmatter');
+  if (!leadingWord) reasons.push('steering: `leading_word` missing — set it explicitly OR provide `name`/`endpoint_path` to auto-derive');
   else if (!leadingWordPass)
     reasons.push(`steering: leading_word "${leadingWord}" must appear in SKILL.md body`);
 
@@ -176,6 +176,41 @@ function auditSkillMd(content: string, frontmatter: Record<string, unknown>): Sk
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Derive the steering "leading word" for a skill.
+ *
+ * Precedence:
+ *   1. Explicit `frontmatter.leading_word` (Matt Pocock canonical).
+ *   2. First alphanum segment of `frontmatter.name` — "goal-skill" → "goal",
+ *      "pay_now" → "pay". Handles hyphens, underscores, spaces.
+ *   3. Last non-empty segment of `frontmatter.endpoint_path` — "/goal" →
+ *      "goal", "/api/translate" → "translate". Common for HTTP-shaped skills.
+ *   4. Empty string — audit reports missing.
+ *
+ * SOLID:
+ *   • SRP — one job: pick the leading word deterministically.
+ *   • OCP — new derivation sources plug in as new branches; audit + insert
+ *          paths never need to change.
+ */
+export function deriveLeadingWord(frontmatter: Record<string, unknown>): string {
+  const explicit = String(frontmatter.leading_word ?? '').trim();
+  if (explicit) return explicit.split(/[\s\-_]+/)[0].toLowerCase();
+
+  const name = String(frontmatter.name ?? '').trim();
+  if (name) {
+    const first = name.split(/[\s\-_]+/)[0];
+    if (first) return first.toLowerCase();
+  }
+
+  const endpointPath = String(frontmatter.endpoint_path ?? '').trim();
+  if (endpointPath) {
+    const segments = endpointPath.split('/').filter(Boolean);
+    if (segments.length > 0) return segments[segments.length - 1].toLowerCase();
+  }
+
+  return '';
 }
 
 /** Extract YAML frontmatter + body from a SKILL.md string. Throws on malformed input. */
@@ -371,7 +406,7 @@ export class AgentTrainingService {
           payload.skill_md_content.split('\n').length,
           JSON.stringify(referenceFiles),
           String(fm.trigger_type ?? 'user'),
-          String(fm.leading_word ?? ''),
+          deriveLeadingWord(fm),
           JSON.stringify(triggerPatterns),
           audit.score,
           JSON.stringify(audit.pillars),
