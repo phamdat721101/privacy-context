@@ -273,7 +273,7 @@ async function promoteToProceduralAndWrite(owner: string): Promise<number> {
     `SELECT procedure_key FROM cognitive_skills WHERE owner_addr = $1`,
     [owner],
   );
-  const existingProcedureKeys = new Set(existing.rows.map((r) => r.procedure_key));
+  const existingProcedureKeys = new Set<string>(existing.rows.map((r) => r.procedure_key));
   const candidates = promoteToProcedural({ facts, existingProcedureKeys });
 
   let written = 0;
