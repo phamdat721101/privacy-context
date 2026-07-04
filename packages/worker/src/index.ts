@@ -12,6 +12,7 @@ import { startChainSync } from './jobs/chain-sync';
 import { startChainRelayer } from './jobs/chain-relayer';
 import { startAgentHealthCanary } from './jobs/agent-health-canary';
 import { startWebhookRetry } from './jobs/webhook-retry';
+import { startAutoDreamCron } from './jobs/auto-dream-cron';
 
 const connection = { host: process.env.REDIS_HOST || '127.0.0.1', port: +(process.env.REDIS_PORT || 6379) };
 
@@ -33,5 +34,10 @@ startAgentHealthCanary();
 
 // PRD-2 — async-task webhook retry consumer. No-op when the flag is off.
 startWebhookRetry();
+
+// PRD-U4 — weekly auto-dream cron. No-op when FEATURE_AUTO_DREAM=false.
+// Calls the api's internal endpoint every ~7 days; execution runs on the
+// api process for shared DB/LLM access (worker isolates the scheduling).
+startAutoDreamCron();
 
 console.log('[worker] all processors registered');

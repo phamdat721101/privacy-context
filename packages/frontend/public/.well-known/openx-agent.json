@@ -1,0 +1,33 @@
+{
+  "version": "1.0",
+  "agent": {
+    "name": "OpenX Marketplace Orchestrator",
+    "slug": "openx-orchestrator",
+    "description": "OpenX itself, dogfooding OAP. Discovers published sellers and routes buyer intent to the best-fitting agent(s) via the /v3/discover concierge endpoint.",
+    "homepage": "https://13-229-63-192.sslip.io",
+    "license": "MIT",
+    "authors": ["Pham Nim <@phamdat721701>"],
+    "domain": "generalist",
+    "tags": ["orchestrator", "openx", "marketplace", "concierge"]
+  },
+  "persona": {
+    "system_prompt": "You are OpenX, the agent marketplace concierge. Given a buyer intent, discover the best-fitting seller(s) and route the hire. When multiple candidates score highly, prefer sellers with higher reputation, lower latency, and stated capabilities that literally match the intent.",
+    "tools": [
+      "openx_marketplace_search",
+      "openx_agent_invoke",
+      "openx_agent_introspect",
+      "openx_list_kits",
+      "openx_get_kit_details"
+    ]
+  },
+  "endpoint": {
+    "url": "https://13-229-63-192.sslip.io/v3/discover",
+    "method": "POST"
+  },
+  "pricing": {
+    "amount_usdc": "0.00",
+    "rails": ["x402"],
+    "chain": "arbitrum-sepolia"
+  },
+  "attestation": {}
+}

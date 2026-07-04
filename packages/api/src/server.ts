@@ -13,6 +13,9 @@ import v2Router from './routes/v2';
 import v3Router from './routes/v3';
 import v3OnboardRouter from './routes/v3-onboard';
 import v3MarketplaceRouter from "./routes/v3-marketplace";
+import v3OapRouter from './routes/v3-oap';
+import v3AgentsV2Router from './routes/v3-agents-v2';
+import v3StudioRouter from './routes/v3-studio';
 import v4Router from './routes/v4';
 import v1PublicRouter from './routes/v1Public';
 import creditsTopupRouter from './routes/credits-topup';
@@ -30,7 +33,10 @@ const app = express();
 app.use(cors());
 app.use(correlationId());
 app.use(metricsMiddleware());
-app.use(express.json());
+// Accept both `application/json` (legacy) and `application/oap+json` (PRD-U2
+// typed envelope). One parser handles both so oapValidation middleware can
+// inspect req.body regardless of caller MIME choice.
+app.use(express.json({ type: ['application/json', 'application/oap+json'] }));
 
 // Public endpoints
 app.get('/health', healthHandler);
@@ -45,6 +51,9 @@ app.use('/v2', auth, agentKya, v2Router);
 // v3 API — agentic marketplace internal API. Per-route ownership/KYA gating
 // happens inside the sub-router.
 app.use('/v3', auth, agentKya, v3OnboardRouter);
+app.use('/v3', auth, agentKya, v3OapRouter);
+app.use('/v3', auth, agentKya, v3AgentsV2Router);
+app.use('/v3', auth, agentKya, v3StudioRouter);
 app.use('/v3', auth, agentKya, v3Router);
 
 // /v3/marketplace — seller-first marketplace v1 (PRD-A/B/C).

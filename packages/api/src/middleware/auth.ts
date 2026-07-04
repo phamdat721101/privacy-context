@@ -127,6 +127,11 @@ const PUBLIC_PATHS: RegExp[] = [
   /^\/onboard\/nonce$/,
   /^\/onboard\/xaman\/create$/,
   /^\/onboard\/xaman\/[^/]+$/,
+  // PRD-U4 — internal cron endpoints. The worker container calls these
+  // without a wallet header; auth is enforced inside the handler via a
+  // shared secret in `x-openx-internal-secret`. Adding a route here is
+  // safe because the handler still returns 403 without the secret.
+  /^\/internal\/cron\/[^/]+$/,
 ];
 
 /**

@@ -41,3 +41,6 @@ export * from './openx';
 // MCP server (JSON-RPC 2.0 dispatch) — re-exported from `mcp/server.ts`.
 export * from './mcp/server';
 export * from './mcp/tools';
+// OAP (OpenX Agent Protocol v2) — Zod schemas + TS types + safe-validate
+// helpers. Single source of truth for manifest + envelope + response.
+export * from './oap';

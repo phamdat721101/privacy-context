@@ -273,6 +273,38 @@ export const TOOLS: ToolDef[] = [
       return { kits: view?.kits ?? [] };
     },
   },
+
+  // ─── OAP registration (PRD-U1) ─────────────────────────────────────────
+  // Machine-readable agent registration. Any external harness can register
+  // itself as an OpenX seller in one MCP call. Behind FEATURE_OAP_REGISTRATION
+  // on the API — off → 501 error surfaced verbatim.
+  {
+    name: 'openx_oap_register',
+    description:
+      'Register an agent as an OpenX seller via the OpenX Agent Protocol (OAP). Accepts EXACTLY ONE of: manifest_url (points to a hosted .well-known/openx-agent.json), manifest (inline JSON), or prompt (natural-language description ≥30 chars). Returns { agent_id, slug, listing_url, paywall_url, curl_example }. Idempotent by canonical manifest hash — same manifest twice returns the same agent_id.',
+    paid: false,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        manifest_url: tStr,
+        manifest: { type: 'object' },
+        prompt: tStr,
+      },
+    },
+    handler: async ({ openx, args }) => {
+      const url = typeof args.manifest_url === 'string' ? args.manifest_url : undefined;
+      const manifest = typeof args.manifest === 'object' && args.manifest !== null ? args.manifest : undefined;
+      const prompt = typeof args.prompt === 'string' ? args.prompt : undefined;
+      const modes = [url, manifest, prompt].filter((x) => x !== undefined);
+      if (modes.length === 0) throw new Error('Provide exactly one of: manifest_url, manifest, prompt');
+      if (modes.length > 1) throw new Error('Provide exactly one of: manifest_url, manifest, prompt (not multiple)');
+      const body: Record<string, unknown> = {};
+      if (url !== undefined) body.manifest_url = url;
+      if (manifest !== undefined) body.manifest = manifest;
+      if (prompt !== undefined) body.prompt = prompt;
+      return openxApiFetch(openx, '/v3/oap/register', 'POST', body);
+    },
+  },
 ];
 
 // Re-export MemoryId so MCP consumers don't need a second import.

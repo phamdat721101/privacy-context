@@ -49,3 +49,13 @@ export function resilientCall<T>(
 ): Promise<T> {
   return baseResilientCall({ ...opts, logger: opts.logger ?? logger }, fn);
 }
+
+// ─── PRD-U feature-flag cascade ─────────────────────────────────────────
+// Master flag `FEATURE_OPENX_V2=false` disables every sub-flag in one flip
+// (ship-gate criterion 7). Otherwise the sub-flag is respected as-is. All
+// v3-oap / v3-agents-v2 gate checks funnel through this helper so the
+// cascade behavior is uniform + testable in one place.
+export function isOpenxV2SubFlagOn(subFlag: string): boolean {
+  if (process.env.FEATURE_OPENX_V2 === 'false') return false;
+  return process.env[subFlag] === 'true';
+}

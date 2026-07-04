@@ -704,11 +704,23 @@ export async function runInference(
   const chunks = await KnowledgeIngestService.loadChunks(agent.brain_id);
   const ranked = rankChunks(question, chunks).slice(0, 5);
   const context = ranked.map((c) => c.content).filter(Boolean).join('\n---\n');
-  // Dynamic-skill hook (Agent Training Pipeline v1.0): if the agent has an
-  // active SKILL.md-format skill whose trigger patterns match the question,
-  // prepend its system_prompt to the persona prompt. No-op when flag off or
-  // agent has no dynamic skills — the hardcoded persona path is preserved.
-  const dynamicPrompt = agent.id ? await pickDynamicSkillPrompt(agent.id, question) : null;
+  // Dynamic-skill hook. Two paths:
+  //   FEATURE_SKILL_AUTOLOADER=true  → PRD-U3 typed-trigger + budget-packed
+  //                                    agentOrchestrationService.loadSkills
+  //   FEATURE_SKILL_AUTOLOADER=false → Jul 3 substring pickDynamicSkillPrompt
+  // Both return a single string prefix (or null) so the enrichedPersona
+  // composition below is byte-identical across the flag switch.
+  let dynamicPrompt: string | null = null;
+  if (agent.id) {
+    const { isOpenxV2SubFlagOn } = await import('../lib');
+    if (isOpenxV2SubFlagOn('FEATURE_SKILL_AUTOLOADER')) {
+      const { agentOrchestrationService } = await import('../services/agentOrchestrationService');
+      const loaded = await agentOrchestrationService.loadSkills(agent.id, { messageText: question });
+      dynamicPrompt = loaded.systemPromptPrefix || null;
+    } else {
+      dynamicPrompt = await pickDynamicSkillPrompt(agent.id, question);
+    }
+  }
   const enrichedPersona = dynamicPrompt
     ? {
         ...agent.persona,

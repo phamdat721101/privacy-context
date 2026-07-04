@@ -50,6 +50,8 @@
     "smoke:translator-e2e": "tsx scripts/smoke-translator-e2e.ts",
     "smoke:workspace-e2e": "tsx scripts/smoke-workspace-e2e.ts",
     "smoke:agent-training-pipeline": "tsx scripts/smoke-agent-training-pipeline.ts",
+    "smoke:openx-v2": "tsx scripts/smoke-openx-v2.ts",
+    "smoke:studio-portal": "tsx scripts/smoke-studio-portal.ts",
     "seed:translator": "tsx scripts/seed-translator-agent.ts",
     "seed:curated-brain": "tsx scripts/seed-curated-brain.ts",
     "seed:kits": "tsx scripts/seed-agent-kits.ts",

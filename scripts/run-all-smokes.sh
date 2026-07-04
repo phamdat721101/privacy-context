@@ -54,6 +54,16 @@ step "PRD-H onboard-token verify smoke (SIWE + XRPL round-trip)"
 npx tsx scripts/smoke-onboard-token.ts > /tmp/smoke_pl.log 2>&1 || fail "onboard-token smoke"
 ok "$(grep 'passed ·' /tmp/smoke_pl.log | tail -1)"
 
+step "PRD-U1 OAP registration smoke (validate + hash — Section A only)"
+npx tsx scripts/smoke-openx-v2.ts > /tmp/smoke_oap.log 2>&1 \
+  || (cat /tmp/smoke_oap.log && fail "openx-v2 smoke")
+ok "$(grep 'passed,' /tmp/smoke_oap.log | tail -1)"
+
+step "PRD-V studio portal smoke (Section A cascade only)"
+npx tsx scripts/smoke-studio-portal.ts > /tmp/smoke_studio.log 2>&1 \
+  || (cat /tmp/smoke_studio.log && fail "studio-portal smoke")
+ok "$(grep 'passed,' /tmp/smoke_studio.log | tail -1)"
+
 # ─── 3. Translator lighthouse smoke ──────────────────────────────────────
 if [ -n "${API_URL:-}" ]; then
   step "Translator lighthouse e2e (against ${API_URL})"
