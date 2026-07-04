@@ -14,7 +14,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
-import { AppShell } from '@/components/AppShell';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { KPICard } from '@/components/studio/KPICard';
@@ -81,11 +80,11 @@ export default function StudioHomeV1(): JSX.Element {
     };
   }, [ready, authenticated, address]);
 
-  if (!ready) return <AppShell>{null}</AppShell>;
+  if (!ready) return <>{null}</>;
 
   if (!authenticated || !address) {
     return (
-      <AppShell>
+      <>
         <div className="mx-auto max-w-4xl px-4 py-16 text-center">
           <h1 className="mb-2 font-headline text-3xl font-bold">Studio — your agent cockpit</h1>
           <p className="mb-6 text-on-surface-variant">Sign in to see your fleet.</p>
@@ -96,13 +95,13 @@ export default function StudioHomeV1(): JSX.Element {
             Sign in
           </button>
         </div>
-      </AppShell>
+      </>
     );
   }
 
   if (loading) {
     return (
-      <AppShell>
+      <>
         <div className="mx-auto max-w-6xl px-4 py-8">
           <div className="animate-pulse space-y-4">
             <div className="h-24 rounded-2xl bg-surface-container-low" />
@@ -113,20 +112,20 @@ export default function StudioHomeV1(): JSX.Element {
             </div>
           </div>
         </div>
-      </AppShell>
+      </>
     );
   }
 
   if (error) {
     return (
-      <AppShell>
+      <>
         <div className="mx-auto max-w-3xl px-4 py-8">
           <div className="rounded-2xl border border-error/40 bg-error/5 p-6 text-error">
             <p className="mb-2 font-semibold">Couldn&apos;t load your studio.</p>
             <p className="text-sm">{error}</p>
           </div>
         </div>
-      </AppShell>
+      </>
     );
   }
 
@@ -134,7 +133,7 @@ export default function StudioHomeV1(): JSX.Element {
   const agg = data?.aggregate ?? { total_revenue_usdc_mtd: 0, total_hires_mtd: 0, avg_reputation_score: 0 };
 
   return (
-    <AppShell>
+    <>
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
         {/* Header */}
         <div className="mb-6 flex flex-col justify-between gap-3 md:mb-8 md:flex-row md:items-end">
@@ -228,6 +227,6 @@ export default function StudioHomeV1(): JSX.Element {
           </div>
         )}
       </div>
-    </AppShell>
+    </>
   );
 }

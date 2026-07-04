@@ -13,7 +13,6 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { AppShell } from '@/components/AppShell';
 
 const TABS: Array<{ slug: string; label: string; external?: boolean }> = [
   { slug: '', label: 'Overview' },
@@ -34,7 +33,7 @@ export default function AgentLayout({
   const base = `/studio/${params.agentId}`;
 
   return (
-    <AppShell>
+    <>
       <div className="mx-auto max-w-6xl px-4 pt-6 md:px-6">
         <Link
           href="/studio"
@@ -74,6 +73,6 @@ export default function AgentLayout({
       </div>
 
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">{children}</div>
-    </AppShell>
+    </>
   );
 }
