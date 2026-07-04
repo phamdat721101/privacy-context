@@ -353,14 +353,11 @@ export class AutoDreamService {
           ORDER BY audit_score DESC LIMIT 20`,
         [agentId],
       ),
-      this.deps.pool.query<{ question: string; response_snippet: string; created_at: string }>(
-        `SELECT
-            COALESCE(pc.request_body->>'question','') AS question,
-            COALESCE(LEFT(pc.response_snippet, 200),'') AS response_snippet,
-            pc.created_at
-           FROM paid_calls pc
-          WHERE pc.agent_id = $1
-          ORDER BY pc.created_at DESC LIMIT $2`,
+      this.deps.pool.query<{ id: string; method: string; amount_usdc: string; created_at: string }>(
+        `SELECT id, method, amount_usdc::text, created_at
+           FROM paid_calls
+          WHERE agent_id = $1
+          ORDER BY created_at DESC LIMIT $2`,
         [agentId, HIRE_SAMPLE_SIZE],
       ),
     ]);
@@ -386,7 +383,7 @@ export class AutoDreamService {
       agentSlug: agentR.rows[0].slug,
       persona,
       skills: skillsR.rows.map((s) => ({ slug: s.slug, systemPrompt: s.system_prompt })),
-      hires: hiresR.rows.map((h) => ({ question: h.question, response: h.response_snippet })),
+      hires: hiresR.rows.map((h) => ({ question: `hire#${h.id}`, response: `${h.method}@${h.amount_usdc}` })),
       hiresAnalyzed: hiresR.rows.length,
       summary,
     };

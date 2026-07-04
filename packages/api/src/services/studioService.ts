@@ -158,7 +158,7 @@ export class StudioService {
          a.id,
          a.slug,
          COALESCE(a.short_description, a.slug) AS display_name,
-         COALESCE(SUM(pc.cost_usdc) FILTER (
+         COALESCE(SUM(pc.amount_usdc) FILTER (
            WHERE pc.created_at >= date_trunc('month', now())
          ), 0)::text AS revenue_mtd,
          COUNT(pc.id) FILTER (
@@ -233,7 +233,7 @@ export class StudioService {
          a.endpoint_url,
          (SELECT MAX(pc.created_at) FROM paid_calls pc WHERE pc.agent_id = a.id) AS last_hire_at,
          COALESCE((
-           SELECT SUM(pc.cost_usdc) FROM paid_calls pc
+           SELECT SUM(pc.amount_usdc) FROM paid_calls pc
             WHERE pc.agent_id = a.id AND pc.created_at >= date_trunc('month', now())
          ), 0)::text AS revenue_mtd,
          COALESCE((
@@ -444,12 +444,12 @@ export class StudioService {
     await this.assertOwner(agentId, ownerAddress);
     const [mtd, all, byPrimary, bySub] = await Promise.all([
       this.deps.pool.query<{ v: string }>(
-        `SELECT COALESCE(SUM(cost_usdc), 0)::text AS v
+        `SELECT COALESCE(SUM(amount_usdc), 0)::text AS v
            FROM paid_calls WHERE agent_id = $1 AND created_at >= date_trunc('month', now())`,
         [agentId],
       ),
       this.deps.pool.query<{ v: string }>(
-        `SELECT COALESCE(SUM(cost_usdc), 0)::text AS v FROM paid_calls WHERE agent_id = $1`,
+        `SELECT COALESCE(SUM(amount_usdc), 0)::text AS v FROM paid_calls WHERE agent_id = $1`,
         [agentId],
       ),
       this.deps.pool.query<{ v: string }>(
