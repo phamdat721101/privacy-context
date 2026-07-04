@@ -157,7 +157,7 @@ export class StudioService {
       `SELECT
          a.id,
          a.slug,
-         COALESCE(a.display_name, a.slug) AS display_name,
+         COALESCE(a.short_description, a.slug) AS display_name,
          COALESCE(SUM(pc.cost_usdc) FILTER (
            WHERE pc.created_at >= date_trunc('month', now())
          ), 0)::text AS revenue_mtd,
@@ -228,7 +228,7 @@ export class StudioService {
       `SELECT
          a.id,
          a.slug,
-         COALESCE(a.display_name, a.slug) AS display_name,
+         COALESCE(a.short_description, a.slug) AS display_name,
          a.persona,
          a.endpoint_url,
          (SELECT MAX(pc.created_at) FROM paid_calls pc WHERE pc.agent_id = a.id) AS last_hire_at,
@@ -542,7 +542,7 @@ export class StudioService {
 
     const persona = row.persona as { system_prompt?: string | null } | null;
     const steps: SetupChecklistStep[] = [
-      { key: 'has_display_name', label: 'Display name set', done: !!row.display_name },
+      { key: 'has_display_name', label: 'Display name set', done: !!row.display_name && row.display_name.trim().length > 0 && row.display_name !== 'undefined' },
       { key: 'has_persona', label: 'Persona system prompt set', done: !!persona?.system_prompt?.trim() },
       { key: 'has_endpoint', label: 'Endpoint URL configured (optional)', done: !!row.endpoint_url },
       { key: 'has_skill', label: 'At least one active SKILL.md', done: Number(skills.rows[0]?.n ?? 0) > 0, href: `/studio/${agentId}/training` },
