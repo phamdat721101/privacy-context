@@ -63,7 +63,10 @@ export interface IConciergeOnboardService {
 
 // ─── config ────────────────────────────────────────────────────────────────
 
-const LLM_MODEL = process.env.OPENX_CONCIERGE_MODEL ?? 'us.anthropic.claude-opus-4-6-v1';
+const LLM_MODEL =
+  process.env.OPENX_CONCIERGE_MODEL ??
+  process.env.BEDROCK_MODEL ??
+  'anthropic.claude-3-haiku-20240307-v1:0';
 const SERVICE_KEY_PRIVATE = process.env.OPENX_SERVICE_KEY_PRIVATE ?? '';
 const SERVICE_KEY_ID = process.env.OPENX_SERVICE_KEY_ID ?? 'svc-dev';
 const SERVICE_PUBLIC_WALLET = (

@@ -1,5 +1,6 @@
-const REGION = 'us-east-1';
-const MODEL = 'us.anthropic.claude-opus-4-6-v1';
+const REGION = process.env.BEDROCK_REGION ?? 'us-east-1';
+// Same env contract as packages/api/services/chat.ts — cheapest Claude by default.
+const MODEL = process.env.BEDROCK_MODEL ?? 'anthropic.claude-3-haiku-20240307-v1:0';
 const BEDROCK_URL = `https://bedrock-runtime.${REGION}.amazonaws.com/model/${MODEL}/invoke`;
 
 export async function bedrockChatCompletion(systemPrompt: string, userMessage: string): Promise<string> {

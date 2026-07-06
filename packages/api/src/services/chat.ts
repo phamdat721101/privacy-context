@@ -2,8 +2,11 @@ import { pool } from '../db';
 import { rankChunks } from './rag';
 import { KnowledgeIngestService } from './knowledge-ingest';
 
-const BEDROCK_REGION = 'us-east-1';
-const BEDROCK_MODEL = 'us.anthropic.claude-opus-4-6-v1';
+const BEDROCK_REGION = process.env.BEDROCK_REGION ?? 'us-east-1';
+// Single source of truth for the Bedrock model across the API + agent.
+// Default = cheapest Claude on Bedrock (Haiku 3, $0.25/$1.25 per M tokens).
+// Override with `BEDROCK_MODEL` env var if you want Sonnet / Opus quality.
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL ?? 'anthropic.claude-3-haiku-20240307-v1:0';
 
 // Hard ceiling on a single LLM call. Without this, a slow Bedrock response
 // (scanned-PDF OCR, long prompt) hangs the request indefinitely — the buyer
