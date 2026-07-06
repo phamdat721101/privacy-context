@@ -468,21 +468,21 @@ async function callLLM(system: string, question: string): Promise<{ text: string
   const apiKey = process.env.BEDROCK_API_KEY;
   if (apiKey) {
     const region = process.env.BEDROCK_REGION ?? 'us-east-1';
-    const model = process.env.BEDROCK_MODEL ?? 'anthropic.claude-3-haiku-20240307-v1:0';
-    const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${model}/invoke`;
+    const model = process.env.BEDROCK_MODEL ?? 'amazon.nova-micro-v1:0';
+    const maxTokens = Math.max(256, Number(process.env.BEDROCK_MAX_OUTPUT_TOKENS ?? 4096));
+    const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${model}/converse`;
     const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 4096,
-        system,
-        messages: [{ role: 'user', content: question }],
+        system: system ? [{ text: system }] : undefined,
+        messages: [{ role: 'user', content: [{ text: question }] }],
+        inferenceConfig: { maxTokens },
       }),
     });
     if (!r.ok) throw new Error(`Bedrock ${r.status}`);
     const data = await r.json();
-    return { text: data.content?.[0]?.text ?? '' };
+    return { text: data.output?.message?.content?.[0]?.text ?? '' };
   }
 
   return { text: `[mock] Answer to "${question}" based on ${system.split('\n').length} context lines.` };

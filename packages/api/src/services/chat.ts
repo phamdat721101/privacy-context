@@ -4,9 +4,15 @@ import { KnowledgeIngestService } from './knowledge-ingest';
 
 const BEDROCK_REGION = process.env.BEDROCK_REGION ?? 'us-east-1';
 // Single source of truth for the Bedrock model across the API + agent.
-// Default = cheapest Claude on Bedrock (Haiku 3, $0.25/$1.25 per M tokens).
-// Override with `BEDROCK_MODEL` env var if you want Sonnet / Opus quality.
-const BEDROCK_MODEL = process.env.BEDROCK_MODEL ?? 'anthropic.claude-3-haiku-20240307-v1:0';
+// Default = Amazon Nova Micro — the cheapest model on Bedrock at ~$0.035/$0.14
+// per M tokens (~30× cheaper than Haiku, ~400× cheaper than Opus 4.6). We use
+// Bedrock's Converse API, which speaks a unified schema across every provider
+// (Anthropic / Amazon / Meta / Mistral / Cohere), so flipping BEDROCK_MODEL
+// alone re-targets any of them without a code change.
+const BEDROCK_MODEL = process.env.BEDROCK_MODEL ?? 'amazon.nova-micro-v1:0';
+// Nova Micro caps at ~5k output tokens; leave headroom via env override for
+// bigger models (e.g. Haiku 4.5 supports 16k, Opus 4.6 much more).
+const BEDROCK_MAX_OUTPUT_TOKENS = Math.max(256, Number(process.env.BEDROCK_MAX_OUTPUT_TOKENS ?? 4096));
 
 // Hard ceiling on a single LLM call. Without this, a slow Bedrock response
 // (scanned-PDF OCR, long prompt) hangs the request indefinitely — the buyer
@@ -41,24 +47,26 @@ export async function llmChat(system: string, messages: Array<{ role: string; co
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), LLM_TIMEOUT_MS);
     try {
-      const url = `https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL}/invoke`;
+      const url = `https://bedrock-runtime.${BEDROCK_REGION}.amazonaws.com/model/${BEDROCK_MODEL}/converse`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${bedrockKey}` },
         body: JSON.stringify({
-          anthropic_version: 'bedrock-2023-05-31',
-          // 16k tokens accommodates multi-file <artifact> outputs (app scaffolds,
-          // code bundles). Chat-only responses still fit comfortably under 4k —
-          // billing is per-output-token, so this is a ceiling, not a floor.
-          max_tokens: 16384,
-          system,
-          messages: messages.map(m => ({ role: m.role, content: m.content })),
+          // Converse schema — same on every Bedrock provider. `system` is an
+          // array of text blocks; each message's `content` is likewise an
+          // array of typed blocks. `inferenceConfig.maxTokens` is a ceiling.
+          system: system ? [{ text: system }] : undefined,
+          messages: messages.map(m => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: [{ text: m.content }],
+          })),
+          inferenceConfig: { maxTokens: BEDROCK_MAX_OUTPUT_TOKENS },
         }),
         signal: ac.signal,
       });
       if (res.ok) {
         const data = await res.json();
-        return data.content?.[0]?.text ?? '';
+        return data.output?.message?.content?.[0]?.text ?? '';
       }
       // 401/403 → key rotated or scope dropped. Try the next provider.
       // Other 4xx/5xx → also fall through; OpenAI may still be fine.

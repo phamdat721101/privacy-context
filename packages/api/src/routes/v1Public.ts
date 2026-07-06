@@ -502,7 +502,10 @@ async function ocrPdfViaVision(buf: Buffer, name: string): Promise<string | null
     const timer = setTimeout(() => ac.abort(), OCR_TIMEOUT_MS);
     try {
       const region = process.env.BEDROCK_REGION ?? 'us-east-1';
-      const model = process.env.BEDROCK_MODEL ?? 'anthropic.claude-3-haiku-20240307-v1:0';
+      // OCR uses Anthropic's native PDF `document` content block — Nova / Llama
+      // / Mistral don't accept that. Keep this on a Claude model regardless of
+      // what BEDROCK_MODEL (text path) is pointed at.
+      const model = process.env.BEDROCK_OCR_MODEL ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
       const url = `https://bedrock-runtime.${region}.amazonaws.com/model/${model}/invoke`;
       const res = await fetch(url, {
         method: 'POST',
