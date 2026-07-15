@@ -67,7 +67,7 @@ export default function SettingsPage() {
 
       <section className="space-y-3">
         <h2 className="font-headline text-lg font-semibold">Linked accounts</h2>
-        <LinkedWalletsPanel />
+        <LinkedWalletsPanel wallet={userAddress} />
       </section>
     </div>
   );
@@ -75,13 +75,19 @@ export default function SettingsPage() {
 
 // ─── Linked wallets — PRD-H ──────────────────────────────────────────────
 
-function LinkedWalletsPanel() {
+function LinkedWalletsPanel({ wallet }: { wallet: string | undefined }) {
   const [wallets, setWallets] = useState<LinkedWallet[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
+    if (!wallet) { setWallets(null); return; }
     try {
-      const r = await fetch(`${AGENT_BACKEND_URL}/v3/user/me`, { credentials: 'include' });
+      // Header auth (x-wallet-address) — same as every other authed call.
+      // NOT credentials:'include': the API is header-authed, and cookie-mode
+      // CORS fails against the wildcard `cors()` config → "Failed to fetch".
+      const r = await fetch(`${AGENT_BACKEND_URL}/v3/user/me`, {
+        headers: { 'x-wallet-address': wallet },
+      });
       if (r.status === 401) { setWallets(null); return; }
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const body = await r.json();
@@ -90,7 +96,7 @@ function LinkedWalletsPanel() {
     } catch (err) {
       setError((err as Error).message);
     }
-  }, []);
+  }, [wallet]);
 
   useEffect(() => { refetch(); }, [refetch]);
 

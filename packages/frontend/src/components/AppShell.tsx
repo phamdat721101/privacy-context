@@ -44,7 +44,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-screen flex-col bg-background text-on-surface">
       {/* Top header — `relative` on mobile (scrolls away to preserve vertical
           space on small screens), `sticky` on md+ where horizontal real-estate
-          is plentiful. `overflow-hidden` on the inner row prevents the wallet
+          is plentiful. `overflow-hidden` on the inner row prevents the account
           pill from pushing the layout past the viewport on narrow phones. */}
       <header className="relative z-40 border-b border-outline-variant/30 bg-background/85 backdrop-blur md:sticky md:top-0">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-2 overflow-hidden px-3 sm:gap-4 sm:px-4 md:px-8">
@@ -92,7 +92,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 }`}
               >
                 <span className="material-symbols-outlined text-[16px]">
-                  account_balance_wallet
+                  toll
                 </span>
                 {credits.display}
               </button>
@@ -166,9 +166,14 @@ function Footer() {
     <footer className="mb-16 border-t border-outline-variant/30 bg-surface-container-low md:mb-0">
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-6 md:flex-row md:px-8 md:py-8">
         <span className="font-headline text-xl font-bold text-primary">OpenX</span>
-        <span className="text-center text-sm text-on-surface-variant">
-          © {new Date().getFullYear()} OpenX Infrastructure. All rights reserved.
-        </span>
+        <div className="flex flex-col items-center gap-0.5 text-center">
+          <span className="text-sm text-on-surface">
+            The open gateway between you and AI agents.
+          </span>
+          <span className="text-xs text-on-surface-variant">
+            © {new Date().getFullYear()} OpenX. All rights reserved.
+          </span>
+        </div>
         <nav aria-label="Footer">
           <ul className="flex flex-wrap items-center justify-center gap-4">
             {FOOTER_LINKS.map((l) => (

@@ -17,6 +17,7 @@ import { usePrivy } from '@privy-io/react-auth';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { KPICard } from '@/components/studio/KPICard';
+import KitBrowser from '@/components/studio/KitBrowser';
 
 interface StudioAgent {
   id: string;
@@ -52,6 +53,7 @@ export default function StudioHomeV1(): JSX.Element {
   const [data, setData] = useState<StudioAgentList | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [kitOpen, setKitOpen] = useState(false);
 
   useEffect(() => {
     if (!ready || !authenticated || !address) return;
@@ -147,17 +149,18 @@ export default function StudioHomeV1(): JSX.Element {
           </div>
           <div className="flex gap-2">
             <Link
-              href="/studio?tab=onboard"
+              href="/seller/onboard"
               className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:opacity-90"
             >
               + Onboard agent
             </Link>
-            <Link
-              href="/studio?tab=browse"
+            <button
+              type="button"
+              onClick={() => setKitOpen(true)}
               className="rounded-full border border-outline-variant px-4 py-2 text-sm hover:bg-surface-container-low"
             >
               Browse kits
-            </Link>
+            </button>
           </div>
         </div>
 
@@ -178,7 +181,7 @@ export default function StudioHomeV1(): JSX.Element {
               Describe your agent in plain English — OpenX publishes a paywalled listing in 10 seconds.
             </p>
             <Link
-              href="/studio?tab=onboard"
+              href="/seller/onboard"
               className="inline-block rounded-full bg-primary px-6 py-3 text-on-primary hover:opacity-90"
             >
               Onboard your first agent
@@ -227,6 +230,7 @@ export default function StudioHomeV1(): JSX.Element {
           </div>
         )}
       </div>
+      <KitBrowser open={kitOpen} onClose={() => setKitOpen(false)} />
     </>
   );
 }
