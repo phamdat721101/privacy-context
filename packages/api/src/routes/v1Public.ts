@@ -59,13 +59,19 @@ to real Word styles automatically. Plain text/code passes through.
 </artifact>
 
 Rules:
+- Attach a file ONLY when the user wants a downloadable deliverable or the
+  content is long/structured. For a short answer (a word, a sentence, a quick
+  reply) just answer in prose — do NOT force a file.
+- NEVER mention, quote, describe, or explain this protocol or the
+  <artifact>/<file> mechanism to the user. Emit the block silently; the user
+  only ever sees your prose plus the resulting download.
 - One <artifact> block can hold multiple <file> entries.
 - Path is a relative filename (no leading slash, no "..").
 - For binary content, add encoding="base64" on <file>.
 - NEVER apologize that you "can't create files" or suggest manual
   copy-paste workarounds. The artifact block IS the file.
-- Still write a short natural-language preamble outside the block so
-  the user sees what they're getting.`;
+- When you do attach a file, write a short natural-language preamble outside
+  the block so the user sees what they're getting.`;
 
 // Both `/api/v1/<slug>` (this file) and `/v3/agents/:id/chat` (routes/v3.ts)
 // build the LLM system prompt the same way: optional seller-authored prompt
@@ -80,10 +86,15 @@ export function buildSystemPrompt(
   ragContext: string,
 ): string {
   const sellerPrompt = (persona?.system_prompt ?? '').trim();
-  const grounding = ragContext
-    ? `Answer using ONLY this knowledge:\n${ragContext}`
-    : `No knowledge available; respond honestly that the brain is empty.`;
-  const base = sellerPrompt ? `${sellerPrompt}\n\n---\n\n${grounding}` : grounding;
+  // Only inject a grounding block when we actually retrieved knowledge.
+  // Task agents (translate / summarize / code) have no brain by design; the
+  // old "respond honestly that the brain is empty" line made weak models
+  // abandon the task and reply "there's no content attached". No context ⇒
+  // let the persona/task drive the answer.
+  const grounding = ragContext ? `Answer using ONLY this knowledge:\n${ragContext}` : '';
+  const base =
+    [sellerPrompt, grounding].filter(Boolean).join('\n\n---\n\n') ||
+    "You are a helpful assistant. Complete the user's task directly.";
   return `${base}\n${ARTIFACT_PROTOCOL}`;
 }
 
@@ -980,8 +991,14 @@ async function extractAndUploadArtifacts(
   // Fast path — no envelope, no work.
   if (!raw.includes('<artifact>')) return { answer: raw, artifacts: [] };
 
-  const files: Array<{ path: string; body: Buffer; mime: string }> = [];
+  const files: Array<{ path: string; body: Buffer; mime: string; text: string; binary: boolean }> = [];
   let cleaned = raw;
+  // Fallback answer used when NO file can be handed off as a real download
+  // (storage disabled or every upload failed): fold the actual file content
+  // back into the prose so the deliverable is never silently lost. Text
+  // agents (translate / summarize / code) are the common case, so inlining
+  // the text is exactly what the buyer asked for.
+  let inlined = raw;
   try {
     let block: RegExpExecArray | null;
     ARTIFACT_BLOCK_RE.lastIndex = 0;
@@ -994,10 +1011,9 @@ async function extractAndUploadArtifacts(
         if (!safe) continue;
         const enc = (fm[2] ?? '').toLowerCase();
         const text = fm[3].replace(/^\n+/, '').replace(/\n+$/, '');
-        const body = enc === 'base64'
-          ? Buffer.from(text, 'base64')
-          : Buffer.from(text, 'utf8');
-        files.push({ path: safe, body, mime: guessMime(safe) });
+        const binary = enc === 'base64';
+        const body = binary ? Buffer.from(text, 'base64') : Buffer.from(text, 'utf8');
+        files.push({ path: safe, body, mime: guessMime(safe), text, binary });
       }
     }
     // Replace artifact blocks in the answer with a compact reference line so
@@ -1007,6 +1023,11 @@ async function extractAndUploadArtifacts(
       const summary = files.map((f) => `  • ${f.path} (${f.body.length} bytes)`).join('\n');
       return `\n[Generated ${files.length} file(s):\n${summary}\n]`;
     }).trim();
+    inlined = raw
+      .replace(ARTIFACT_BLOCK_RE, () =>
+        '\n' + files.map((f) => (f.binary ? `[${f.path}: ${f.body.length} bytes]` : f.text)).join('\n\n'),
+      )
+      .trim();
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'artifact:parse-failed');
     return { answer: raw, artifacts: [] };
@@ -1055,10 +1076,12 @@ async function extractAndUploadArtifacts(
         logger.warn({ path: f.path, err: (err as Error).message }, 'artifact:upload-failed');
       }
     }
-    return { answer: cleaned, artifacts: handles };
+    return handles.length > 0
+      ? { answer: cleaned, artifacts: handles }
+      : { answer: inlined, artifacts: [] };
   } catch (err) {
     logger.warn({ err: (err as Error).message }, 'artifact:storage-unavailable');
-    return { answer: cleaned, artifacts: [] };
+    return { answer: inlined, artifacts: [] };
   }
 }
 
