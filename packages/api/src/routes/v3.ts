@@ -24,6 +24,13 @@ import type { AuthRequest } from '../middleware/auth';
  */
 const v3 = Router();
 
+// Canonical UUID guard. `:id` path params flow straight into `WHERE id = $1`
+// (uuid column); a non-UUID value makes Postgres throw *outside* a route's
+// try/catch, which surfaces as an unhandled rejection and crashes the whole
+// process. Validating at the boundary turns that into a clean 400. Mirrors
+// the same idiom already used in v3-marketplace.ts (single source of truth).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ---------------------------------------------------------------------------
 // /v3/version — health/diagnostic ping. Frontend uses this to confirm the API
 // has the v3 router built in. Public (no auth needed at the route level —
@@ -329,6 +336,10 @@ function tryAllow(key: string, capPerDay: number): { ok: boolean; retryAfterSec?
 
 v3.post('/agents/:id/try', async (req: Request, res: Response) => {
   const id = req.params.id;
+  // Guard before any `WHERE id = $1` DB call: a non-UUID id would otherwise
+  // throw at the driver and crash the process (unhandled). 404 = same shape
+  // the not-found branch already returns below, so clients see one behaviour.
+  if (!UUID_RE.test(id)) return res.status(404).json({ error: 'agent not found' });
   // Accept both `q` (legacy n-payment SDK convention) and `message` (the
   // /agent/[id] try button + most chat-style clients). Single source of
   // truth for the trimmed value below — old curl tests + the frontend
