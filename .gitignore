@@ -117,6 +117,9 @@ deployments/
 .deploy/
 .deployment
 
+# nim-skill harness — local traces + effectiveness memory (never pushed)
+.nim/
+
 # =============================================================================
 # Logs & runtime
 # =============================================================================

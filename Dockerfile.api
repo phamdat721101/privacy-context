@@ -1,0 +1,56 @@
+# OpenX API — workspace-aware multi-stage build.
+# The API depends on two built workspace packages (runtime-utils, sdk); this
+# builds them in dependency order, then ships a lean production runtime.
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Lockfile + only the manifests the API needs (maximises Docker layer caching).
+COPY package.json package-lock.json ./
+COPY packages/runtime-utils/package.json packages/runtime-utils/
+COPY packages/sdk/package.json packages/sdk/
+COPY packages/api/package.json packages/api/
+
+# Install only the three required workspaces; skip lifecycle scripts (the root
+# ox-cleanup postinstall is not needed to compile the API).
+RUN npm ci --ignore-scripts \
+      --workspace=packages/runtime-utils \
+      --workspace=packages/sdk \
+      --workspace=packages/api \
+ # The root postinstall (skipped above) strips duplicate ox *.ts sources that
+ # otherwise break tsc; do the equivalent cleanup here.
+ && find node_modules -path '*/ox/*' -name '*.ts' ! -name '*.d.ts' -delete
+
+# The API dynamically imports 'openai' (an optional OCR/LLM fallback, never
+# loaded in prod without OPENAI_API_KEY) but declares it only transitively via
+# the monorepo. Drop just the package (no dep resolution → no tree pruning) so
+# tsc can resolve it; skipLibCheck keeps its own deps out of the build.
+RUN cd /tmp && npm pack openai@4.104.0 >/dev/null 2>&1 \
+ && tar -xzf openai-*.tgz \
+ && mkdir -p /app/node_modules/openai \
+ && cp -R package/. /app/node_modules/openai/ \
+ && rm -rf /tmp/package /tmp/openai-*.tgz
+
+# Sources, then build in dependency order: runtime-utils -> sdk -> api.
+COPY packages/runtime-utils packages/runtime-utils
+COPY packages/sdk packages/sdk
+COPY packages/api packages/api
+RUN npm run build -w packages/runtime-utils \
+ && npm run build -w packages/sdk \
+ && npm run build -w packages/api
+
+# ---- runtime ----
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+RUN apk add --no-cache curl
+
+# node_modules keeps the workspace symlinks; ship each package's dist + manifest
+# AND any un-hoisted per-package node_modules (npm may nest version-pinned deps
+# like pino/n-payment under packages/api/node_modules rather than the root).
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/packages ./packages
+
+WORKDIR /app/packages/api
+EXPOSE 3001
+CMD ["node", "dist/server.js"]

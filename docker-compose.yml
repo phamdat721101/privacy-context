@@ -1,6 +1,8 @@
 services:
   api:
-    build: packages/api
+    build:
+      context: .
+      dockerfile: Dockerfile.api
     ports:
       - "3001:3001"
     env_file: .env
@@ -16,6 +18,8 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
