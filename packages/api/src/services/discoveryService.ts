@@ -41,6 +41,7 @@ export interface DiscoverInput {
 export interface DiscoverResult {
   candidates: Array<{
     agent_id: string;
+    brain_id: number | null;
     score: number;
     reason: string;
     persona_summary: string;
@@ -313,6 +314,7 @@ export async function discover(input: DiscoverInput, baseUrl: string): Promise<D
   return {
     candidates: ranked.map(({ agent, score, persona_summary, reason }) => ({
       agent_id: agent.id,
+      brain_id: agent.brain_id,
       score,
       reason,
       persona_summary,

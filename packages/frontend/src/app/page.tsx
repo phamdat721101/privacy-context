@@ -22,6 +22,7 @@ const log = createLogger('home');
 
 interface Candidate {
   agent_id: string;
+  brain_id: number | null;
   score: number;
   reason: string;
   persona_summary: string;
@@ -180,7 +181,7 @@ export default function HomePage() {
                 {result.candidates.map((c, i) => (
                   <li key={c.agent_id}>
                     <Link
-                      href={`/marketplace?agent=${c.agent_id}`}
+                      href={c.brain_id != null ? `/agent/${c.brain_id}` : `/marketplace?agent=${c.agent_id}`}
                       className="group flex h-full flex-col gap-3 rounded-2xl border border-outline-variant/40 bg-surface-container-low p-5 transition-colors hover:border-primary/60"
                     >
                       <div className="flex items-center justify-between gap-2 text-xs">
