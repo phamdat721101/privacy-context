@@ -41,6 +41,7 @@
     "smoke:chunks-auth": "tsx scripts/smoke-chunks-auth.ts",
     "smoke:x402": "tsx scripts/smoke-x402.ts",
     "smoke:credit-e2e": "tsx scripts/smoke-credit-e2e.ts",
+    "smoke:rlusd-xrpl-e2e": "tsx scripts/smoke-rlusd-xrpl-e2e.ts",
     "smoke:cognitive-l4-l5": "tsx scripts/smoke-cognitive-l4-l5.ts",
     "smoke:workflow-runner": "tsx scripts/smoke-workflow-runner.ts",
     "smoke:marketing-workflow": "tsx scripts/smoke-marketing-workflow.ts",

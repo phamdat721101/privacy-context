@@ -231,6 +231,10 @@ export async function tryDebit(opts: {
   amount_usdc: number | string;
   agent_id: string;
   seller_id: number | null;
+  /** Settlement network for the seller accrual row. Defaults to the
+   * existing single-network behavior (Arbitrum) so every pre-XRPL call
+   * site is byte-identical with no argument added. */
+  network?: string;
 }): Promise<DebitResult> {
   if (!isEnabled()) return { ok: false, reason: 'disabled' };
   const amount = Number(opts.amount_usdc);
@@ -266,25 +270,29 @@ export async function tryDebit(opts: {
       [amount, account_id],
     );
 
+    const network = opts.network ?? NETWORK;
+
     const led = await client.query(
       `INSERT INTO credit_ledger (account_id, kind, amount_usdc, agent_id, network)
             VALUES ($1, 'spend', $2, $3, $4)
          RETURNING id`,
-      [account_id, -amount, opts.agent_id, NETWORK],
+      [account_id, -amount, opts.agent_id, network],
     );
     const ledger_id = Number(led.rows[0].id);
 
     // Seller accrual — same TX, same lock scope. Skip when seller_id is null
-    // (legacy agents without seller row, or platform-owned demos).
+    // (legacy agents without seller row, or platform-owned demos). Keyed by
+    // (seller_id, network) per migration 047 — a seller's XRPL earnings and
+    // Arbitrum earnings accrue in separate rows, never mixed (Q2).
     if (opts.seller_id !== null && opts.seller_id !== undefined) {
       const sellerAmount = (amount * SELLER_BPS) / 10000;
       await client.query(
-        `INSERT INTO seller_balances (seller_id, accrued_usdc)
-              VALUES ($1, $2)
-         ON CONFLICT (seller_id) DO UPDATE
+        `INSERT INTO seller_balances (seller_id, network, accrued_usdc)
+              VALUES ($1, $2, $3)
+         ON CONFLICT (seller_id, network) DO UPDATE
             SET accrued_usdc = seller_balances.accrued_usdc + EXCLUDED.accrued_usdc,
                 updated_at  = now()`,
-        [opts.seller_id, sellerAmount],
+        [opts.seller_id, network, sellerAmount],
       );
     }
 
@@ -315,6 +323,9 @@ export async function grant(opts: {
   kind: 'purchase' | 'refund';
   tx_hash: string;
   meta?: Record<string, unknown>;
+  /** Settlement network this grant came in on. Defaults to the existing
+   * single-network behavior so every pre-XRPL call site is unchanged. */
+  network?: string;
 }): Promise<{ already_applied: boolean; new_balance: string }> {
   if (!isEnabled()) return { already_applied: false, new_balance: '0' };
   const wallet = opts.wallet_address.toLowerCase();
@@ -368,7 +379,7 @@ export async function grant(opts: {
         opts.kind,
         opts.amount_usdc,
         opts.tx_hash,
-        NETWORK,
+        opts.network ?? NETWORK,
         JSON.stringify(opts.meta ?? {}),
       ],
     );
@@ -400,15 +411,18 @@ export interface SellerBalance {
   last_withdraw_at: Date | null;
 }
 
-export async function getSellerBalance(seller_id: number): Promise<SellerBalance> {
+export async function getSellerBalance(
+  seller_id: number,
+  network: string = NETWORK,
+): Promise<SellerBalance> {
   const r = await pool.query(
     `SELECT seller_id,
             accrued_usdc::text   AS accrued_usdc,
             withdrawn_usdc::text AS withdrawn_usdc,
             (accrued_usdc - withdrawn_usdc)::text AS withdrawable_usdc,
             last_withdraw_at
-       FROM seller_balances WHERE seller_id = $1`,
-    [seller_id],
+       FROM seller_balances WHERE seller_id = $1 AND network = $2`,
+    [seller_id, network],
   );
   if (r.rowCount === 0) {
     return {
@@ -437,20 +451,25 @@ export async function markPayout(opts: {
   seller_wallet_address: string;
   amount_usdc: number;
   tx_hash: string;
+  /** Settlement network for this payout. Defaults to the existing
+   * single-network behavior (Arbitrum) — unchanged for pre-XRPL callers. */
+  network?: string;
 }): Promise<void> {
+  const network = opts.network ?? NETWORK;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Lock + bump the seller row.
+    // Lock + bump the seller row, keyed by (seller_id, network) per
+    // migration 047 — a seller's XRPL and Arbitrum balances never mix.
     const row = await client.query(
       `UPDATE seller_balances
           SET withdrawn_usdc   = withdrawn_usdc + $1,
               last_withdraw_at = now(),
               updated_at       = now()
-        WHERE seller_id = $2
+        WHERE seller_id = $2 AND network = $3
         RETURNING accrued_usdc::text AS accrued, withdrawn_usdc::text AS withdrawn`,
-      [opts.amount_usdc, opts.seller_id],
+      [opts.amount_usdc, opts.seller_id, network],
     );
     if (row.rowCount === 0) {
       throw new Error('seller_balance_missing');
@@ -481,7 +500,7 @@ export async function markPayout(opts: {
         account_id,
         -opts.amount_usdc,
         opts.tx_hash,
-        NETWORK,
+        network,
         JSON.stringify({ seller_id: opts.seller_id }),
       ],
     );

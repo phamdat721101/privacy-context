@@ -27,8 +27,25 @@ let _cacheChecked = false;
 interface XamanRuntime {
   create: (opts: XamanCreateOpts) => Promise<XamanCreated>;
   get: (uuid: string) => Promise<XamanFetched>;
+  createPayment: (opts: XamanPaymentOpts) => Promise<XamanCreated>;
+  getPayment: (uuid: string) => Promise<XamanPaymentFetched>;
   verifier: XamanVerifier;
   getNonce: (uuid: string) => string | undefined;
+}
+
+export interface XamanPaymentOpts {
+  destination: string;
+  /** Decimal string, e.g. "25.00". */
+  amountUsd: string;
+  currency?: string; // defaults to RLUSD
+  issuer?: string;    // defaults to the well-known RLUSD issuer
+}
+
+export interface XamanPaymentFetched {
+  signed: boolean;
+  expired: boolean;
+  txid?: string;
+  dispatchedResult?: string;
 }
 
 export interface XamanCreateOpts {
@@ -121,6 +138,55 @@ export function getXamanClient(): XamanRuntime | null {
 
     getNonce(uuid) {
       return nonceCache.get(uuid)?.nonce;
+    },
+
+    // PRD-Y — RLUSD-on-XRPL-testnet buyer top-up. Separate from `create()`
+    // (SignIn, fee-free) because a Payment payload actually broadcasts and
+    // moves funds — kept as its own method so the auth-only path above is
+    // untouched.
+    //
+    // Testnet and mainnet RLUSD use DIFFERENT issuer addresses (confirmed
+    // via a live n-payment `ensureTrustLine()` test against XRPL testnet,
+    // 2026-07-17 — the mainnet issuer used here as a hardcoded default in
+    // an earlier draft was wrong and would have silently sent buyer
+    // payments to a nonexistent trustline). Default follows
+    // XRPL_NETWORK (testnet unless explicitly set to mainnet).
+    async createPayment(opts: XamanPaymentOpts) {
+      const ttlSec = 15 * 60;
+      const expiresAtSec = Math.floor(Date.now() / 1000) + ttlSec;
+      const network = process.env.XRPL_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
+      const defaultIssuer =
+        network === 'mainnet' ? 'rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De' : 'rQhWct2fv4Vc4KRjRgMrxa8xPN9Zx9iLKV';
+      const payload = await xumm.payload.create({
+        txjson: {
+          TransactionType: 'Payment',
+          Destination: opts.destination,
+          Amount: {
+            currency: opts.currency ?? 'RLUSD',
+            issuer: opts.issuer ?? defaultIssuer,
+            value: opts.amountUsd,
+          },
+        },
+        options: { expire: Math.max(1, Math.floor(ttlSec / 60)) },
+      });
+      if (!payload) throw new Error('xumm:createPayment:null');
+      return {
+        uuid: payload.uuid,
+        qrLink: payload.refs?.qr_png ?? '',
+        deeplink: payload.next?.always ?? '',
+        expiresAtSec,
+      };
+    },
+
+    async getPayment(uuid: string) {
+      const r = await xumm.payload.get(uuid);
+      if (!r) return { signed: false, expired: true };
+      return {
+        signed: r.meta.signed === true,
+        expired: r.meta.expired === true,
+        txid: r.response?.txid ?? undefined,
+        dispatchedResult: r.response?.dispatched_result ?? undefined,
+      };
     },
 
     verifier: {

@@ -3,6 +3,15 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# Load env files (both — .env.local wins for any duplicate key). Without
+# this, DATABASE_URL and every feature flag (FEATURE_CREDIT_SYSTEM,
+# XRPL_RLUSD_ENABLED, etc.) are invisible to the api/frontend processes
+# started below unless already exported in the calling shell.
+set -a
+[ -f .env ] && source .env
+[ -f .env.local ] && source .env.local
+set +a
+
 echo "==> Building SDK..."
 npm run sdk:build
 

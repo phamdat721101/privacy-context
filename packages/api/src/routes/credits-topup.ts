@@ -143,4 +143,95 @@ router.all('/buy-pack-:usd', async (req: Request, res: Response, next: express.N
   return mw(req, res, next);
 });
 
+// ─── RLUSD-on-XRPL-testnet top-up (additive, Q1/Q3/Q4) ──────────────────
+//
+// Mirrors the USDC route above exactly (same pack list, same grant call,
+// same idempotency guarantee via credits.grant's UNIQUE(kind, tx_hash)) —
+// only the settlement rail differs. Uses n-payment's native XRPL paywall
+// support (`createPaywall({ xrpl: {...} })`, auto-trustline via
+// `xrpl.seed`) instead of the x402/EVM provider. Gated separately behind
+// XRPL_RLUSD_ENABLED so the default USDC path is unaffected either way.
+
+const XRPL_PACKS = String(process.env.XRPL_RLUSD_TOPUP_PACKS ?? '25,50,100')
+  .split(',')
+  .map((n) => Number(n.trim()))
+  .filter((n) => Number.isFinite(n) && n > 0);
+
+let cachedXrplMiddleware: express.RequestHandler | null = null;
+let xrplInitLogged = false;
+
+async function ensureXrplMiddleware(): Promise<express.RequestHandler | null> {
+  if (cachedXrplMiddleware) return cachedXrplMiddleware;
+  if (process.env.XRPL_RLUSD_ENABLED !== 'true') return null;
+
+  const payTo = process.env.XRPL_PLATFORM_PAYOUT_ADDRESS;
+  const seed = process.env.XRPL_PLATFORM_PAYOUT_SEED;
+  if (!payTo || !seed) {
+    if (!xrplInitLogged) {
+      logger.warn('credits-topup: XRPL_PLATFORM_PAYOUT_ADDRESS/SEED unset — RLUSD top-up disabled');
+      xrplInitLogged = true;
+    }
+    return null;
+  }
+
+  const dynamicImport: (m: string) => Promise<any> = Function('m', 'return import(m)') as any;
+  const np: any = await dynamicImport('n-payment');
+  const { createPaywall } = np;
+
+  const routes: Record<string, unknown> = {};
+  for (const usd of XRPL_PACKS) {
+    routes[`ALL /buy-pack-${usd}`] = {
+      price: usd.toFixed(2),
+      description: `Buy a $${usd} top-up of OpenX credits (RLUSD on XRPL testnet).`,
+      xrpl: {
+        payTo,
+        network: 'xrpl:1', // testnet, per n-payment's CAIP-2-style network ids
+        asset: 'RLUSD',
+        facilitatorUrl: process.env.XRPL_FACILITATOR_URL,
+      },
+    };
+  }
+
+  const paywall = createPaywall({ routes, xrpl: { seed } }); // seed → auto-trustline (Q5)
+  cachedXrplMiddleware = paywall;
+  if (!xrplInitLogged) {
+    logger.info({ packs: XRPL_PACKS, payTo }, 'credits-topup: xrpl rail initialised');
+    xrplInitLogged = true;
+  }
+  return cachedXrplMiddleware;
+}
+
+router.all('/xrpl/buy-pack-:usd', async (req: Request, res: Response, next: express.NextFunction) => {
+  if (process.env.FEATURE_CREDIT_SYSTEM !== 'true' || process.env.XRPL_RLUSD_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'xrpl rail disabled' });
+  }
+  const usd = Number(req.params.usd);
+  if (!XRPL_PACKS.includes(usd)) {
+    return res.status(404).json({ error: `unknown pack — valid: ${XRPL_PACKS.join(', ')}` });
+  }
+  const mw = await ensureXrplMiddleware();
+  if (!mw) return res.status(503).json({ error: 'top-up not configured' });
+
+  // n-payment's XRPL paywall settles via its own facilitator flow; on
+  // success we grant credits the same way the USDC path does. The buyer
+  // wallet + settled tx hash come from the request the same way the x402
+  // path reads them today (X-Buyer header / settlement callback) — see the
+  // USDC provider's paidTool handler above for the identical pattern.
+  const buyer = String(req.header('X-Buyer') ?? req.body?.buyer_wallet ?? '').toLowerCase();
+  if (!buyer) return res.status(400).json({ error: 'buyer_wallet required' });
+
+  return mw(req, res, async () => {
+    const txHash = String(res.getHeader('X-PAYMENT-RESPONSE') ?? `xrpl-topup-${buyer}-${usd}-${Date.now()}`);
+    const r = await credits.grant({
+      wallet_address: buyer,
+      amount_usdc: usd,
+      kind: 'purchase',
+      tx_hash: txHash,
+      network: 'xrpl-testnet',
+      meta: { pack: usd, source: 'xrpl-rlusd-topup' },
+    });
+    res.json({ status: 'ok', pack_usdc: usd, new_balance: r.new_balance, already_applied: r.already_applied, network: 'xrpl-testnet' });
+  });
+});
+
 export default router;

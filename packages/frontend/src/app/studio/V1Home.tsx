@@ -15,9 +15,11 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
+import { useCredits } from '@/hooks/useCredits';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import { KPICard } from '@/components/studio/KPICard';
 import KitBrowser from '@/components/studio/KitBrowser';
+import { TopUpModal } from '@/components/TopUpModal';
 
 interface StudioAgent {
   id: string;
@@ -45,6 +47,14 @@ interface StudioAgentList {
   };
 }
 
+interface SellerEarnings {
+  seller_id: number;
+  accrued_usdc: string;
+  withdrawn_usdc: string;
+  withdrawable_usdc: string;
+  last_withdraw_at: string | null;
+}
+
 const STAGE_LABELS = ['Onboarded', 'SkillsAdded', 'Evaluated', 'Orchestrator', 'Dreamed'];
 
 export default function StudioHomeV1(): JSX.Element {
@@ -54,6 +64,26 @@ export default function StudioHomeV1(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [kitOpen, setKitOpen] = useState(false);
+  // Wallet panel (Q3/Q4b) — inline toggle, not a route, because this home
+  // component (FEATURE_SELLER_PORTAL_V1=true path) has no tab strip to
+  // extend. Mirrors legacyMega.tsx's wallet tab content: buyer credit
+  // balance (top-up only) + seller earnings (withdraw only, Arbitrum-only
+  // here — this path doesn't carry the XRPL rail per Q9's "make UI work
+  // first" priority; XRPL stays scoped to the legacy tab for now).
+  const [walletOpen, setWalletOpen] = useState(false);
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [earnings, setEarnings] = useState<SellerEarnings | null>(null);
+  const credits = useCredits();
+
+  useEffect(() => {
+    if (!walletOpen || !address) return;
+    fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard`, {
+      headers: { 'x-wallet-address': address },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setEarnings((d?.credit_balance as SellerEarnings) ?? null))
+      .catch(() => setEarnings(null));
+  }, [walletOpen, address]);
 
   useEffect(() => {
     if (!ready || !authenticated || !address) return;
@@ -134,6 +164,22 @@ export default function StudioHomeV1(): JSX.Element {
   const agents = data?.agents ?? [];
   const agg = data?.aggregate ?? { total_revenue_usdc_mtd: 0, total_hires_mtd: 0, avg_reputation_score: 0 };
 
+  async function withdrawEarnings() {
+    if (!address || !earnings) return;
+    const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/withdraw`, {
+      method: 'POST',
+      headers: { 'x-wallet-address': address },
+    });
+    if (r.ok) {
+      fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard`, {
+        headers: { 'x-wallet-address': address },
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((d) => setEarnings((d?.credit_balance as SellerEarnings) ?? null))
+        .catch(() => undefined);
+    }
+  }
+
   return (
     <>
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-6 md:py-8">
@@ -156,6 +202,13 @@ export default function StudioHomeV1(): JSX.Element {
             </Link>
             <button
               type="button"
+              onClick={() => setWalletOpen((v) => !v)}
+              className="rounded-full border border-outline-variant px-4 py-2 text-sm hover:bg-surface-container-low"
+            >
+              Wallet
+            </button>
+            <button
+              type="button"
               onClick={() => setKitOpen(true)}
               className="rounded-full border border-outline-variant px-4 py-2 text-sm hover:bg-surface-container-low"
             >
@@ -163,6 +216,59 @@ export default function StudioHomeV1(): JSX.Element {
             </button>
           </div>
         </div>
+
+        {/* Wallet panel — Q2/Q4b: two sections, buyer credit balance
+            (top-up only) + seller earnings (withdraw only). Never wires
+            one balance's display to the other's action endpoint. */}
+        {walletOpen && (
+          <div className="mb-8 space-y-4">
+            <section className="rounded-2xl border border-outline-variant/40 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-on-surface-variant">
+                    Your credit balance
+                  </div>
+                  <div className="mt-1 font-headline text-2xl font-bold">{credits.display}</div>
+                </div>
+                {credits.enabled && (
+                  <button
+                    type="button"
+                    onClick={() => setTopUpOpen(true)}
+                    className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:opacity-90"
+                  >
+                    Buy credits
+                  </button>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-outline-variant/40 p-5">
+              <div className="text-xs uppercase tracking-wider text-on-surface-variant">
+                Your earnings
+              </div>
+              {earnings === null ? (
+                <p className="mt-2 text-sm text-on-surface-variant">
+                  Publish an agent to start earning.
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <div className="font-headline text-2xl font-bold">
+                    ${Number(earnings.withdrawable_usdc).toFixed(2)}
+                    <span className="ml-2 font-mono text-xs text-on-surface-variant">withdrawable</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={withdrawEarnings}
+                    disabled={Number(earnings.withdrawable_usdc) < 5}
+                    className="rounded-full bg-secondary px-4 py-2 text-sm font-medium text-on-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Withdraw
+                  </button>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
 
         {/* Aggregate KPI header */}
         {agents.length > 0 && (
@@ -231,6 +337,7 @@ export default function StudioHomeV1(): JSX.Element {
         )}
       </div>
       <KitBrowser open={kitOpen} onClose={() => setKitOpen(false)} />
+      <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} onSuccess={() => credits.refetch()} />
     </>
   );
 }

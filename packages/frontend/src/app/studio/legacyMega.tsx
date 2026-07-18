@@ -12,10 +12,12 @@ import {
   type BuyerTask,
 } from '@/lib/agents';
 import { useActiveWallet } from '@/hooks/useActiveWallet';
+import { useCredits } from '@/hooks/useCredits';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
 import OnboardPanel from '@/components/studio/OnboardPanel';
 import KitBrowser from '@/components/studio/KitBrowser';
 import SkillsPanel from '@/components/studio/SkillsPanel';
+import { TopUpModal } from '@/components/TopUpModal';
 
 /** Hidden assistant row. Combines two sources:
  *  - dashboard.archived_agents (v2 listings with rich metadata)
@@ -29,7 +31,7 @@ interface ArchivedAgent {
   archived_at: string | null;
 }
 
-type StudioTab = 'onboard' | 'creator' | 'user';
+type StudioTab = 'onboard' | 'creator' | 'user' | 'wallet';
 
 export default function StudioPage() {
   const { authenticated, ready, login } = usePrivy();
@@ -50,12 +52,26 @@ export default function StudioPage() {
     withdrawable_usdc: string;
     last_withdraw_at: string | null;
   } | null>(null);
+  // XRPL-network seller earnings (Q9 — preserve the RLUSD rail, reorganized
+  // into the wallet tab). Same shape as `creditBalance` above, fetched with
+  // ?network=xrpl-testnet. Independent state: Arbitrum and XRPL earnings
+  // never mix (migration 047 keys seller_balances by (seller_id, network)).
+  const [xrplCreditBalance, setXrplCreditBalance] = useState<typeof creditBalance>(null);
+  const [xrplEnabled, setXrplEnabled] = useState(false);
+  const [xrplAddress, setXrplAddress] = useState('');
+  const [xrplAddressSaved, setXrplAddressSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
   // Tab state — URL-driven via ?tab=creator|user. Defaults are role-aware
   // (set after first dashboard fetch resolves so we know if user is a creator).
   const [tab, setTab] = useState<StudioTab>('creator');
   const [kitBrowserOpen, setKitBrowserOpen] = useState(false);
+  // Buyer's spendable credit balance (Q1/Q2) — separate from `creditBalance`
+  // above, which is the seller's *earnings* balance. Never conflate the two:
+  // this hook backs the "Your credit balance" (top-up only) section; the
+  // seller dashboard fetch backs "Your earnings" (withdraw only).
+  const credits = useCredits();
+  const [topUpOpen, setTopUpOpen] = useState(false);
 
   useEffect(() => {
     if (!userAddress) return;
@@ -146,7 +162,7 @@ export default function StudioPage() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const t = new URLSearchParams(window.location.search).get('tab');
-    if (t === 'creator' || t === 'user' || t === 'onboard') {
+    if (t === 'creator' || t === 'user' || t === 'onboard' || t === 'wallet') {
       setTab(t);
       return;
     }
@@ -154,6 +170,63 @@ export default function StudioPage() {
       setTab('user');
     }
   }, [loading, agents.length, archivedAgents.length]);
+
+  // Wallet tab: lazily load XRPL-network seller earnings + rail config +
+  // saved XRPL payout address. Gated on `tab === 'wallet'` so pure buyers
+  // browsing other tabs never pay this extra round-trip (Q9 — the RLUSD
+  // rail is preserved but must not slow down the common path).
+  useEffect(() => {
+    if (tab !== 'wallet' || !userAddress) return;
+    fetch(`${AGENT_BACKEND_URL}/v3/credits/config`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((c) => setXrplEnabled(!!c?.xrpl?.enabled))
+      .catch(() => setXrplEnabled(false));
+    fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard?network=xrpl-testnet`, {
+      headers: { 'x-wallet-address': userAddress },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setXrplCreditBalance((d?.credit_balance as typeof creditBalance) ?? null))
+      .catch(() => setXrplCreditBalance(null));
+    fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/me`, {
+      headers: { 'x-wallet-address': userAddress },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setXrplAddress(j?.seller?.xrpl_address ?? ''))
+      .catch(() => undefined);
+  }, [tab, userAddress]);
+
+  // Shared refetch after a withdraw succeeds on either network — keeps both
+  // SellerCreditTile instances in sync without a hard reload.
+  function refetchSellerBalance(network: 'arbitrum-sepolia' | 'xrpl-testnet') {
+    if (!userAddress) return;
+    fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard?network=${network}`, {
+      headers: { 'x-wallet-address': userAddress },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const bal = (d?.credit_balance as typeof creditBalance) ?? null;
+        if (network === 'xrpl-testnet') setXrplCreditBalance(bal);
+        else setCreditBalance(bal);
+      })
+      .catch(() => {/* silent */});
+  }
+
+  async function saveXrplAddress() {
+    if (!userAddress) return;
+    try {
+      const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/me`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', 'x-wallet-address': userAddress },
+        body: JSON.stringify({ xrpl_address: xrplAddress }),
+      });
+      if (r.ok) {
+        setXrplAddressSaved(true);
+        setTimeout(() => setXrplAddressSaved(false), 2000);
+      }
+    } catch {
+      /* surfaced implicitly — the Save button just won't show the checkmark */
+    }
+  }
 
   function selectTab(next: StudioTab) {
     setTab(next);
@@ -292,11 +365,13 @@ export default function StudioPage() {
           + New agent
         </Link>
       </div>
-      {/* Tab strip — Onboard | Creator | User. URL-driven via ?tab=onboard|creator|user. */}
+      {/* Tab strip — Onboard | Creator | User | Wallet. URL-driven via
+          ?tab=onboard|creator|user|wallet. */}
       <div className="flex gap-1 border-b border-outline-variant/30">
-        {(['onboard', 'creator', 'user'] as const).map((t) => {
+        {(['onboard', 'creator', 'user', 'wallet'] as const).map((t) => {
           const active = tab === t;
-          const label = t === 'creator' ? 'Creator' : t === 'user' ? 'User' : 'Onboard';
+          const label =
+            t === 'creator' ? 'Creator' : t === 'user' ? 'User' : t === 'wallet' ? 'Wallet' : 'Onboard';
           return (
             <button
               key={t}
@@ -319,23 +394,6 @@ export default function StudioPage() {
       {tab === 'creator' && (
         <>
           <EarningsTile userAddress={userAddress} agents={agents} />
-          <SellerCreditTile
-            userAddress={userAddress}
-            balance={creditBalance}
-            onWithdrawn={() => {
-              // Refetch the dashboard so the tile reflects the new
-              // withdrawn + withdrawable values without a hard reload.
-              if (!userAddress) return;
-              fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/dashboard`, {
-                headers: { 'x-wallet-address': userAddress },
-              })
-                .then((r) => (r.ok ? r.json() : null))
-                .then((d) =>
-                  setCreditBalance((d?.credit_balance as typeof creditBalance) ?? null),
-                )
-                .catch(() => {/* silent */});
-            }}
-          />
 
           {!hasPermit ? (
             // PRD-F: Permit-gate removed. Show a simple sign-in prompt.
@@ -507,6 +565,112 @@ export default function StudioPage() {
             </>
           )}
         </>
+      )}
+
+      {tab === 'wallet' && (
+        <div className="space-y-6">
+          {/* ── Your credit balance — buyer, top-up only, never withdrawable
+              from here (Q2, Q4). Reads /v3/credits/me via useCredits(); the
+              only action is "Buy credits", which opens the existing
+              TopUpModal unchanged (Q10). ── */}
+          <section className="rounded-xl border border-outline-variant/40 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-wider text-on-surface-variant">
+                  Your credit balance
+                </div>
+                <div className="mt-1 font-headline text-3xl font-bold">{credits.display}</div>
+              </div>
+              {credits.enabled && (
+                <button
+                  type="button"
+                  onClick={() => setTopUpOpen(true)}
+                  className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary/80"
+                >
+                  Buy credits
+                </button>
+              )}
+            </div>
+            {!credits.enabled && (
+              <p className="mt-3 text-sm text-on-surface-variant">
+                Credit system is not enabled on this API.
+              </p>
+            )}
+          </section>
+
+          {/* ── Your earnings — seller, withdraw only, never the source of
+              the "Your credit balance" number above (Q2, Q4, Q8). Always
+              rendered; shows a publish CTA when the wallet has no seller
+              row yet instead of hiding the whole section. ── */}
+          <section className="space-y-3">
+            <div className="text-xs uppercase tracking-wider text-on-surface-variant">
+              Your earnings
+            </div>
+            {creditBalance === null && xrplCreditBalance === null ? (
+              <section className="rounded-xl border border-dashed border-outline-variant/30 bg-surface p-6 text-center">
+                <p className="mb-3 text-sm text-on-surface-variant">
+                  You haven&apos;t published an agent yet — earnings show up here once you do.
+                </p>
+                <Link
+                  href="/seller/onboard?return=/studio?tab=wallet"
+                  className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:opacity-90"
+                >
+                  Publish an agent to start earning
+                </Link>
+              </section>
+            ) : (
+              <>
+                <SellerCreditTile
+                  userAddress={userAddress}
+                  balance={creditBalance}
+                  network="arbitrum-sepolia"
+                  onWithdrawn={() => refetchSellerBalance('arbitrum-sepolia')}
+                />
+                {xrplEnabled && (
+                  <>
+                    <div className="rounded-lg border border-outline-variant/30 p-3">
+                      <label htmlFor="xrpl-address" className="mb-1 block text-xs text-on-surface-variant">
+                        Your XRPL address (self-reported — no signature required)
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          id="xrpl-address"
+                          value={xrplAddress}
+                          onChange={(e) => setXrplAddress(e.target.value)}
+                          placeholder="r..."
+                          className="flex-1 rounded-lg border border-outline-variant/40 bg-transparent px-3 py-1.5 font-mono text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={saveXrplAddress}
+                          className="rounded-lg border border-outline-variant/40 px-3 py-1.5 text-xs hover:border-primary/60"
+                        >
+                          {xrplAddressSaved ? 'Saved ✓' : 'Save'}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[11px] text-on-surface-variant">
+                        You must have an existing RLUSD trust line on this address before
+                        withdrawing — we never auto-create one for you.
+                      </p>
+                    </div>
+                    <SellerCreditTile
+                      userAddress={userAddress}
+                      balance={xrplCreditBalance}
+                      network="xrpl-testnet"
+                      onWithdrawn={() => refetchSellerBalance('xrpl-testnet')}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </section>
+
+          <TopUpModal
+            open={topUpOpen}
+            onClose={() => setTopUpOpen(false)}
+            onSuccess={() => credits.refetch()}
+          />
+        </div>
       )}
 
       {tab === 'user' && <UserTabBody walletAddress={userAddress} />}
@@ -756,13 +920,23 @@ interface SellerCreditBalance {
   last_withdraw_at: string | null;
 }
 
+/**
+ * Seller earnings tile — withdraw-only, keyed by settlement network.
+ *
+ * IMPORTANT: this reads/writes the SELLER earnings balance
+ * (/v3/marketplace/seller/*) — never the buyer's credit balance
+ * (/v3/credits/*). The two are unrelated; see the "Your credit balance"
+ * block on the wallet tab for the buyer-side, top-up-only counterpart.
+ */
 function SellerCreditTile({
   userAddress,
   balance,
+  network = 'arbitrum-sepolia',
   onWithdrawn,
 }: {
   userAddress: `0x${string}` | undefined;
   balance: SellerCreditBalance | null;
+  network?: 'arbitrum-sepolia' | 'xrpl-testnet';
   onWithdrawn: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -782,16 +956,17 @@ function SellerCreditTile({
     !balance.last_withdraw_at ||
     (Date.now() - new Date(balance.last_withdraw_at).getTime()) / 1000 > 300;
   const canWithdraw = withdrawable >= minWithdraw && cooldownOk && !busy;
+  const currency = network === 'xrpl-testnet' ? 'RLUSD' : 'USDC';
 
   async function withdraw() {
     if (!userAddress) return;
     setBusy(true);
     setErr(null);
     try {
-      const r = await fetch(`${AGENT_BACKEND_URL}/v3/marketplace/seller/withdraw`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-wallet-address': userAddress },
-      });
+      const r = await fetch(
+        `${AGENT_BACKEND_URL}/v3/marketplace/seller/withdraw?network=${network}`,
+        { method: 'POST', headers: { 'content-type': 'application/json', 'x-wallet-address': userAddress } },
+      );
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         if (j.error === 'cooldown_active') {
@@ -800,6 +975,10 @@ function SellerCreditTile({
           setErr(`Need at least $${j.minimum_usdc} to withdraw.`);
         } else if (j.error === 'payout_not_configured') {
           setErr('Payout wallet not configured on the API. Contact platform admin.');
+        } else if (j.error === 'xrpl_address_not_set') {
+          setErr(j.hint ?? 'Set your XRPL address below before withdrawing.');
+        } else if (j.error === 'seller_no_trustline') {
+          setErr(j.hint ?? 'Create an RLUSD trust line on your XRPL wallet before withdrawing.');
         } else {
           setErr(j.detail ?? j.error ?? `HTTP ${r.status}`);
         }
@@ -819,7 +998,7 @@ function SellerCreditTile({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wider text-on-surface-variant">
-            Credit earnings (PRD-G)
+            Earnings — {network === 'xrpl-testnet' ? 'XRPL testnet' : 'Arbitrum'}
           </div>
           <div className="mt-1 font-headline text-3xl font-bold">
             ${withdrawable.toFixed(2)}
@@ -844,23 +1023,27 @@ function SellerCreditTile({
               ? `Min withdraw $${minWithdraw}`
               : busy
               ? 'Withdrawing…'
-              : 'Send USDC to your account to top up'
+              : `Withdraw your ${currency} earnings`
           }
         >
-          {busy ? 'Withdrawing…' : `Withdraw $${withdrawable.toFixed(2)}`}
+          {busy ? 'Withdrawing…' : `Withdraw $${withdrawable.toFixed(2)} ${currency}`}
         </button>
       </div>
       {lastTx && (
         <p className="mt-3 font-mono text-[11px] text-on-surface-variant">
           ✓ paid out —{' '}
-          <Link
-            href={`https://sepolia.arbiscan.io/tx/${lastTx}`}
-            target="_blank"
-            rel="noopener"
-            className="text-primary hover:underline"
-          >
-            {lastTx.slice(0, 10)}…{lastTx.slice(-6)}
-          </Link>
+          {network === 'xrpl-testnet' ? (
+            <span>{lastTx.slice(0, 10)}…{lastTx.slice(-6)}</span>
+          ) : (
+            <Link
+              href={`https://sepolia.arbiscan.io/tx/${lastTx}`}
+              target="_blank"
+              rel="noopener"
+              className="text-primary hover:underline"
+            >
+              {lastTx.slice(0, 10)}…{lastTx.slice(-6)}
+            </Link>
+          )}
         </p>
       )}
       {err && (

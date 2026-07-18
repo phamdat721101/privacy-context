@@ -26,6 +26,7 @@ import { pool } from '../db';
 import { logger } from '../lib';
 import type { AuthRequest } from '../middleware/auth';
 import { publish, type SellerPublishInput } from '../services/sellerPublishService';
+import type { TrustlineCheckResult, XrplSendResult } from '../services/xrplPayoutService';
 
 const router = Router();
 
@@ -248,7 +249,7 @@ router.get('/seller/me', async (req: AuthRequest, res: Response) => {
   const owner = req.user.address.toLowerCase();
   const r = await pool.query(
     `SELECT id, wallet_address, display_name, bio, identity_type, identity_handle,
-            kya_proof_id, kya_min_reputation, payout_method,
+            kya_proof_id, kya_min_reputation, payout_method, xrpl_address,
             contact_email, support_url, archived, created_at, updated_at
        FROM sellers WHERE wallet_address = $1`,
     [owner],
@@ -268,9 +269,20 @@ router.patch('/seller/me', async (req: AuthRequest, res: Response) => {
     'identity_handle',
     'contact_email',
     'support_url',
+    'xrpl_address',
   ];
   const fields = allowed.filter((k) => body[k] !== undefined);
   if (fields.length === 0) return res.status(400).json({ error: 'no updatable fields' });
+
+  // Self-reported, unverified (Q6) — soft format check only, no signature
+  // challenge. Rejects obviously-wrong input without pretending to verify
+  // ownership.
+  if (body.xrpl_address !== undefined && body.xrpl_address !== null) {
+    const addr = String(body.xrpl_address);
+    if (!/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(addr)) {
+      return res.status(400).json({ error: 'invalid_xrpl_address', hint: 'Expected an XRPL classic address starting with r.' });
+    }
+  }
 
   const sets = fields.map((k, i) => `${k} = $${i + 2}`).join(', ');
   const params: Array<unknown> = [owner, ...fields.map((k) => body[k])];
@@ -288,6 +300,9 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
   const owner = req.user.address.toLowerCase();
   const sellerRow = await pool.query(`SELECT id FROM sellers WHERE wallet_address = $1`, [owner]);
   const sellerId = sellerRow.rowCount === 0 ? null : sellerRow.rows[0].id;
+  // Optional network selector for credit_balance (Q9/PRD-Y) — defaults to
+  // Arbitrum so every existing caller is byte-identical.
+  const balanceNetwork = req.query.network === 'xrpl-testnet' ? 'xrpl-testnet' : 'arbitrum-sepolia';
 
   // Query agents by owner_address — broader than seller_id so legacy v1
   // brains (no sellers row) still surface in the Studio creator tab.
@@ -339,7 +354,7 @@ router.get('/seller/dashboard', async (req: AuthRequest, res: Response) => {
     archived_agents: archived.rows,
     earnings: earnings.rows[0] ?? { last_7d: '0', last_30d: '0', all_time: '0', calls_7d: 0 },
     credit_balance: sellerId !== null
-      ? await (await import('../services/creditService')).getSellerBalance(Number(sellerId))
+      ? await (await import('../services/creditService')).getSellerBalance(Number(sellerId), balanceNetwork)
       : null,
   });
 });
@@ -598,22 +613,33 @@ router.post('/seller/withdraw', async (req: AuthRequest, res: Response) => {
   }
   const owner = req.user.address.toLowerCase();
   const sellerRow = await pool.query(
-    `SELECT id FROM sellers WHERE wallet_address = $1`,
+    `SELECT id, xrpl_address FROM sellers WHERE wallet_address = $1`,
     [owner],
   );
   if (sellerRow.rowCount === 0) return res.status(404).json({ error: 'no seller profile' });
   const sellerId = Number(sellerRow.rows[0].id);
+  const sellerXrplAddress = sellerRow.rows[0].xrpl_address as string | null;
+
+  // Network selector (Q3/Q8): defaults to Arbitrum so every existing caller
+  // is byte-identical. 'xrpl-testnet' is the only additive option — gated
+  // separately below by XRPL_RLUSD_ENABLED.
+  const network = (req.query.network as string | undefined) === 'xrpl-testnet' ? 'xrpl-testnet' : 'arbitrum-sepolia';
 
   const credits = await import('../services/creditService');
-  const bal = await credits.getSellerBalance(sellerId);
+  const bal = await credits.getSellerBalance(sellerId, network);
   const withdrawable = Number(bal.withdrawable_usdc);
 
-  const minWithdraw = Number(process.env.SELLER_WITHDRAW_MIN_USDC ?? '5');
+  const minWithdraw = Number(
+    network === 'xrpl-testnet'
+      ? process.env.SELLER_WITHDRAW_MIN_RLUSD ?? '5'
+      : process.env.SELLER_WITHDRAW_MIN_USDC ?? '5',
+  );
   if (withdrawable < minWithdraw) {
     return res.status(400).json({
       error: 'below_minimum',
       withdrawable_usdc: bal.withdrawable_usdc,
       minimum_usdc: String(minWithdraw),
+      network,
     });
   }
   const cooldownSec = Number(process.env.SELLER_WITHDRAW_COOLDOWN_SECONDS ?? '300');
@@ -627,6 +653,62 @@ router.post('/seller/withdraw', async (req: AuthRequest, res: Response) => {
     }
   }
 
+  // ─── XRPL-testnet branch (additive, Q3) ──────────────────────────────
+  // Fail-fast on missing address / missing trustline (Q5, Q6) — never
+  // attempts a send that's doomed to fail on-chain.
+  if (network === 'xrpl-testnet') {
+    if (process.env.XRPL_RLUSD_ENABLED !== 'true') {
+      return res.status(404).json({ error: 'xrpl rail disabled' });
+    }
+    if (!sellerXrplAddress) {
+      return res.status(400).json({
+        error: 'xrpl_address_not_set',
+        hint: 'Set your XRPL address in Studio → Wallet settings before withdrawing on XRPL testnet.',
+      });
+    }
+    const xrplPayout = await import('../services/xrplPayoutService') as typeof import('../services/xrplPayoutService');
+    const trustlineCheck: TrustlineCheckResult = await xrplPayout.checkTrustline(sellerXrplAddress);
+    if (trustlineCheck.ok === false) {
+      logger.warn({ seller_id: sellerId, reason: trustlineCheck.reason }, 'seller:withdraw:xrpl:trustline_check_failed');
+      return res.status(503).json({ error: 'xrpl_not_configured', detail: trustlineCheck.detail });
+    }
+    if (!trustlineCheck.hasTrustline) {
+      return res.status(400).json({
+        error: 'seller_no_trustline',
+        hint: 'Create an RLUSD trust line on your XRPL wallet before withdrawing.',
+      });
+    }
+
+    const sendResult: XrplSendResult = await xrplPayout.sendRlusd(sellerXrplAddress, withdrawable);
+    if (sendResult.ok === false) {
+      logger.error({ seller_id: sellerId, reason: sendResult.reason, detail: sendResult.detail }, 'seller:withdraw:xrpl:failed');
+      return res.status(sendResult.reason === 'not_configured' ? 503 : 500).json({
+        error: sendResult.reason === 'not_configured' ? 'payout_not_configured' : 'xrpl_transfer_failed',
+        detail: sendResult.detail,
+      });
+    }
+
+    await credits.markPayout({
+      seller_id: sellerId,
+      seller_wallet_address: owner,
+      amount_usdc: withdrawable,
+      tx_hash: sendResult.tx_hash,
+      network: 'xrpl-testnet',
+    });
+
+    logger.info(
+      { seller_id: sellerId, xrpl_address: sellerXrplAddress, amount: withdrawable, tx_hash: sendResult.tx_hash },
+      'seller:withdraw:xrpl:ok',
+    );
+    return res.json({
+      ok: true,
+      amount_usdc: withdrawable.toFixed(6),
+      tx_hash: sendResult.tx_hash,
+      network: 'xrpl-testnet',
+    });
+  }
+
+  // ─── Arbitrum/USDC branch (existing, untouched) ──────────────────────
   // On-chain transfer (ethers v6).
   const { ethers } = await import('ethers');
   const rpc = process.env.ARBITRUM_SEPOLIA_RPC ?? 'https://sepolia-rollup.arbitrum.io/rpc';

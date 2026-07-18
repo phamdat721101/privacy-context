@@ -33,6 +33,7 @@ import {
 import { arbitrumSepolia } from 'viem/chains';
 import { usePrivyEvmWallet } from '@/hooks/useActiveWallet';
 import { AGENT_BACKEND_URL } from '@/lib/contracts';
+import { useXamanPayment } from '@/hooks/useXamanPayment';
 
 const ERC20_ABI = parseAbi([
   'function transfer(address to, uint256 amount) returns (bool)',
@@ -44,7 +45,15 @@ interface Config {
   usdc_address: string;
   chain_id: number;
   packs: number[];
+  xrpl?: {
+    enabled: boolean;
+    payout_address: string | null;
+    network: string;
+    packs: number[];
+  };
 }
+
+type Rail = 'usdc' | 'rlusd';
 
 interface Props {
   open: boolean;
@@ -58,6 +67,8 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
   const [busy, setBusy] = useState<number | null>(null);
   const [status, setStatus] = useState<string>('');
   const [err, setErr] = useState<string | null>(null);
+  const [rail, setRail] = useState<Rail>('usdc');
+  const xaman = useXamanPayment();
 
   useEffect(() => {
     if (!open || cfg) return;
@@ -122,6 +133,53 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
     }
   }
 
+  async function buyRlusd(pack: number) {
+    setErr(null);
+    setBusy(pack);
+    try {
+      if (!wallet?.address) throw new Error('Sign in first.');
+      if (!cfg?.xrpl?.enabled) throw new Error('RLUSD top-up not enabled on the API.');
+      if (!cfg.xrpl.payout_address) throw new Error('Platform XRPL payout wallet not configured.');
+
+      setStatus('Scan the QR code with Xaman…');
+      await xaman.start(pack);
+
+      // Poll the hook's own state until it resolves (signed/rejected/expired/error).
+      await new Promise<void>((resolve, reject) => {
+        const check = setInterval(() => {
+          if (xaman.status === 'signed' && xaman.txHash) {
+            clearInterval(check);
+            resolve();
+          } else if (xaman.status === 'rejected' || xaman.status === 'expired' || xaman.status === 'error') {
+            clearInterval(check);
+            reject(new Error(xaman.error ?? 'Payment did not complete.'));
+          }
+        }, 500);
+      });
+
+      setStatus('Crediting your balance…');
+      const r = await fetch(`${AGENT_BACKEND_URL}/v3/credits/topup-xrpl`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-wallet-address': wallet.address,
+        },
+        body: JSON.stringify({ tx_hash: xaman.txHash, pack_usdc: pack }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+
+      onSuccess();
+      onClose();
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally {
+      setBusy(null);
+      setStatus('');
+      xaman.reset();
+    }
+  }
+
   return (
     <div
       role="dialog"
@@ -145,37 +203,106 @@ export function TopUpModal({ open, onClose, onSuccess }: Props) {
           </button>
         </div>
         <p className="mb-4 text-sm text-on-surface-variant">
-          1 credit = $1 USDC. Pay once, run agents until your balance runs out.
+          1 credit = $1. Pay once, run agents until your balance runs out.
         </p>
+        {cfg?.xrpl && (
+          <div className="mb-4 flex gap-2" role="tablist" aria-label="Payment rail">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rail === 'usdc'}
+              onClick={() => setRail('usdc')}
+              className={`flex-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                rail === 'usdc'
+                  ? 'border-primary bg-surface-container-high text-primary'
+                  : 'border-outline-variant/40 text-on-surface-variant'
+              }`}
+            >
+              USDC (Arbitrum)
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={rail === 'rlusd'}
+              disabled={!cfg.xrpl.enabled}
+              onClick={() => setRail('rlusd')}
+              className={`flex-1 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                rail === 'rlusd'
+                  ? 'border-primary bg-surface-container-high text-primary'
+                  : 'border-outline-variant/40 text-on-surface-variant'
+              }`}
+            >
+              RLUSD (XRPL testnet)
+            </button>
+          </div>
+        )}
         {!cfg && (
           <p className="mb-2 text-xs text-on-surface-variant">Loading payment options…</p>
         )}
-        {cfg && !cfg.enabled && (
+        {cfg && rail === 'usdc' && !cfg.enabled && (
           <p role="alert" className="mb-2 text-sm text-amber-500">
             Credit system is not enabled on the API yet.
           </p>
         )}
-        {cfg && cfg.enabled && !cfg.payout_address && (
+        {cfg && rail === 'usdc' && cfg.enabled && !cfg.payout_address && (
           <p role="alert" className="mb-2 text-sm text-amber-500">
             Platform payout wallet not configured — contact admin.
           </p>
         )}
-        <div className="grid grid-cols-3 gap-3">
-          {(cfg?.packs ?? [25, 50, 100]).map((p) => (
-            <button
-              key={p}
-              type="button"
-              disabled={busy !== null || !cfg?.enabled || !cfg?.payout_address}
-              onClick={() => buy(p)}
-              className="rounded-lg border border-outline-variant/40 px-4 py-6 text-center transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <div className="font-headline text-2xl font-bold">${p}</div>
-              <div className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
-                {busy === p ? 'paying…' : 'USDC'}
+        {cfg && rail === 'rlusd' && !cfg.xrpl?.payout_address && (
+          <p role="alert" className="mb-2 text-sm text-amber-500">
+            Platform XRPL payout wallet not configured — contact admin.
+          </p>
+        )}
+        {rail === 'usdc' && (
+          <div className="grid grid-cols-3 gap-3">
+            {(cfg?.packs ?? [25, 50, 100]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                disabled={busy !== null || !cfg?.enabled || !cfg?.payout_address}
+                onClick={() => buy(p)}
+                className="rounded-lg border border-outline-variant/40 px-4 py-6 text-center transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <div className="font-headline text-2xl font-bold">${p}</div>
+                <div className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+                  {busy === p ? 'paying…' : 'USDC'}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        {rail === 'rlusd' && (
+          <>
+            <div className="grid grid-cols-3 gap-3">
+              {(cfg?.xrpl?.packs ?? [25, 50, 100]).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  disabled={busy !== null || !cfg?.xrpl?.enabled || !cfg?.xrpl?.payout_address}
+                  onClick={() => buyRlusd(p)}
+                  className="rounded-lg border border-outline-variant/40 px-4 py-6 text-center transition-colors hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <div className="font-headline text-2xl font-bold">${p}</div>
+                  <div className="font-mono text-[11px] uppercase tracking-wider text-on-surface-variant">
+                    {busy === p ? 'paying…' : 'RLUSD'}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {xaman.qrPngUrl && xaman.status === 'awaiting_signature' && (
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={xaman.qrPngUrl} alt="Scan with Xaman to sign the RLUSD payment" width={180} height={180} />
+                {xaman.deepLink && (
+                  <a href={xaman.deepLink} className="text-xs text-primary underline">
+                    Open in Xaman
+                  </a>
+                )}
               </div>
-            </button>
-          ))}
-        </div>
+            )}
+          </>
+        )}
         {status && (
           <p className="mt-4 font-mono text-[11px] text-on-surface-variant">{status}</p>
         )}

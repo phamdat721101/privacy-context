@@ -1026,7 +1026,129 @@ v3.get('/credits/config', async (_req: Request, res: Response) => {
       .split(',')
       .map((n) => Number(n.trim()))
       .filter((n) => Number.isFinite(n) && n > 0),
+    // XRPL/RLUSD rail (additive, testnet-only) — Q3/Q4. Mirrors the shape
+    // above so the frontend can branch on `xrpl.enabled` the same way it
+    // already branches on the top-level `enabled`.
+    xrpl: {
+      enabled: process.env.XRPL_RLUSD_ENABLED === 'true',
+      payout_address: process.env.XRPL_PLATFORM_PAYOUT_ADDRESS ?? null,
+      network: process.env.XRPL_NETWORK === 'mainnet' ? 'mainnet' : 'testnet',
+      packs: String(process.env.XRPL_RLUSD_TOPUP_PACKS ?? '25,50,100')
+        .split(',')
+        .map((n) => Number(n.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    },
   });
+});
+
+// PRD-Y — RLUSD-on-XRPL browser top-up verify-and-credit. Buyer signs an
+// RLUSD payment via Xaman (deep-link/QR), then POSTs the resulting tx hash
+// here. We verify the payment landed on XRPL testnet (destination + amount
+// + currency match) before granting credits — same independent-verify
+// pattern as the USDC /credits/topup handler above, just reading an XRPL
+// tx instead of an ERC-20 Transfer log.
+//
+// Security: `Destination` MUST equal XRPL_PLATFORM_PAYOUT_ADDRESS, and the
+// delivered RLUSD amount MUST equal the requested pack exactly. We do not
+// require `Account` to equal a pre-registered address (XRPL addresses
+// aren't tied to the buyer's EVM wallet) — the buyer's EVM wallet address
+// from the auth header is used only to route which credit_accounts row is
+// credited.
+// PRD-Y — Xaman payment payload create/poll for the RLUSD top-up flow.
+// Mirrors v3-onboard.ts's `/onboard/xaman/create` + `/onboard/xaman/:uuid`
+// exactly, using the SAME server-side `xamanClient` (XUMM_API_KEY/SECRET
+// never leave the API — no NEXT_PUBLIC_XAMAN_API_KEY needed on the
+// frontend, unlike an earlier draft of this feature).
+v3.post('/credits/xaman/create-payment', async (req: AuthRequest, res: Response) => {
+  if (process.env.XRPL_RLUSD_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'xrpl rail disabled' });
+  }
+  const { getXamanClient } = await import('../services/xamanClient');
+  const xaman = getXamanClient();
+  if (!xaman) return res.status(503).json({ error: 'xaman_not_configured' });
+
+  const { pack_usdc } = (req.body ?? {}) as { pack_usdc?: number };
+  const packs = String(process.env.XRPL_RLUSD_TOPUP_PACKS ?? '25,50,100')
+    .split(',')
+    .map((n) => Number(n.trim()));
+  if (!pack_usdc || !packs.includes(Number(pack_usdc))) {
+    return res.status(400).json({ error: 'invalid_pack', valid: packs });
+  }
+  const destination = process.env.XRPL_PLATFORM_PAYOUT_ADDRESS;
+  if (!destination) return res.status(503).json({ error: 'payout_address_not_configured' });
+
+  try {
+    const created = await xaman.createPayment({
+      destination,
+      amountUsd: Number(pack_usdc).toFixed(2),
+    });
+    res.json({ uuid: created.uuid, qr: created.qrLink, deeplink: created.deeplink, expiresAtSec: created.expiresAtSec });
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, 'v3:credits:xaman:create:error');
+    res.status(502).json({ error: 'xaman_upstream_error' });
+  }
+});
+
+v3.get('/credits/xaman/:uuid', async (req: Request, res: Response) => {
+  if (process.env.XRPL_RLUSD_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'xrpl rail disabled' });
+  }
+  const { getXamanClient } = await import('../services/xamanClient');
+  const xaman = getXamanClient();
+  if (!xaman) return res.status(503).json({ error: 'xaman_not_configured' });
+
+  try {
+    const result = await xaman.getPayment(String(req.params.uuid));
+    if (result.expired && !result.signed) return res.json({ signed: false, expired: true });
+    if (!result.signed) return res.json({ signed: false });
+    if (result.dispatchedResult !== 'tesSUCCESS' || !result.txid) {
+      return res.json({ signed: true, settled: false });
+    }
+    res.json({ signed: true, settled: true, tx_hash: result.txid });
+  } catch (err) {
+    logger.error({ err: (err as Error).message }, 'v3:credits:xaman:poll:error');
+    res.status(502).json({ error: 'xaman_upstream_error' });
+  }
+});
+
+v3.post('/credits/topup-xrpl', async (req: AuthRequest, res: Response) => {
+  const wallet = req.user?.address;
+  if (!wallet) return res.status(401).json({ error: 'auth required' });
+  if (process.env.XRPL_RLUSD_ENABLED !== 'true') {
+    return res.status(404).json({ error: 'xrpl rail disabled' });
+  }
+  const credits = await import('../services/creditService');
+  if (!credits.isEnabled()) return res.status(404).json({ error: 'credit system disabled' });
+
+  const { tx_hash, pack_usdc } = (req.body ?? {}) as { tx_hash?: string; pack_usdc?: number };
+  if (!tx_hash || typeof tx_hash !== 'string' || !pack_usdc) {
+    return res.status(400).json({ error: 'tx_hash + pack_usdc required' });
+  }
+  const packs = String(process.env.XRPL_RLUSD_TOPUP_PACKS ?? '25,50,100')
+    .split(',')
+    .map((n) => Number(n.trim()));
+  if (!packs.includes(Number(pack_usdc))) {
+    return res.status(400).json({ error: 'invalid_pack', valid: packs });
+  }
+  const payoutAddress = process.env.XRPL_PLATFORM_PAYOUT_ADDRESS;
+  if (!payoutAddress) return res.status(503).json({ error: 'payout_address_not_configured' });
+
+  const xrplPayout = await import('../services/xrplPayoutService') as typeof import('../services/xrplPayoutService');
+  const verify: import('../services/xrplPayoutService').VerifyPaymentResult =
+    await xrplPayout.verifyRlusdPayment(tx_hash, payoutAddress, Number(pack_usdc));
+  if (verify.ok === false) {
+    return res.status(400).json({ error: 'transfer_not_matched', detail: verify.detail });
+  }
+
+  const granted = await credits.grant({
+    wallet_address: wallet,
+    amount_usdc: Number(pack_usdc),
+    kind: 'purchase',
+    tx_hash,
+    network: 'xrpl-testnet',
+    meta: { pack: pack_usdc, source: 'browser-topup-xrpl' },
+  });
+  res.json({ ok: true, ...granted, network: 'xrpl-testnet' });
 });
 
 // PRD-G — browser top-up verify-and-credit. Buyer sends USDC to
