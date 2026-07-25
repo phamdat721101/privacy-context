@@ -32,6 +32,7 @@ import {
   type Agent,
 } from '@/lib/agents';
 import { AgentRecentCalls } from '@/components/AgentRecentCalls';
+import { RenderedAnswer } from '@/components/RenderedAnswer';
 
 // Client-side upload policy: the API is the source of truth. We accept any
 // file type and let the server enforce the size cap via the mint response's
@@ -589,9 +590,7 @@ export default function AgentWorkspacePage() {
                       ✓ Answered by your endpoint — OpenX is acting as marketplace + paywall only.
                     </div>
                   )}
-                  <pre className="overflow-x-auto whitespace-pre-wrap font-sans text-sm text-on-surface">
-                    {result.answer}
-                  </pre>
+                  <RenderedAnswer answer={result.answer} artifactCount={result.artifacts?.length ?? 0} />
                   {result.artifacts && result.artifacts.length > 0 && (
                     <div className="mt-4 space-y-2 rounded-lg border border-secondary/30 bg-secondary/5 p-3">
                       <div className="flex items-center justify-between">
@@ -683,6 +682,7 @@ export default function AgentWorkspacePage() {
 }
 
 // ─── result helpers (single consumer — this page) ──────────────────────────
+
 
 /**
  * Trigger a browser download of the answer as a Markdown file.
