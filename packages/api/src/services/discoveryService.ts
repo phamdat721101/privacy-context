@@ -40,7 +40,15 @@ export interface DiscoverInput {
 
 export interface DiscoverResult {
   candidates: Array<{
+    /** v3 `agents.id` UUID — always populated (sourced straight from
+     *  `agent.id` in the ranked corpus row below), for BOTH legacy
+     *  brain-backed agents and brain-less wizard-published listings.
+     *  This is the identifier callers should route on (e.g.
+     *  `/agent/{brain_id ?? agent_id}/run`) since `brain_id` is nullable
+     *  and only exists for the legacy cohort. */
     agent_id: string;
+    /** Legacy brain identity — null for wizard-published (PRD-A) agents
+     *  that were never backed by an encrypted `brains` row. */
     brain_id: number | null;
     score: number;
     reason: string;

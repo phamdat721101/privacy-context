@@ -5,6 +5,13 @@ import { AGENT_BACKEND_URL } from './contracts';
  * this module is the single boundary where brain → agent translation happens.
  */
 export interface Agent {
+  /** Brain id (INTEGER) for legacy agents. For brain-less wizard-published
+   *  agents (no `brains` row), this is instead the v3 `agents.id` UUID —
+   *  see `v3AgentToAgent()` below. Typed `number` for the common case;
+   *  callers that only ever `String(agent.id)` or interpolate it into a
+   *  URL are safe either way. `Number(agent.id)` (e.g. re-publish flows)
+   *  is only reachable when `v3AgentId` is unset, which never happens for
+   *  this brain-less cohort. */
   id: number;
   title: string;
   description: string;
@@ -99,12 +106,63 @@ export async function listAgents(query?: string): Promise<Agent[]> {
   return agents;
 }
 
+/** Wire shape of `GET /v3/agents/:id` — a row from the `agents` table
+ *  itself, with no `brains` join. Used as the fallback source for
+ *  brain-less (wizard-published) agents that `GET /brains/:id` can never
+ *  resolve, since they were never backed by an encrypted `brains` row. */
+interface V3AgentDto {
+  id: string;
+  brain_id: number | string | null;
+  owner_address: string;
+  chain?: string;
+  persona?: { system_prompt?: string | null; description?: string } | null;
+  pricing?: { x402?: string | null; fherc20?: string | null } | null;
+  slug?: string | null;
+  published?: boolean;
+  created_at?: string;
+}
+
+/** Maps a brain-less `agents` row directly into the UI's `Agent` shape.
+ *  `id` is deliberately set to the v3 agents UUID (there is no separate
+ *  brain identity to distinguish it from) so `agent.id === agent.v3AgentId`
+ *  for this cohort — callers that build links off `agent.id` (e.g. the
+ *  "back to detail" link on /run) keep working unchanged. */
+function v3AgentToAgent(a: V3AgentDto): Agent {
+  return {
+    id: a.id as unknown as number, // v3 UUID stands in for the numeric brain id — see doc comment above.
+    title: a.persona?.description?.trim() || `📝 Agent ${a.id.slice(0, 8)}`,
+    description: a.persona?.system_prompt?.trim() || 'AI agent published via the seller wizard.',
+    tags: [],
+    ownerAddress: a.owner_address,
+    published: !!a.published,
+    createdAt: a.created_at,
+    chain: a.chain,
+    slug: a.slug ?? undefined,
+    v3AgentId: a.id,
+    persona: a.persona ?? undefined,
+    price: a.pricing?.x402 ? { amount: a.pricing.x402, currency: 'USDC' } : undefined,
+    acceptsPrivate: !!a.pricing?.fherc20,
+  };
+}
+
 export async function getAgent(id: string | number): Promise<Agent | null> {
   const [brainRes, paidRes] = await Promise.all([
     fetch(`${AGENT_BACKEND_URL}/brains/${id}`),
     fetch(`${AGENT_BACKEND_URL}/v3/agents`).catch(() => null),
   ]);
-  if (!brainRes.ok) return null;
+
+  // Brain-less fallback: wizard-published agents (PRD-A) have no `brains`
+  // row, so `GET /brains/:id` always 404s for them. `GET /v3/agents/:id`
+  // resolves the same `id` directly against the `agents` table (no join
+  // required for existence), so it's the correct fallback rather than a
+  // dead end. discover() only ever surfaces published agents, so this
+  // path should always find a live v3AgentId here — never a draft.
+  if (!brainRes.ok) {
+    const v3Res = await fetch(`${AGENT_BACKEND_URL}/v3/agents/${id}`);
+    if (!v3Res.ok) return null;
+    const v3Data = (await v3Res.json()) as V3AgentDto;
+    return v3AgentToAgent(v3Data);
+  }
   const data = (await brainRes.json()) as BrainDto;
   const agent = brainToAgent(data);
 

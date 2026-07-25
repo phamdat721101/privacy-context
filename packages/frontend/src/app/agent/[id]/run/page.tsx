@@ -21,7 +21,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { usePrivy } from '@privy-io/react-auth';
 import { usePrivyEvmAddress } from '@/hooks/useActiveWallet';
@@ -88,12 +88,18 @@ interface RunResult {
 export default function AgentWorkspacePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const userAddress = usePrivyEvmAddress();
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [requirement, setRequirement] = useState('');
+  // Prefilled from the homepage's direct-to-run link (?q=<task text>), e.g.
+  // clicking a matched agent card after typing a task on `/`. Lazy-init
+  // only — the textarea is a normal controlled input from here on, so
+  // user edits are never clobbered by a later re-read of the URL, and the
+  // task is never auto-submitted (the user must still click "Run task").
+  const [requirement, setRequirement] = useState(() => searchParams?.get('q') ?? '');
   const [files, setFiles] = useState<AttachedFile[]>([]);
   const [uploading, setUploading] = useState(false);
 

@@ -40,6 +40,7 @@
     "smoke:onboard-token": "tsx scripts/smoke-onboard-token.ts",
     "smoke:chunks-auth": "tsx scripts/smoke-chunks-auth.ts",
     "smoke:x402": "tsx scripts/smoke-x402.ts",
+    "smoke:discover-direct-run": "tsx scripts/smoke-discover-direct-run.ts",
     "smoke:credit-e2e": "tsx scripts/smoke-credit-e2e.ts",
     "smoke:rlusd-xrpl-e2e": "tsx scripts/smoke-rlusd-xrpl-e2e.ts",
     "smoke:cognitive-l4-l5": "tsx scripts/smoke-cognitive-l4-l5.ts",

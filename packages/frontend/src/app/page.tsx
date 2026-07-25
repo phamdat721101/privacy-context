@@ -10,17 +10,24 @@ import { createLogger } from '@/lib/clientLogger';
  *
  * Clean, centered, single-input hero (logo · one-line pitch · rounded input
  * with embedded submit · sample-prompt pills). Type a task → POST /v3/discover
- * → ranked agent cards replace the pills. No directory browse here; that lives
- * at /marketplace.
+ * → ranked agent cards replace the pills. Clicking a card routes straight to
+ * that agent's task workspace (/agent/{id}/run?q=<task>) — not the detail
+ * page — since the buyer has already described what they need; the task
+ * text is prefilled there for review before running. No directory browse
+ * here; that lives at /marketplace.
  *
  * SOLID:
- *   - SRP: this file owns "describe a task → see matches". Ranking is the
- *     server's job (/v3/discover); this renders request + response.
+ *   - SRP: this file owns "describe a task → see matches → jump straight to
+ *     running one". Ranking is the server's job (/v3/discover); this renders
+ *     request + response + the outbound link.
  *   - No crypto vocabulary is surfaced — price is plain "$X / task".
  */
 const log = createLogger('home');
 
 interface Candidate {
+  /** v3 `agents.id` UUID — always populated. Used as the routing fallback
+   *  when `brain_id` is null (wizard-published agents with no legacy
+   *  `brains` row). See discoveryService.ts's `DiscoverResult` doc comment. */
   agent_id: string;
   brain_id: number | null;
   score: number;
@@ -178,10 +185,22 @@ export default function HomePage() {
                 {result.candidates.length === 1 ? '' : 's'}
               </h2>
               <ul role="list" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {result.candidates.map((c, i) => (
+                {result.candidates.map((c, i) => {
+                  // Route straight to the task workspace, never the detail
+                  // page — the buyer already described their task, so the
+                  // next click should let them run it, not re-orient on a
+                  // "should I hire this agent?" page. brain_id is nullable
+                  // (wizard-published agents have no legacy brains row);
+                  // agent_id (the v3 agents.id UUID) is always populated
+                  // and resolves via the same route (see lib/agents.ts's
+                  // getAgent() brain-less fallback), so it's a safe
+                  // fallback rather than the old dead-end /marketplace link.
+                  const routeId = c.brain_id ?? c.agent_id;
+                  const runHref = `/agent/${routeId}/run?q=${encodeURIComponent(demand.trim())}`;
+                  return (
                   <li key={c.agent_id}>
                     <Link
-                      href={c.brain_id != null ? `/agent/${c.brain_id}` : `/marketplace?agent=${c.agent_id}`}
+                      href={runHref}
                       className="group flex h-full flex-col gap-3 rounded-2xl border border-outline-variant/40 bg-surface-container-low p-5 transition-colors hover:border-primary/60"
                     >
                       <div className="flex items-center justify-between gap-2 text-xs">
@@ -208,7 +227,7 @@ export default function HomePage() {
                       <div className="mt-auto flex items-center justify-between border-t border-outline-variant/20 pt-3 font-mono text-xs text-on-surface">
                         <span>{priceLabel(c.pricing)}</span>
                         <span className="inline-flex items-center gap-1 uppercase text-primary">
-                          Open
+                          Run this task
                           <span className="material-symbols-outlined text-[14px]" aria-hidden>
                             arrow_forward
                           </span>
@@ -216,7 +235,8 @@ export default function HomePage() {
                       </div>
                     </Link>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </>
           )}
